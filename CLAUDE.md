@@ -152,3 +152,21 @@ Phase 2 (optional, future): WinRM for Windows / SSH for Linux for full OS metric
 6. Add PostgreSQL migration in /server/src/migrations/
 7. Add API endpoint in /server/src/routes/
 8. Add frontend component in /web/src/components/
+
+## Known issues / TODO (review before next session)
+
+1. **Wait stats API should also filter excluded waits on read** — collector filters on insert, 
+   but old data in DB may contain excluded waits. Add WHERE wait_type NOT IN (...) to metrics.ts 
+   overview and waits endpoints.
+
+2. **os_host_info collector missing** — sql/os_host_info.sql exists but no collector/os-host-info.ts. 
+   Low priority (static data, collect on first connect only).
+
+3. **README.md outdated** — still has placeholder content, needs update with actual features, 
+   screenshots, and setup instructions.
+
+4. **excluded_waits.json has 143 entries** — full Paul Randal + PREEMPTIVE_* list is ~280. 
+   Current list covers all common ones. Expand if needed.
+
+5. **Docker rebuild required after code changes** — run `docker compose -f docker/docker-compose.yml up -d --build` 
+   after any code changes. Hot reload only works in local dev mode (npm run dev).
