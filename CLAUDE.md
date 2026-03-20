@@ -12,20 +12,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Inspired by erikdarlingdata/PerformanceMonitor Lite edition approach but web-based
 
 ## Architecture
-- Backend: Node.js + Fastify + TypeScript
-- Frontend: React + TypeScript + shadcn/ui + Recharts
-- Database: PostgreSQL with native partitioning for time-series
+- Backend: Node.js + Fastify 5 + TypeScript (entry: server/src/index.ts)
+- Frontend: React 19 + TypeScript + TanStack Query v5 + React Router v7 + Recharts + Tailwind CSS
+- Database: PostgreSQL 17 with native partitioning for time-series
 - SQL connectivity: mssql (tedious) package
+- Auth: JWT + bcrypt (server/src/lib/auth.ts, middleware/auth.ts)
 - Deployment: Docker Compose (PostgreSQL + backend + frontend + nginx)
 - All in one monorepo
+- Environment config: docker/.env (copy from docker/.env.example)
 
 ## Project structure
 ```
-/server     — Fastify API + collector scheduler + background jobs
-/web        — React frontend (Vite)
-/docker     — Docker Compose stack + nginx config
-/sql        — DMV query library (one .sql file per metric category)
-/docs       — architecture decisions, metric specs
+/server              — Fastify API + collector scheduler + background jobs
+  /src/index.ts        — Entry point: Fastify setup, route registration, scheduler start
+  /src/collector/      — scheduler.ts → worker-pool.ts → collectors/*.ts
+  /src/routes/         — auth.ts, instances.ts, metrics.ts, alerts.ts, queries.ts
+  /src/alerts/         — engine.ts (threshold eval), webhook.ts (Slack/Telegram)
+  /src/jobs/           — aggregator.ts (5min/hourly rollups), partition-manager.ts
+  /src/lib/            — crypto.ts (AES-256-GCM), mssql.ts (connection pool), auth.ts
+  /src/migrations/     — Numbered SQL migration files + run.ts executor
+/web                 — React frontend (Vite)
+  /src/pages/          — Dashboard, Instances, InstanceDetail, QueryExplorer, Alerts, Login
+  /src/components/     — CpuChart, MemoryChart, SessionsTable, WaitsTable, InstanceForm, Layout
+/docker              — Docker Compose stack + nginx config
+/sql                 — DMV query library (one .sql file per metric category)
+/docs                — architecture decisions, metric specs
 ```
 
 ## Build & development commands
@@ -155,18 +166,18 @@ Phase 2 (optional, future): WinRM for Windows / SSH for Linux for full OS metric
 
 ## Known issues / TODO (review before next session)
 
-1. **Wait stats API should also filter excluded waits on read** — collector filters on insert, 
-   but old data in DB may contain excluded waits. Add WHERE wait_type NOT IN (...) to metrics.ts 
-   overview and waits endpoints.
+1. ~~**Wait stats API should also filter excluded waits on read**~~ — FIXED in 957065a.
 
-2. **os_host_info collector missing** — sql/os_host_info.sql exists but no collector/os-host-info.ts. 
-   Low priority (static data, collect on first connect only).
+2. ~~**os_host_info collector missing**~~ — DONE. Added collector/os-host-info.ts,
+   migration 006_os_host_info.sql, integrated into worker-pool.ts. Collects once per
+   instance per process lifetime (tracked in hostInfoCollected Set).
 
-3. **README.md outdated** — still has placeholder content, needs update with actual features, 
-   screenshots, and setup instructions.
+3. ~~**README.md outdated**~~ — DONE. Updated with actual implemented features, metrics table,
+   quick-start instructions, alert thresholds.
 
-4. **excluded_waits.json has 143 entries** — full Paul Randal + PREEMPTIVE_* list is ~280. 
-   Current list covers all common ones. Expand if needed.
+4. ~~**excluded_waits.json incomplete**~~ — DONE. Merged the 281-entry version (ed6e6b5) with
+   the 143-entry version into a comprehensive 311-entry list covering all Paul Randal +
+   PREEMPTIVE_* + additional benign waits.
 
-5. **Docker rebuild required after code changes** — run `docker compose -f docker/docker-compose.yml up -d --build` 
+5. **Docker rebuild required after code changes** — run `docker compose -f docker/docker-compose.yml up -d --build`
    after any code changes. Hot reload only works in local dev mode (npm run dev).

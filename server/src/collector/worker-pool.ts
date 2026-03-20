@@ -9,6 +9,7 @@ import { collectOsMemory, type OsMemoryRow } from './collectors/os-memory.js';
 import { collectOsDisk, type OsDiskRow } from './collectors/os-disk.js';
 import { collectFileIoStats, type FileIoDelta } from './collectors/file-io-stats.js';
 import { collectQueryStats, type QueryStatsDelta } from './collectors/query-stats.js';
+import { collectOsHostInfo, type OsHostInfoRow } from './collectors/os-host-info.js';
 import { evaluateAlerts, writeAlerts } from '../alerts/engine.js';
 import { fireWebhook } from '../alerts/webhook.js';
 
@@ -30,10 +31,14 @@ export interface InstanceResult {
   osDisk: OsDiskRow[];
   fileIoStats: FileIoDelta[] | null;
   queryStats: QueryStatsDelta[] | null;
+  osHostInfo: OsHostInfoRow[];
 }
 
 // Track cycle count for os_disk (runs every 10th cycle)
 let cycleCount = 0;
+
+// Track which instances have already had os_host_info collected (static data, once per run)
+const hostInfoCollected = new Set<number>();
 
 /** Get current cycle count (for testing). */
 export function getCycleCount(): number {
@@ -89,6 +94,7 @@ async function collectFromInstance(
     osDisk: [],
     fileIoStats: null,
     queryStats: null,
+    osHostInfo: [],
   };
 
   let pool: sql.ConnectionPool | null = null;
@@ -103,6 +109,9 @@ async function collectFromInstance(
     const health = await collectInstanceHealth(request);
     const startTime = health[0]?.sqlserver_start_time ?? new Date();
 
+    // Collect os_host_info on first connect only (static data)
+    const needsHostInfo = !hostInfoCollected.has(instance.id);
+
     // Run remaining collectors (file I/O always, os_disk only every 10th cycle)
     const collectorsPromise: [
       Promise<WaitStatsDelta[] | null>,
@@ -112,6 +121,7 @@ async function collectFromInstance(
       Promise<FileIoDelta[] | null>,
       Promise<OsDiskRow[]>,
       Promise<QueryStatsDelta[] | null>,
+      Promise<OsHostInfoRow[]>,
     ] = [
       collectWaitStats(pool.request(), instance.id, startTime),
       collectActiveSessions(pool.request()),
@@ -120,11 +130,16 @@ async function collectFromInstance(
       collectFileIoStats(pool.request(), instance.id, startTime),
       isDiskCycle ? collectOsDisk(pool.request()) : Promise.resolve([]),
       isQueryStatsCycle ? collectQueryStats(pool.request(), instance.id, startTime) : Promise.resolve(null),
+      needsHostInfo ? collectOsHostInfo(pool.request()) : Promise.resolve([]),
     ];
 
-    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats] = await Promise.all(collectorsPromise);
+    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, osHostInfo] = await Promise.all(collectorsPromise);
 
-    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'}`);
+    if (needsHostInfo && osHostInfo.length > 0) {
+      hostInfoCollected.add(instance.id);
+    }
+
+    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'}${needsHostInfo ? ` hostinfo=${osHostInfo.length}` : ''}`);
 
     return {
       instanceId: instance.id,
@@ -137,6 +152,7 @@ async function collectFromInstance(
       osDisk,
       fileIoStats,
       queryStats,
+      osHostInfo,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -187,6 +203,7 @@ export async function collectAll(
     ['os_disk', () => batchInsertOsDisk(pgPool, results)],
     ['file_io_stats', () => batchInsertFileIoStats(pgPool, results)],
     ['query_stats', () => batchInsertQueryStats(pgPool, results)],
+    ['os_host_info', () => batchInsertOsHostInfo(pgPool, results)],
   ] as const) {
     try {
       await insertFn();
@@ -502,6 +519,36 @@ async function batchInsertQueryStats(pgPool: pg.Pool, results: InstanceResult[])
       execution_count_delta, cpu_ms_per_sec, elapsed_ms_per_sec,
       reads_per_sec, writes_per_sec, rows_per_sec,
       avg_cpu_ms, avg_elapsed_ms, avg_reads, avg_writes, collected_at
+    ) VALUES ${placeholders.join(', ')}`,
+    values,
+  );
+}
+
+async function batchInsertOsHostInfo(pgPool: pg.Pool, results: InstanceResult[]): Promise<void> {
+  const values: unknown[] = [];
+  const placeholders: string[] = [];
+  let idx = 1;
+
+  for (const r of results) {
+    for (const row of r.osHostInfo) {
+      placeholders.push(
+        `($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`,
+      );
+      values.push(
+        r.instanceId, row.host_platform, row.host_distribution,
+        row.host_release, row.host_service_pack_level, row.host_sku,
+        row.os_language_version, row.collected_at_utc,
+      );
+    }
+  }
+
+  if (placeholders.length === 0) return;
+
+  await pgPool.query(
+    `INSERT INTO os_host_info (
+      instance_id, host_platform, host_distribution,
+      host_release, host_service_pack_level, host_sku,
+      os_language_version, collected_at
     ) VALUES ${placeholders.join(', ')}`,
     values,
   );
