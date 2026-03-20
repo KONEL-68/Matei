@@ -157,3 +157,125 @@ ORDER BY r.blocking_session_id DESC, s.session_id;
 - Same query blocked > 30 seconds = alert candidate
 - Never call `sys.dm_exec_query_plan()` in the collector hot path — too expensive.
   Call it only on-demand when user opens session detail in UI
+
+---
+
+## Metric 4 — OS CPU Utilization
+
+**Source DMV:** `sys.dm_os_ring_buffers` (RING_BUFFER_SCHEDULER_MONITOR)
+**Docs:** https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-views/sys-dm-os-ring-buffers-transact-sql
+
+**Collection frequency:** every 30 seconds
+**Aggregation:** snapshot (values are already percentages per point-in-time)
+**Storage unit:** int (0-100 percentage)
+**UI display:** line chart — SQL CPU vs Other Process CPU vs Idle
+
+**What you get:**
+- `sql_cpu_pct` — CPU used by SQL Server process
+- `other_process_cpu_pct` — CPU used by other OS processes
+- `system_idle_pct` — idle CPU
+- All three always sum to 100%
+
+**Reference query:** see `/sql/os_cpu.sql`
+
+**Notes:**
+- Ring buffer stores ~256 records (~4 hours of internal 1-min samples)
+- We only read the latest record each cycle
+- Deprecated in SQL Server 2025 — plan to support dm_os_ring_buffer_entries in future
+
+---
+
+## Metric 5 — OS Memory
+
+**Source DMVs:**
+- `sys.dm_os_sys_memory` — OS-level memory (total, available, page file)
+- `sys.dm_os_process_memory` — SQL Server process memory
+- `sys.dm_os_sys_info` — SQL Server memory targets
+
+**Collection frequency:** every 30 seconds
+**Aggregation:** snapshot
+**Storage unit:** MB (integers)
+**UI display:** stacked area chart — SQL committed vs available vs other process
+
+**Key values:**
+- `os_total_memory_mb` / `os_available_memory_mb` — full OS picture
+- `sql_physical_memory_mb` — what SQL Server is actually using
+- `sql_target_mb` — what SQL Server wants (max server memory setting)
+- `system_memory_state_desc` — 'Available physical memory is high/low/steady'
+- `sql_memory_low_notification` — boolean, SQL is under memory pressure
+
+**Reference query:** see `/sql/os_memory.sql`
+
+**Alert candidates:**
+- `os_available_memory_mb < 512` — OS running low
+- `sql_memory_low_notification = 1` — SQL under pressure
+- `sql_physical_memory_mb` significantly below `sql_target_mb` for extended period
+
+---
+
+## Metric 6 — Disk Space
+
+**Source DMVs:** `sys.dm_os_volume_stats` + `sys.master_files`
+**Docs:** https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-views/sys-dm-os-volume-stats-transact-sql
+
+**Collection frequency:** every 5 minutes
+**Aggregation:** snapshot
+**Storage unit:** MB (integers)
+**UI display:** bar chart per volume — used vs free, color by threshold
+
+**What you get:**
+- All disk volumes that have SQL Server files — exactly what matters
+- Total, available, used, used_pct per volume
+- Does NOT require xp_fixeddrives or xp_cmdshell
+
+**Reference query:** see `/sql/os_disk.sql`
+
+**Alert candidates:**
+- `used_pct > 90%` — warning
+- `used_pct > 95%` — critical
+- `available_mb < 1024` — critical regardless of percentage
+
+---
+
+## Metric 7 — File I/O Stats
+
+**Source DMV:** `sys.dm_io_virtual_file_stats`
+**Docs:** https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-views/sys-dm-io-virtual-file-stats-transact-sql
+
+**Collection frequency:** every 30 seconds
+**Aggregation:** DELTA (cumulative counters — same logic as wait stats)
+**Storage unit:** bytes/sec, count/sec, ms (latency)
+
+**Delta formulas:**
+```
+read_bytes_per_sec  = (curr.num_of_bytes_read - prev.num_of_bytes_read) / elapsed_sec
+write_bytes_per_sec = (curr.num_of_bytes_written - prev.num_of_bytes_written) / elapsed_sec
+read_latency_ms     = delta(io_stall_read_ms) / delta(num_of_reads)
+write_latency_ms    = delta(io_stall_write_ms) / delta(num_of_writes)
+```
+
+**Reference query:** see `/sql/file_io_stats.sql`
+
+**Alert candidates:**
+- `read_latency_ms > 20` — slow reads (warning)
+- `write_latency_ms > 20` — slow writes (warning)
+- `read_latency_ms > 50` or `write_latency_ms > 50` — critical
+
+---
+
+## Metric 8 — OS Host Info
+
+**Source DMV:** `sys.dm_os_host_info` (SQL Server 2017+ only)
+
+**Collection frequency:** on connect only (static data, doesn't change)
+**Aggregation:** snapshot
+**Storage unit:** strings
+
+**What you get:**
+- `host_platform` — 'Windows' or 'Linux'
+- `host_distribution` — full OS name (e.g. 'Ubuntu 22.04.3 LTS')
+- `host_release` — kernel/build version
+
+**Fallback for SQL Server 2016:** parse `@@VERSION` string
+
+**Reference query:** see `/sql/os_host_info.sql`

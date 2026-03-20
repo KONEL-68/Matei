@@ -51,6 +51,17 @@
 - NEVER call dm_exec_query_plan() in collector hot path — only on-demand in API
 - All timestamps in UTC
 
+## OS-level metrics via DMV (no WinRM/SSH needed)
+Most OS metrics are available through SQL Server DMVs — no need for agents or OS-level access:
+- CPU (SQL + OS + other): dm_os_ring_buffers (RING_BUFFER_SCHEDULER_MONITOR)
+- Memory (OS + SQL process): dm_os_sys_memory + dm_os_process_memory
+- Disk space per volume: dm_os_volume_stats (only volumes with SQL files)
+- Disk I/O per file: dm_io_virtual_file_stats (delta, same as wait stats)
+- OS info: dm_os_host_info (SQL 2017+, fallback to @@VERSION for 2016)
+
+Phase 2 (optional, future): WinRM for Windows / SSH for Linux for full OS metrics
+(network throughput, all disk volumes, services). This is NOT in scope for initial release.
+
 ## Data retention
 - Raw metrics: 7 days (partitioned by day)
 - 5-minute aggregates: 30 days
