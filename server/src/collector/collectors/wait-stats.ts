@@ -49,6 +49,9 @@ function loadExcludedWaits(): Set<string> {
 
 const EXCLUDED_WAITS = loadExcludedWaits();
 
+/** Exported for use in API routes (belt-and-suspenders filtering on read). */
+export { EXCLUDED_WAITS };
+
 const QUERY = `
 SELECT
     wait_type,

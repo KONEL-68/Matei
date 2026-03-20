@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type pg from 'pg';
+import { EXCLUDED_WAITS } from '../collector/collectors/wait-stats.js';
 
 interface IdParam {
   id: string;
@@ -99,6 +100,7 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
         // Get the most recent cycle's wait deltas per instance, converted to per-second rates.
         // Collection interval is 30s, so divide delta by 30.
         const COLLECTION_INTERVAL_SECONDS = 30;
+        const excludedWaitsArray = [...EXCLUDED_WAITS];
         const waitsResult = await pool.query(
           `SELECT w.instance_id, w.wait_type, w.wait_time_ms_delta
            FROM wait_stats_raw w
@@ -108,8 +110,9 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
              WHERE instance_id = ANY($1) AND collected_at > NOW() - INTERVAL '5 minutes'
              GROUP BY instance_id
            ) latest ON w.instance_id = latest.instance_id AND w.collected_at = latest.max_at
+           WHERE w.wait_type != ALL($2)
            ORDER BY w.instance_id, w.wait_time_ms_delta DESC`,
-          [instanceIds],
+          [instanceIds, excludedWaitsArray],
         );
         for (const row of waitsResult.rows) {
           if (!latestWaits[row.instance_id]) latestWaits[row.instance_id] = [];
@@ -216,6 +219,7 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
     const rangeSeconds: Record<string, number> = { '1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800, '30d': 2592000, '1y': 31536000 };
     const seconds = rangeSeconds[req.query.range ?? '1h'] ?? 3600;
 
+    const excludedWaitsArray = [...EXCLUDED_WAITS];
     let rows;
     if (tier === 'raw') {
       const result = await pool.query(
@@ -226,10 +230,11 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
                 SUM(signal_wait_time_ms_delta) as signal_wait_time_ms
          FROM wait_stats_raw
          WHERE instance_id = $1 AND collected_at > NOW() - $2::interval
+           AND wait_type != ALL($3)
          GROUP BY wait_type
          ORDER BY wait_time_ms DESC
          LIMIT 10`,
-        [id, interval],
+        [id, interval, excludedWaitsArray],
       );
       rows = result.rows.map((row) => ({
         ...row,
@@ -249,10 +254,11 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
                 SUM(sample_count) as waiting_tasks_count
          FROM ${table}
          WHERE instance_id = $1 AND bucket > NOW() - $2::interval
+           AND wait_type != ALL($3)
          GROUP BY wait_type
          ORDER BY avg_wait_ms_per_sec DESC
          LIMIT 10`,
-        [id, interval],
+        [id, interval, excludedWaitsArray],
       );
       rows = result.rows.map((row) => ({
         wait_type: row.wait_type,
