@@ -1,18 +1,15 @@
--- Metric: OS + SQL CPU Utilization
--- Source: sys.dm_os_ring_buffers (RING_BUFFER_SCHEDULER_MONITOR)
--- Frequency: 30 seconds
--- Aggregation: snapshot (values are already per-point-in-time percentages)
--- Docs: https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-views/sys-dm-os-ring-buffers-transact-sql
---
--- Returns last 256 data points (~4 hours at 1-min intervals from SQL Server internal)
--- We only need the latest record each collection cycle.
---
--- NOTE: dm_os_ring_buffers columns: ring_buffer_address, ring_buffer_type, timestamp, record (XML text).
--- There is NO record_id column — it is inside the XML: <Record id="...">
---
--- NOTE: This DMV is deprecated in SQL Server 2025. For future-proofing,
--- consider also supporting sys.dm_os_ring_buffer_entries when available.
+import type sql from 'mssql';
 
+export interface OsCpuRow {
+  record_id: number;
+  event_time_utc: Date;
+  system_idle_pct: number;
+  sql_cpu_pct: number;
+  other_process_cpu_pct: number;
+  collected_at_utc: Date;
+}
+
+const QUERY = `
 SELECT TOP 1
     x.value('(./Record/@id)[1]', 'int') AS record_id,
     DATEADD(ms, -1 * (si.ms_ticks - rb.timestamp), GETUTCDATE()) AS event_time_utc,
@@ -30,4 +27,10 @@ FROM (
       AND record LIKE N'%<SystemHealth>%'
 ) rb
 CROSS JOIN sys.dm_os_sys_info si
-ORDER BY rb.timestamp DESC;
+ORDER BY rb.timestamp DESC
+`;
+
+export async function collectOsCpu(request: sql.Request): Promise<OsCpuRow[]> {
+  const result = await request.query(QUERY);
+  return result.recordset as OsCpuRow[];
+}
