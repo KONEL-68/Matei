@@ -52,7 +52,7 @@ export function MemoryBreakdown({ instanceId }: { instanceId: string }) {
   const deficitColor = data && data.deficit_mb <= 0 ? 'bg-emerald-500' : 'bg-red-500';
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900 flex flex-col" data-testid="memory-breakdown">
+    <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900 flex flex-col h-full" data-testid="memory-breakdown">
       <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">SQL Memory Breakdown</h3>
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">

@@ -105,7 +105,7 @@ describe('MemoryBreakdown', () => {
     // The card should NOT have h-full class
     const card = container.querySelector('[data-testid="memory-breakdown"]');
     expect(card).toBeInTheDocument();
-    expect(card?.className).not.toContain('h-full');
+    expect(card?.className).toContain('h-full');
 
     // The bars container should use justify-evenly
     const barsContainer = card?.querySelector('.justify-evenly');

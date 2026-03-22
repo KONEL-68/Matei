@@ -18,7 +18,7 @@ export function TopWaitsTable({ data }: TopWaitsTableProps) {
   const totalMs = top5.reduce((s, r) => s + r.wait_time_ms, 0);
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+    <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900 h-full">
       <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Top Waits</h3>
       <table className="w-full text-left text-sm">
         <thead className="text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
