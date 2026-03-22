@@ -11,8 +11,11 @@ vi.mock('@/lib/theme', () => ({
 vi.mock('recharts', () => ({
   LineChart: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   AreaChart: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  BarChart: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ComposedChart: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   Line: () => null,
   Area: () => null,
+  Bar: () => null,
   XAxis: () => null,
   YAxis: () => null,
   CartesianGrid: () => null,
@@ -79,7 +82,13 @@ vi.mock('@/lib/auth', () => ({
     if (url.includes('/deadlocks')) {
       return { ok: true, json: async () => [] };
     }
-    // cpu, memory, waits, sessions
+    if (url.includes('/waits')) {
+      return { ok: true, json: async () => [{ wait_type: 'CXPACKET', wait_ms_per_sec: 5.2, wait_time_ms: 10000 }] };
+    }
+    if (url.includes('/cpu')) {
+      return { ok: true, json: async () => [{ sql_cpu_pct: 45, other_process_cpu_pct: 10, system_idle_pct: 45, collected_at: '2026-03-22T10:00:00Z' }] };
+    }
+    // memory, sessions
     return { ok: true, json: async () => [] };
   }),
 }));
@@ -98,7 +107,7 @@ function renderDetail() {
 }
 
 describe('InstanceDetail', () => {
-  it('renders all time range buttons including 30d and 1y', async () => {
+  it('renders all time range buttons including Custom', async () => {
     renderDetail();
     expect(await screen.findByText('1h')).toBeInTheDocument();
     expect(screen.getByText('6h')).toBeInTheDocument();
@@ -106,25 +115,17 @@ describe('InstanceDetail', () => {
     expect(screen.getByText('7d')).toBeInTheDocument();
     expect(screen.getByText('30d')).toBeInTheDocument();
     expect(screen.getByText('1y')).toBeInTheDocument();
+    expect(screen.getByText('Custom')).toBeInTheDocument();
   });
 
-  it('renders host info card', async () => {
+  it('renders KPI row', async () => {
     renderDetail();
-    expect(await screen.findByText('Ubuntu 22.04')).toBeInTheDocument();
+    expect(await screen.findByTestId('kpi-row')).toBeInTheDocument();
   });
 
-  it('renders disk space section with progress bars', async () => {
+  it('renders compact disk card in grid', async () => {
     renderDetail();
     expect(await screen.findByText('Disk Space')).toBeInTheDocument();
-    expect(screen.getByText(/60\.9/)).toBeInTheDocument();
-    expect(screen.getByText(/95\.1/)).toBeInTheDocument();
-  });
-
-  it('renders file I/O section with latency color coding', async () => {
-    renderDetail();
-    expect(await screen.findByText('File I/O (top by latency)')).toBeInTheDocument();
-    expect(screen.getByText('MyDB.mdf')).toBeInTheDocument();
-    expect(screen.getByText('55.2')).toBeInTheDocument();
   });
 
   it('renders instance header with name and version', async () => {
@@ -132,5 +133,13 @@ describe('InstanceDetail', () => {
     expect(await screen.findByText('PROD-SQL1')).toBeInTheDocument();
     expect(screen.getByText('16.0.4135.4')).toBeInTheDocument();
     expect(screen.getByText('Enterprise')).toBeInTheDocument();
+  });
+
+  it('renders collapsible sections', async () => {
+    renderDetail();
+    expect(await screen.findByText('Wait Stats History')).toBeInTheDocument();
+    expect(screen.getByText('Active Sessions')).toBeInTheDocument();
+    expect(screen.getByText('File I/O')).toBeInTheDocument();
+    expect(screen.getByText('Deadlocks')).toBeInTheDocument();
   });
 });
