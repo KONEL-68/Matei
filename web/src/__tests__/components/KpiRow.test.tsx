@@ -9,54 +9,53 @@ vi.mock('recharts', () => ({
 }));
 
 describe('KpiRow', () => {
-  it('renders all 6 KPIs', () => {
+  it('renders all 4 KPIs from perf_counters', () => {
     render(
       <KpiRow
-        cpuData={[{ sql_cpu_pct: 45 }, { sql_cpu_pct: 80 }]}
-        waitsData={[{ wait_type: 'CXPACKET', wait_ms_per_sec: 5.2 }]}
-        sessionsData={[
-          { blocking_session_id: null, request_status: 'running' },
-          { blocking_session_id: 55, request_status: 'suspended' },
-        ]}
-        fileIoData={[{ avg_read_latency_ms: 25.5, avg_write_latency_ms: 3.1 }]}
+        perfCounters={{
+          latest: [
+            { counter_name: 'Batch Requests/sec', cntr_value: 250 },
+            { counter_name: 'User Connections', cntr_value: 42 },
+            { counter_name: 'Deadlocks/sec', cntr_value: 0 },
+            { counter_name: 'Page life expectancy', cntr_value: 5000 },
+          ],
+          series: [],
+        }}
       />,
     );
 
     expect(screen.getByTestId('kpi-row')).toBeInTheDocument();
-    expect(screen.getByText('80%')).toBeInTheDocument(); // SQL CPU
-    expect(screen.getByText('CXPACKET')).toBeInTheDocument(); // Top wait
-    expect(screen.getByText('1')).toBeInTheDocument(); // Blocked
-    expect(screen.getByText('25.5ms')).toBeInTheDocument(); // Read IO
+    expect(screen.getByText('250')).toBeInTheDocument(); // Batch Req/s
+    expect(screen.getByText('42')).toBeInTheDocument(); // Connections
+    expect(screen.getByText('0.00')).toBeInTheDocument(); // Deadlocks
+    expect(screen.getByText('1.4h')).toBeInTheDocument(); // PLE = 5000s = 1.4h
   });
 
-  it('shows critical color for high CPU', () => {
-    const { container } = render(
-      <KpiRow
-        cpuData={[{ sql_cpu_pct: 95 }]}
-        waitsData={[]}
-        sessionsData={[]}
-        fileIoData={[]}
-      />,
-    );
-
-    // The CPU KPI should have red background
-    const kpiRow = container.querySelector('[data-testid="kpi-row"]');
-    expect(kpiRow).toBeInTheDocument();
-    expect(screen.getByText('95%')).toBeInTheDocument();
-  });
-
-  it('shows ok for low values', () => {
+  it('shows critical for high deadlocks', () => {
     render(
       <KpiRow
-        cpuData={[{ sql_cpu_pct: 10 }]}
-        waitsData={[]}
-        sessionsData={[]}
-        fileIoData={[]}
+        perfCounters={{
+          latest: [
+            { counter_name: 'Batch Requests/sec', cntr_value: 100 },
+            { counter_name: 'User Connections', cntr_value: 10 },
+            { counter_name: 'Deadlocks/sec', cntr_value: 2 },
+            { counter_name: 'Page life expectancy', cntr_value: 200 },
+          ],
+          series: [],
+        }}
       />,
     );
 
-    expect(screen.getByText('10%')).toBeInTheDocument();
-    // Blocked and Pending both show "0"
-    expect(screen.getAllByText('0')).toHaveLength(2);
+    // Deadlocks >= 1 is critical
+    expect(screen.getByText('2.0')).toBeInTheDocument();
+    // PLE < 300 is critical
+    expect(screen.getByText('200s')).toBeInTheDocument();
+  });
+
+  it('renders with no perf_counters data', () => {
+    render(<KpiRow />);
+    expect(screen.getByTestId('kpi-row')).toBeInTheDocument();
+    // Should show defaults (0s)
+    expect(screen.getByText('0s')).toBeInTheDocument(); // PLE
   });
 });

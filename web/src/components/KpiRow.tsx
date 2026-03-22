@@ -26,10 +26,10 @@ function Kpi({ label, value, severity, sparkData }: KpiProps) {
     <div className={`rounded-lg px-3 py-2 ${bgColors[severity]} text-white flex items-center gap-2 min-w-0`}>
       <div className="min-w-0 flex-1">
         <div className="text-[10px] uppercase tracking-wide opacity-80 truncate">{label}</div>
-        <div className="text-lg font-bold leading-tight truncate">{value}</div>
+        <div className="text-2xl font-bold leading-tight truncate">{value}</div>
       </div>
       {chartData.length > 2 && (
-        <div className="w-16 h-7 flex-shrink-0">
+        <div className="w-16 h-8 flex-shrink-0">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData}>
               <Line type="monotone" dataKey="v" stroke={lineColors[severity]} strokeWidth={1.5} dot={false} />
@@ -41,75 +41,81 @@ function Kpi({ label, value, severity, sparkData }: KpiProps) {
   );
 }
 
-interface KpiRowProps {
-  cpuData: Array<{ sql_cpu_pct: number }>;
-  waitsData: Array<{ wait_type: string; wait_ms_per_sec: number }>;
-  sessionsData: Array<{ blocking_session_id: number | null; request_status: string }>;
-  fileIoData: Array<{ avg_read_latency_ms: number; avg_write_latency_ms: number }>;
-}
-
-function severity(value: number, warnThreshold: number, critThreshold: number): 'ok' | 'warning' | 'critical' {
+export function severity(value: number, warnThreshold: number, critThreshold: number): 'ok' | 'warning' | 'critical' {
   if (value >= critThreshold) return 'critical';
   if (value >= warnThreshold) return 'warning';
   return 'ok';
 }
 
-export function KpiRow({ cpuData, waitsData, sessionsData, fileIoData }: KpiRowProps) {
-  // SQL CPU
-  const latestCpu = cpuData.length > 0 ? cpuData[cpuData.length - 1].sql_cpu_pct : 0;
-  const cpuSpark = cpuData.map((d) => d.sql_cpu_pct);
+/** Inverse severity: lower = worse (e.g., Page Life Expectancy). */
+export function severityInverse(value: number, warnBelow: number, critBelow: number): 'ok' | 'warning' | 'critical' {
+  if (value < critBelow) return 'critical';
+  if (value < warnBelow) return 'warning';
+  return 'ok';
+}
 
-  // Top wait
-  const topWait = waitsData.length > 0
-    ? waitsData.reduce((a, b) => a.wait_ms_per_sec > b.wait_ms_per_sec ? a : b)
-    : null;
+interface PerfCounterLatest {
+  counter_name: string;
+  cntr_value: number;
+}
 
-  // Blocked sessions
-  const blockedCount = sessionsData.filter((s) => s.blocking_session_id && s.blocking_session_id > 0).length;
+interface PerfCounterSeries {
+  bucket: string;
+  counter_name: string;
+  cntr_value: number;
+}
 
-  // Pending requests
-  const pendingCount = sessionsData.filter((s) => s.request_status === 'runnable').length;
+export interface KpiRowProps {
+  perfCounters?: {
+    latest: PerfCounterLatest[];
+    series: PerfCounterSeries[];
+  };
+}
 
-  // IO latency
-  const avgReadLatency = fileIoData.length > 0
-    ? fileIoData.reduce((sum, f) => sum + f.avg_read_latency_ms, 0) / fileIoData.length
-    : 0;
-  const avgWriteLatency = fileIoData.length > 0
-    ? fileIoData.reduce((sum, f) => sum + f.avg_write_latency_ms, 0) / fileIoData.length
-    : 0;
+function getLatest(counters: PerfCounterLatest[], name: string): number {
+  return counters.find((c) => c.counter_name === name)?.cntr_value ?? 0;
+}
+
+function getSpark(series: PerfCounterSeries[], name: string): number[] {
+  return series
+    .filter((s) => s.counter_name === name)
+    .map((s) => s.cntr_value);
+}
+
+export function KpiRow({ perfCounters }: KpiRowProps) {
+  const latest = perfCounters?.latest ?? [];
+  const series = perfCounters?.series ?? [];
+
+  const batchReqs = getLatest(latest, 'Batch Requests/sec');
+  const userConns = getLatest(latest, 'User Connections');
+  const deadlocks = getLatest(latest, 'Deadlocks/sec');
+  const ple = getLatest(latest, 'Page life expectancy');
 
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6" data-testid="kpi-row">
+    <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" data-testid="kpi-row">
       <Kpi
-        label="SQL CPU"
-        value={`${latestCpu}%`}
-        severity={severity(latestCpu, 75, 90)}
-        sparkData={cpuSpark}
+        label="Batch Req/s"
+        value={batchReqs >= 1000 ? `${(batchReqs / 1000).toFixed(1)}k` : String(Math.round(batchReqs))}
+        severity="ok"
+        sparkData={getSpark(series, 'Batch Requests/sec')}
       />
       <Kpi
-        label="Top Wait"
-        value={topWait ? `${topWait.wait_type}` : '-'}
-        severity={topWait && topWait.wait_ms_per_sec > 10 ? 'warning' : 'ok'}
+        label="Connections"
+        value={String(Math.round(userConns))}
+        severity={severity(userConns, 100, 500)}
+        sparkData={getSpark(series, 'User Connections')}
       />
       <Kpi
-        label="Blocked"
-        value={String(blockedCount)}
-        severity={severity(blockedCount, 1, 5)}
+        label="Deadlocks/s"
+        value={deadlocks >= 1 ? deadlocks.toFixed(1) : deadlocks.toFixed(2)}
+        severity={severity(deadlocks, 0.1, 1)}
+        sparkData={getSpark(series, 'Deadlocks/sec')}
       />
       <Kpi
-        label="Pending"
-        value={String(pendingCount)}
-        severity={severity(pendingCount, 5, 20)}
-      />
-      <Kpi
-        label="Read IO"
-        value={`${avgReadLatency.toFixed(1)}ms`}
-        severity={severity(avgReadLatency, 20, 50)}
-      />
-      <Kpi
-        label="Write IO"
-        value={`${avgWriteLatency.toFixed(1)}ms`}
-        severity={severity(avgWriteLatency, 20, 50)}
+        label="Page Life Exp"
+        value={ple >= 3600 ? `${(ple / 3600).toFixed(1)}h` : `${Math.round(ple)}s`}
+        severity={severityInverse(ple, 1000, 300)}
+        sparkData={getSpark(series, 'Page life expectancy')}
       />
     </div>
   );

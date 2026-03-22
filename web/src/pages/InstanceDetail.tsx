@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { CpuChart } from '@/components/CpuChart';
 import { MemoryChart } from '@/components/MemoryChart';
+import { MemoryBreakdown } from '@/components/MemoryBreakdown';
 import { WaitsChart } from '@/components/WaitsChart';
 import { SessionsTable } from '@/components/SessionsTable';
 import { DeadlocksTable } from '@/components/DeadlocksTable';
@@ -12,6 +13,7 @@ import { DiskChart } from '@/components/DiskChart';
 import { KpiRow } from '@/components/KpiRow';
 import { TopWaitsTable } from '@/components/TopWaitsTable';
 import { CollapsibleSection } from '@/components/CollapsibleSection';
+import { severity } from '@/components/KpiRow';
 import { authFetch } from '@/lib/auth';
 
 type PresetRange = '1h' | '6h' | '24h' | '7d' | '30d' | '1y';
@@ -63,6 +65,22 @@ interface FileIoRow {
   total_writes: number;
   avg_read_latency_ms: number;
   avg_write_latency_ms: number;
+}
+
+interface PerfCounterLatest {
+  counter_name: string;
+  cntr_value: number;
+}
+
+interface PerfCounterSeries {
+  bucket: string;
+  counter_name: string;
+  cntr_value: number;
+}
+
+interface PerfCountersData {
+  latest: PerfCounterLatest[];
+  series: PerfCounterSeries[];
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -133,6 +151,12 @@ export function InstanceDetail() {
     refetchInterval: customRange ? false : 30000,
   });
 
+  const { data: perfCounters } = useQuery<PerfCountersData>({
+    queryKey: ['perf-counters', id, range, customRange],
+    queryFn: () => fetchJson<PerfCountersData>(`/api/metrics/${id}/perf-counters?${rangeParams}`),
+    refetchInterval: customRange ? false : 30000,
+  });
+
   const sessionsUrl = sessionAt
     ? `/api/metrics/${id}/sessions?at=${encodeURIComponent(sessionAt)}`
     : `/api/metrics/${id}/sessions`;
@@ -166,9 +190,17 @@ export function InstanceDetail() {
   const ranges: TimeRange[] = ['1h', '6h', '24h', '7d', '30d', '1y'];
   const instance = health?.instance;
 
+  // Inline header stats from CPU, blocking, top wait
+  const latestCpu = cpuData.length > 0 ? (cpuData[cpuData.length - 1] as { sql_cpu_pct: number }).sql_cpu_pct : 0;
+  const blockedCount = (sessionsData as Array<{ blocking_session_id: number | null }>)
+    .filter((s) => s.blocking_session_id && s.blocking_session_id > 0).length;
+  const topWait = (waitsData as Array<{ wait_type: string; wait_ms_per_sec: number }>).length > 0
+    ? (waitsData as Array<{ wait_type: string; wait_ms_per_sec: number }>).reduce((a, b) => a.wait_ms_per_sec > b.wait_ms_per_sec ? a : b)
+    : null;
+
   return (
     <div>
-      {/* Header */}
+      {/* Header: Instance name + status + version + inline stats */}
       <div className="flex items-center gap-3">
         <button
           onClick={() => navigate('/dashboard')}
@@ -184,6 +216,9 @@ export function InstanceDetail() {
             <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               {instance ? instance.name : `Instance ${id}`}
             </h2>
+            {instance && (
+              <span className={`inline-block h-2.5 w-2.5 rounded-full ${instance.status === 'online' ? 'bg-emerald-500' : 'bg-red-500'}`} title={instance.status} />
+            )}
             <button
               onClick={() => navigate(`/instances/${id}/queries`)}
               className="rounded bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
@@ -191,34 +226,29 @@ export function InstanceDetail() {
               Query Explorer
             </button>
           </div>
-          {health && (
-            <div className="mt-1 flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400">
-              {health.version && <span>{health.version}</span>}
-              {health.edition && <span className="text-gray-300 dark:text-gray-600">|</span>}
-              {health.edition && <span>{health.edition}</span>}
-              {health.uptime_seconds != null && <span className="text-gray-300 dark:text-gray-600">|</span>}
-              {health.uptime_seconds != null && (
-                <span>Up {formatUptime(health.uptime_seconds)}</span>
-              )}
-              {health.cpu_count != null && <span className="text-gray-300 dark:text-gray-600">|</span>}
-              {health.cpu_count != null && <span>{health.cpu_count} CPUs</span>}
-              {health.physical_memory_mb != null && <span className="text-gray-300 dark:text-gray-600">|</span>}
-              {health.physical_memory_mb != null && (
-                <span>{(health.physical_memory_mb / 1024).toFixed(0)} GB RAM</span>
-              )}
-            </div>
-          )}
+          <div className="mt-1 flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
+            {health?.version && <span>{health.version}</span>}
+            {health?.edition && <><span className="text-gray-300 dark:text-gray-600">|</span><span>{health.edition}</span></>}
+            {health?.uptime_seconds != null && <><span className="text-gray-300 dark:text-gray-600">|</span><span>Up {formatUptime(health.uptime_seconds)}</span></>}
+            {health?.cpu_count != null && <><span className="text-gray-300 dark:text-gray-600">|</span><span>{health.cpu_count} CPUs</span></>}
+            {health?.physical_memory_mb != null && <><span className="text-gray-300 dark:text-gray-600">|</span><span>{(health.physical_memory_mb / 1024).toFixed(0)} GB RAM</span></>}
+            {/* Inline stats badges */}
+            <span className="text-gray-300 dark:text-gray-600">|</span>
+            <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${severity(latestCpu, 75, 90) === 'critical' ? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' : severity(latestCpu, 75, 90) === 'warning' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300' : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'}`}>
+              CPU {latestCpu}%
+            </span>
+            {blockedCount > 0 && (
+              <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900 dark:text-red-300">
+                {blockedCount} blocked
+              </span>
+            )}
+            {topWait && topWait.wait_ms_per_sec > 5 && (
+              <span className="rounded bg-yellow-100 px-1.5 py-0.5 text-xs font-medium text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300">
+                {topWait.wait_type}
+              </span>
+            )}
+          </div>
         </div>
-      </div>
-
-      {/* KPI Row */}
-      <div className="mt-4">
-        <KpiRow
-          cpuData={cpuData as Array<{ sql_cpu_pct: number }>}
-          waitsData={waitsData as Array<{ wait_type: string; wait_ms_per_sec: number }>}
-          sessionsData={sessionsData as Array<{ blocking_session_id: number | null; request_status: string }>}
-          fileIoData={fileIoData as Array<{ avg_read_latency_ms: number; avg_write_latency_ms: number }>}
-        />
       </div>
 
       {/* Time range picker */}
@@ -276,66 +306,37 @@ export function InstanceDetail() {
         )}
       </div>
 
-      {/* Top Waits */}
+      {/* KPI Row: 4 cards from perf_counters */}
+      <div className="mt-4">
+        <KpiRow perfCounters={perfCounters} />
+      </div>
+
+      {/* CPU Chart (full width, 200px) */}
+      <div className="mt-4">
+        <CpuChart data={cpuData as never[]} height={200} />
+      </div>
+
+      {/* Memory Chart + SQL Memory Breakdown (side by side) */}
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <MemoryChart data={memoryData as never[]} />
+        <MemoryBreakdown instanceId={id!} />
+      </div>
+
+      {/* Top Waits (always visible) */}
       <div className="mt-4">
         <TopWaitsTable data={waitsData as Array<{ wait_type: string; wait_ms_per_sec: number; wait_time_ms: number }>} />
       </div>
 
-      {/* Charts: CPU | Memory | Disk compact card */}
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <CpuChart data={cpuData as never[]} />
-        <MemoryChart data={memoryData as never[]} />
-        {/* Compact disk card */}
-        <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-          <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">Disk Space</h3>
-          {diskData.length === 0 ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400">No disk data</p>
-          ) : (
-            <div className="space-y-2">
-              {diskData.map((d) => (
-                <div key={d.volume_mount_point}>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-mono text-gray-700 dark:text-gray-300 truncate" title={`${d.volume_mount_point} ${d.logical_volume_name || ''}`}>
-                      {d.volume_mount_point}
-                    </span>
-                    <span className="ml-2 text-gray-500 dark:text-gray-400">
-                      {(d.available_mb / 1024).toFixed(0)}/{(d.total_mb / 1024).toFixed(0)} GB
-                    </span>
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-2">
-                    <div className="h-2 flex-1 rounded-full bg-gray-100 dark:bg-gray-800">
-                      <div
-                        className={`h-2 rounded-full transition-all ${
-                          Number(d.used_pct) > 95 ? 'bg-red-500' : Number(d.used_pct) > 90 ? 'bg-yellow-500' : 'bg-blue-500'
-                        }`}
-                        style={{ width: `${Math.min(100, Number(d.used_pct))}%` }}
-                      />
-                    </div>
-                    <span className={`text-xs font-medium w-10 text-right ${Number(d.used_pct) > 95 ? 'text-red-600 dark:text-red-400' : Number(d.used_pct) > 90 ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-600 dark:text-gray-400'}`}>
-                      {Number(d.used_pct).toFixed(0)}%
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Blocking chains (only shows when there are active blocking chains) */}
+      {/* Waits History (collapsible, default open) */}
       <div className="mt-4">
-        <BlockingTree instanceId={id!} />
-      </div>
-
-      {/* Collapsible: Waits History */}
-      <div className="mt-4">
-        <CollapsibleSection title="Wait Stats History">
+        <CollapsibleSection title="Wait Stats History" defaultOpen>
           <WaitsChart instanceId={id!} range={range} />
         </CollapsibleSection>
       </div>
 
-      {/* Collapsible: Sessions */}
-      <div className="mt-4">
+      {/* Sessions + Disk compact card (side by side) */}
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {/* Active Sessions */}
         <CollapsibleSection title="Active Sessions" badge={sessionsData.length || undefined}>
           {sessionTimestamps.length > 1 && (
             <div className="mb-2 rounded border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
@@ -379,16 +380,57 @@ export function InstanceDetail() {
           )}
           <SessionsTable data={sessionsData as never[]} />
         </CollapsibleSection>
+
+        {/* Disk Space + Disk Growth */}
+        <div>
+          <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+            <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">Disk Space</h3>
+            {diskData.length === 0 ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400">No disk data</p>
+            ) : (
+              <div className="space-y-2">
+                {diskData.map((d) => (
+                  <div key={d.volume_mount_point}>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-mono text-gray-700 dark:text-gray-300 truncate" title={`${d.volume_mount_point} ${d.logical_volume_name || ''}`}>
+                        {d.volume_mount_point}
+                      </span>
+                      <span className="ml-2 text-gray-500 dark:text-gray-400">
+                        {(d.available_mb / 1024).toFixed(0)}/{(d.total_mb / 1024).toFixed(0)} GB
+                      </span>
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-2">
+                      <div className="h-2 flex-1 rounded-full bg-gray-100 dark:bg-gray-800">
+                        <div
+                          className={`h-2 rounded-full transition-all ${
+                            Number(d.used_pct) > 95 ? 'bg-red-500' : Number(d.used_pct) > 90 ? 'bg-yellow-500' : 'bg-blue-500'
+                          }`}
+                          style={{ width: `${Math.min(100, Number(d.used_pct))}%` }}
+                        />
+                      </div>
+                      <span className={`text-xs font-medium w-10 text-right ${Number(d.used_pct) > 95 ? 'text-red-600 dark:text-red-400' : Number(d.used_pct) > 90 ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-600 dark:text-gray-400'}`}>
+                        {Number(d.used_pct).toFixed(0)}%
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="mt-4">
+            <CollapsibleSection title="Disk Growth Trend">
+              <DiskChart instanceId={id!} range={range} />
+            </CollapsibleSection>
+          </div>
+        </div>
       </div>
 
-      {/* Collapsible: Disk Growth Trend */}
+      {/* Blocking chains (only visible when data) */}
       <div className="mt-4">
-        <CollapsibleSection title="Disk Growth Trend">
-          <DiskChart instanceId={id!} range={range} />
-        </CollapsibleSection>
+        <BlockingTree instanceId={id!} />
       </div>
 
-      {/* Collapsible: File I/O */}
+      {/* File I/O (collapsible) */}
       <div className="mt-4">
         <CollapsibleSection title="File I/O">
           <FileIoChart instanceId={id!} range={range} />
@@ -429,7 +471,17 @@ export function InstanceDetail() {
         </CollapsibleSection>
       </div>
 
-      {/* Collapsible: Deadlocks */}
+      {/* Query Explorer link */}
+      <div className="mt-4">
+        <button
+          onClick={() => navigate(`/instances/${id}/queries`)}
+          className="w-full rounded-lg border border-gray-200 bg-white px-4 py-3 text-left text-sm font-medium text-blue-600 hover:bg-blue-50 dark:border-gray-700 dark:bg-gray-900 dark:text-blue-400 dark:hover:bg-gray-800"
+        >
+          Query Explorer &rarr;
+        </button>
+      </div>
+
+      {/* Deadlocks (collapsible) */}
       <div className="mt-4">
         <CollapsibleSection title="Deadlocks">
           <DeadlocksTable instanceId={id!} range={range} />

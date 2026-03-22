@@ -76,6 +76,31 @@ vi.mock('@/lib/auth', () => ({
         ],
       };
     }
+    if (url.includes('/memory/breakdown')) {
+      return {
+        ok: true,
+        json: async () => ({
+          sql_committed_mb: 4096,
+          sql_target_mb: 8192,
+          buffer_pool_mb: 3072,
+          plan_cache_mb: 512,
+        }),
+      };
+    }
+    if (url.includes('/perf-counters')) {
+      return {
+        ok: true,
+        json: async () => ({
+          latest: [
+            { counter_name: 'Batch Requests/sec', cntr_value: 150 },
+            { counter_name: 'User Connections', cntr_value: 42 },
+            { counter_name: 'Deadlocks/sec', cntr_value: 0 },
+            { counter_name: 'Page life expectancy', cntr_value: 5000 },
+          ],
+          series: [],
+        }),
+      };
+    }
     if (url.includes('/blocking-chains')) {
       return { ok: true, json: async () => [] };
     }
@@ -141,5 +166,16 @@ describe('InstanceDetail', () => {
     expect(screen.getByText('Active Sessions')).toBeInTheDocument();
     expect(screen.getByText('File I/O')).toBeInTheDocument();
     expect(screen.getByText('Deadlocks')).toBeInTheDocument();
+  });
+
+  it('renders SQL Memory Breakdown section', async () => {
+    renderDetail();
+    expect(await screen.findByText('SQL Memory Breakdown')).toBeInTheDocument();
+  });
+
+  it('renders Query Explorer link button', async () => {
+    renderDetail();
+    const links = await screen.findAllByText(/Query Explorer/);
+    expect(links.length).toBeGreaterThanOrEqual(1);
   });
 });
