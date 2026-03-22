@@ -107,26 +107,26 @@ export function StatusBar({ cpuData, waitsData, sessionsData, fileIoData, perfCo
       <span className="inline-flex items-center gap-1.5">
         <Dot severity={cpuSev} />CPU {latestCpu != null ? `${latestCpu}%` : '\u2014'}
       </span>
-      <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex items-center gap-1.5 border-l border-gray-300 dark:border-gray-600 pl-3">
         <Dot severity={topWaitSev} />
         Top Wait: {topWait ? `${topWait.wait_type} ${topWait.wait_ms_per_sec.toFixed(0)}ms/s` : '\u2014'}
       </span>
-      <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex items-center gap-1.5 border-l border-gray-300 dark:border-gray-600 pl-3">
         <Dot severity={blockedSev} />Blocked {blockedCount}
       </span>
-      <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex items-center gap-1.5 border-l border-gray-300 dark:border-gray-600 pl-3">
         <Dot severity={pendingSev} />Pending {pending != null ? pending : '\u2014'}
       </span>
-      <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex items-center gap-1.5 border-l border-gray-300 dark:border-gray-600 pl-3">
         <Dot severity={readSev} />Read IO {avgRead != null ? `${avgRead.toFixed(1)}ms` : '\u2014'}
       </span>
-      <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex items-center gap-1.5 border-l border-gray-300 dark:border-gray-600 pl-3">
         <Dot severity={writeSev} />Write IO {avgWrite != null ? `${avgWrite.toFixed(1)}ms` : '\u2014'}
       </span>
-      <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex items-center gap-1.5 border-l border-gray-300 dark:border-gray-600 pl-3">
         <Dot severity={pleSev} />PLE {formatPle(ple)}
       </span>
-      <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex items-center gap-1.5 border-l border-gray-300 dark:border-gray-600 pl-3">
         <Dot severity={memGrantsSev} />Mem Grants Pending {memGrants != null ? memGrants : '\u2014'}
       </span>
     </div>
