@@ -11,6 +11,7 @@ import { FileIoChart } from '@/components/FileIoChart';
 import { DiskChart } from '@/components/DiskChart';
 import { StatusBar } from '@/components/StatusBar';
 import { TopWaitsTable } from '@/components/TopWaitsTable';
+import { SessionBreakdown } from '@/components/SessionBreakdown';
 import { CollapsibleSection } from '@/components/CollapsibleSection';
 import { authFetch } from '@/lib/auth';
 
@@ -277,14 +278,46 @@ export function InstanceDetail() {
         <CpuChart data={cpuData as never[]} height={200} />
       </div>
 
-      {/* 3. Top Waits + SQL Memory Breakdown (side by side) */}
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-5 items-stretch">
-        <div className="lg:col-span-3">
-          <TopWaitsTable data={waitsData as Array<{ wait_type: string; wait_ms_per_sec: number; wait_time_ms: number }>} />
+      {/* 3. Top Waits | Memory Breakdown | Disk Space | Session Breakdown */}
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-4 items-stretch">
+        <TopWaitsTable data={waitsData as Array<{ wait_type: string; wait_ms_per_sec: number; wait_time_ms: number }>} />
+        <MemoryBreakdown instanceId={id!} />
+        <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900 h-full">
+          <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">Disk Space</h3>
+          {diskData.length === 0 ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">No disk data</p>
+          ) : (
+            <div className="space-y-2">
+              {[...diskData].sort((a, b) => Number(b.used_pct) - Number(a.used_pct)).map((d) => {
+                const pct = Number(d.used_pct);
+                return (
+                  <div key={d.volume_mount_point}>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-mono text-gray-700 dark:text-gray-300 truncate" title={`${d.volume_mount_point} ${d.logical_volume_name || ''}`}>
+                        {d.volume_mount_point}
+                      </span>
+                      <span className="ml-2 text-gray-500 dark:text-gray-400">
+                        {(d.available_mb / 1024).toFixed(0)}/{(d.total_mb / 1024).toFixed(0)} GB
+                      </span>
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-2">
+                      <div className="h-2 flex-1 rounded-full bg-gray-100 dark:bg-gray-800">
+                        <div
+                          className={`h-2 rounded-full transition-all ${diskBarColor(pct)}`}
+                          style={{ width: `${Math.min(100, pct)}%` }}
+                        />
+                      </div>
+                      <span className={`text-xs font-medium w-10 text-right ${diskTextColor(pct)}`}>
+                        {pct.toFixed(0)}%
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-        <div className="lg:col-span-2">
-          <MemoryBreakdown instanceId={id!} />
-        </div>
+        <SessionBreakdown data={sessionsData as Array<{ request_status: string | null; session_status: string }>} />
       </div>
 
       {/* 5. Wait Stats History (collapsible, default open) */}
@@ -294,106 +327,65 @@ export function InstanceDetail() {
         </CollapsibleSection>
       </div>
 
-      {/* 6. Active Sessions (2/3) + Disk Space (1/3) */}
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3" data-testid="sessions-disk-grid">
-        {/* Active Sessions: col-span-2 */}
-        <div className="lg:col-span-2">
-          <CollapsibleSection title="Active Sessions" badge={sessionsData.length} defaultOpen>
-            {/* Snapshot scrubber — show even with 1 timestamp */}
-            {sessionTimestamps.length >= 1 && (
-              <div className="mb-2 rounded border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Snapshot:</span>
-                  <button
-                    onClick={() => setSessionAt(null)}
-                    className={`rounded px-2 py-0.5 text-xs font-medium transition-colors ${
-                      !sessionAt
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
-                    }`}
-                  >
-                    Latest
-                  </button>
-                  {sessionTimestamps.slice(0, 20).map((ts) => {
-                    const d = new Date(ts);
-                    const label = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                    const isSelected = sessionAt === ts;
-                    return (
-                      <button
-                        key={ts}
-                        onClick={() => setSessionAt(ts)}
-                        className={`rounded px-2 py-0.5 text-xs font-mono transition-colors ${
-                          isSelected
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-                {sessionAt && (
-                  <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Showing snapshot: {new Date(sessionAt).toLocaleString()}
-                  </div>
-                )}
-              </div>
-            )}
-            {sessionsLoading ? (
-              <div className="flex items-center gap-2 py-4 text-sm text-gray-500 dark:text-gray-400">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-500" />
-                Loading sessions...
-              </div>
-            ) : (
-              <SessionsTable data={sessionsData as never[]} compact />
-            )}
-          </CollapsibleSection>
-        </div>
-
-        {/* Disk Space + Disk Growth: col-span-1 */}
-        <div className="lg:col-span-1">
-          <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-            <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">Disk Space</h3>
-            {diskData.length === 0 ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">No disk data</p>
-            ) : (
-              <div className="space-y-2">
-                {[...diskData].sort((a, b) => Number(b.used_pct) - Number(a.used_pct)).map((d) => {
-                  const pct = Number(d.used_pct);
+      {/* 6. Active Sessions (full width) */}
+      <div className="mt-4">
+        <CollapsibleSection title="Active Sessions" badge={sessionsData.length} defaultOpen>
+          {sessionTimestamps.length >= 1 && (
+            <div className="mb-2 rounded border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Snapshot:</span>
+                <button
+                  onClick={() => setSessionAt(null)}
+                  className={`rounded px-2 py-0.5 text-xs font-medium transition-colors ${
+                    !sessionAt
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  Latest
+                </button>
+                {sessionTimestamps.slice(0, 20).map((ts) => {
+                  const d = new Date(ts);
+                  const label = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                  const isSelected = sessionAt === ts;
                   return (
-                    <div key={d.volume_mount_point}>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-mono text-gray-700 dark:text-gray-300 truncate" title={`${d.volume_mount_point} ${d.logical_volume_name || ''}`}>
-                          {d.volume_mount_point}
-                        </span>
-                        <span className="ml-2 text-gray-500 dark:text-gray-400">
-                          {(d.available_mb / 1024).toFixed(0)}/{(d.total_mb / 1024).toFixed(0)} GB
-                        </span>
-                      </div>
-                      <div className="mt-0.5 flex items-center gap-2">
-                        <div className="h-2 flex-1 rounded-full bg-gray-100 dark:bg-gray-800">
-                          <div
-                            className={`h-2 rounded-full transition-all ${diskBarColor(pct)}`}
-                            style={{ width: `${Math.min(100, pct)}%` }}
-                          />
-                        </div>
-                        <span className={`text-xs font-medium w-10 text-right ${diskTextColor(pct)}`}>
-                          {pct.toFixed(0)}%
-                        </span>
-                      </div>
-                    </div>
+                    <button
+                      key={ts}
+                      onClick={() => setSessionAt(ts)}
+                      className={`rounded px-2 py-0.5 text-xs font-mono transition-colors ${
+                        isSelected
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      {label}
+                    </button>
                   );
                 })}
               </div>
-            )}
-          </div>
-          <div className="mt-4">
-            <CollapsibleSection title="Disk Growth Trend">
-              <DiskChart instanceId={id!} range={range} />
-            </CollapsibleSection>
-          </div>
-        </div>
+              {sessionAt && (
+                <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Showing snapshot: {new Date(sessionAt).toLocaleString()}
+                </div>
+              )}
+            </div>
+          )}
+          {sessionsLoading ? (
+            <div className="flex items-center gap-2 py-4 text-sm text-gray-500 dark:text-gray-400">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-500" />
+              Loading sessions...
+            </div>
+          ) : (
+            <SessionsTable data={sessionsData as never[]} compact />
+          )}
+        </CollapsibleSection>
+      </div>
+
+      {/* Disk Growth Trend (collapsible) */}
+      <div className="mt-4">
+        <CollapsibleSection title="Disk Growth Trend">
+          <DiskChart instanceId={id!} range={range} />
+        </CollapsibleSection>
       </div>
 
       {/* 7. Blocking chains (only visible when data, collapsible) */}

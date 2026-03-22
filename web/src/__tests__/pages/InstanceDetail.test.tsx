@@ -181,10 +181,8 @@ describe('InstanceDetail', () => {
     expect(btn.tagName).toBe('BUTTON');
   });
 
-  it('sessions and disk are in a 3-column grid', async () => {
+  it('renders Session Breakdown card', async () => {
     renderDetail();
-    const grid = await screen.findByTestId('sessions-disk-grid');
-    expect(grid).toBeInTheDocument();
-    expect(grid.className).toContain('lg:grid-cols-3');
+    expect(await screen.findByText('Session Breakdown')).toBeInTheDocument();
   });
 });
