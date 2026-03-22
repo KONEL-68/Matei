@@ -6,7 +6,7 @@
 -- Validation: SELECT * FROM sys.dm_os_performance_counters WHERE counter_name = 'Batch Requests/sec'
 
 SELECT
-    counter_name,
+    RTRIM(counter_name) AS counter_name,
     cntr_value,
     cntr_type  -- 272696576 = per-second rate (needs delta), 65792 = instantaneous
 FROM sys.dm_os_performance_counters
@@ -25,6 +25,9 @@ WHERE counter_name IN (
     'Lock Waits/sec',
     'Deadlocks/sec',
     'Database Cache Memory (KB)',
-    'SQL Cache Memory (KB)'
+    'SQL Cache Memory (KB)',
+    'Total Server Memory (KB)',
+    'Target Server Memory (KB)',
+    'Stolen Server Memory (KB)'
 )
 AND instance_name IN ('', '_Total')
