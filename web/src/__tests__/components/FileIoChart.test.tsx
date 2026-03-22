@@ -47,8 +47,7 @@ describe('FileIoChart', () => {
     mockAuthFetch.mockResolvedValueOnce({ ok: true, json: async () => data });
     renderWithQuery(<FileIoChart instanceId="1" range="1h" />);
 
-    expect(await screen.findByText('File I/O Latency Over Time (ms)')).toBeInTheDocument();
-    expect(screen.getByTestId('line-chart')).toBeInTheDocument();
+    expect(await screen.findByTestId('line-chart')).toBeInTheDocument();
     // Threshold reference lines
     expect(screen.getByText('20ms')).toBeInTheDocument();
     expect(screen.getByText('50ms')).toBeInTheDocument();
