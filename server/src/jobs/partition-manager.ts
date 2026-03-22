@@ -14,6 +14,7 @@ const RAW_TABLES = [
   'os_memory',
   'os_disk',
   'file_io_stats',
+  'perf_counters_raw',
 ];
 
 /** Tables partitioned by month (aggregation rollups). */

@@ -618,6 +618,47 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
     })));
   });
 
+  // GET /api/metrics/:instanceId/perf-counters?range=1h|6h|24h|7d&from=&to=
+  app.get<{ Params: IdParam; Querystring: RangeQuery }>('/api/metrics/:id/perf-counters', async (req, reply) => {
+    const { id } = req.params;
+    const tf = resolveTimeFilter(req.query, 'collected_at', 2);
+
+    // Latest values (most recent row per counter)
+    const latestResult = await pool.query(
+      `SELECT DISTINCT ON (counter_name) counter_name, cntr_value, collected_at
+       FROM perf_counters_raw
+       WHERE instance_id = $1 AND ${tf.condition}
+       ORDER BY counter_name, collected_at DESC`,
+      [id, ...tf.params],
+    );
+
+    // Time series for sparklines (bucketed by 1 minute)
+    const tf2 = resolveTimeFilter(req.query, 'collected_at', 2);
+    const seriesResult = await pool.query(
+      `SELECT date_trunc('minute', collected_at) AS bucket,
+              counter_name,
+              AVG(cntr_value)::float AS cntr_value
+       FROM perf_counters_raw
+       WHERE instance_id = $1 AND ${tf2.condition}
+       GROUP BY bucket, counter_name
+       ORDER BY bucket ASC`,
+      [id, ...tf2.params],
+    );
+
+    return reply.send({
+      latest: latestResult.rows.map((r: { counter_name: string; cntr_value: string; collected_at: string }) => ({
+        counter_name: r.counter_name,
+        cntr_value: Number(r.cntr_value),
+        collected_at: r.collected_at,
+      })),
+      series: seriesResult.rows.map((r: { bucket: string; counter_name: string; cntr_value: number }) => ({
+        bucket: r.bucket,
+        counter_name: r.counter_name,
+        cntr_value: Number(r.cntr_value),
+      })),
+    });
+  });
+
   // GET /api/metrics/:instanceId/host-info — OS host info
   app.get<{ Params: IdParam }>('/api/metrics/:id/host-info', async (req, reply) => {
     const { id } = req.params;

@@ -11,6 +11,7 @@ import { collectFileIoStats, type FileIoDelta } from './collectors/file-io-stats
 import { collectQueryStats, type QueryStatsDelta } from './collectors/query-stats.js';
 import { collectOsHostInfo, type OsHostInfoRow } from './collectors/os-host-info.js';
 import { collectDeadlocks, type DeadlockRow } from './collectors/deadlocks.js';
+import { collectPerfCounters, type PerfCounterResult } from './collectors/perf-counters.js';
 import { evaluateAlerts, writeAlerts } from '../alerts/engine.js';
 import { fireWebhook } from '../alerts/webhook.js';
 
@@ -34,6 +35,7 @@ export interface InstanceResult {
   queryStats: QueryStatsDelta[] | null;
   osHostInfo: OsHostInfoRow[];
   deadlocks: DeadlockRow[];
+  perfCounters: PerfCounterResult[] | null;
 }
 
 // Track cycle count for os_disk (runs every 10th cycle)
@@ -98,6 +100,7 @@ async function collectFromInstance(
     queryStats: null,
     osHostInfo: [],
     deadlocks: [],
+    perfCounters: null,
   };
 
   let pool: sql.ConnectionPool | null = null;
@@ -126,6 +129,7 @@ async function collectFromInstance(
       Promise<QueryStatsDelta[] | null>,
       Promise<OsHostInfoRow[]>,
       Promise<DeadlockRow[]>,
+      Promise<PerfCounterResult[] | null>,
     ] = [
       collectWaitStats(pool.request(), instance.id, startTime),
       collectActiveSessions(pool.request()),
@@ -136,15 +140,16 @@ async function collectFromInstance(
       isQueryStatsCycle ? collectQueryStats(pool.request(), instance.id, startTime) : Promise.resolve(null),
       needsHostInfo ? collectOsHostInfo(pool.request()) : Promise.resolve([]),
       isQueryStatsCycle ? collectDeadlocks(pool.request(), instance.id) : Promise.resolve([]),
+      collectPerfCounters(pool.request(), instance.id, startTime),
     ];
 
-    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, osHostInfo, deadlocks] = await Promise.all(collectorsPromise);
+    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, osHostInfo, deadlocks, perfCounters] = await Promise.all(collectorsPromise);
 
     if (needsHostInfo && osHostInfo.length > 0) {
       hostInfoCollected.add(instance.id);
     }
 
-    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} deadlocks=${deadlocks.length}${needsHostInfo ? ` hostinfo=${osHostInfo.length}` : ''}`);
+    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} deadlocks=${deadlocks.length} perf=${perfCounters?.length ?? 'first-run'}${needsHostInfo ? ` hostinfo=${osHostInfo.length}` : ''}`);
 
     return {
       instanceId: instance.id,
@@ -159,6 +164,7 @@ async function collectFromInstance(
       queryStats,
       osHostInfo,
       deadlocks,
+      perfCounters,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -211,6 +217,7 @@ export async function collectAll(
     ['query_stats', () => batchInsertQueryStats(pgPool, results)],
     ['os_host_info', () => batchInsertOsHostInfo(pgPool, results)],
     ['deadlocks', () => batchInsertDeadlocks(pgPool, results)],
+    ['perf_counters', () => batchInsertPerfCounters(pgPool, results)],
   ] as const) {
     try {
       await insertFn();
@@ -586,6 +593,29 @@ async function batchInsertDeadlocks(pgPool: pg.Pool, results: InstanceResult[]):
       victim_query, deadlock_xml, collected_at
     ) VALUES ${placeholders.join(', ')}
     ON CONFLICT (instance_id, deadlock_time, collected_at) DO NOTHING`,
+    values,
+  );
+}
+
+async function batchInsertPerfCounters(pgPool: pg.Pool, results: InstanceResult[]): Promise<void> {
+  const values: unknown[] = [];
+  const placeholders: string[] = [];
+  let idx = 1;
+
+  for (const r of results) {
+    if (!r.perfCounters) continue;
+    for (const row of r.perfCounters) {
+      placeholders.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++})`);
+      values.push(r.instanceId, row.counter_name, row.cntr_value, new Date());
+    }
+  }
+
+  if (placeholders.length === 0) return;
+
+  await pgPool.query(
+    `INSERT INTO perf_counters_raw (
+      instance_id, counter_name, cntr_value, collected_at
+    ) VALUES ${placeholders.join(', ')}`,
     values,
   );
 }
