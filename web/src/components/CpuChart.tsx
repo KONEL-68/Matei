@@ -18,6 +18,32 @@ function formatTime(timestamp: string): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+interface TooltipPayloadEntry {
+  dataKey: string;
+  value: number;
+  color: string;
+}
+
+function CpuTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: TooltipPayloadEntry[];
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded border border-gray-700 bg-gray-900 p-2 text-xs shadow-lg">
+      <p className="mb-1 text-gray-400">{label ?? ''}</p>
+      {payload.map((p) => (
+        <div key={p.dataKey} className="flex items-center gap-2">
+          <span style={{ color: p.color }}>&#9632;</span>
+          <span className="text-gray-300">{p.dataKey}</span>
+          <span className="ml-auto font-mono text-white">{p.value}%</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function CpuChart({ data, height = 280 }: CpuChartProps) {
   const { theme } = useTheme();
   const dark = theme === 'dark';
@@ -26,7 +52,6 @@ export function CpuChart({ data, height = 280 }: CpuChartProps) {
     time: formatTime(d.collected_at),
     'SQL CPU': d.sql_cpu_pct,
     'Other CPU': d.other_process_cpu_pct,
-    'Idle': d.system_idle_pct,
   }));
 
   if (chartData.length === 0) {
@@ -45,19 +70,10 @@ export function CpuChart({ data, height = 280 }: CpuChartProps) {
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
           <XAxis dataKey="time" fontSize={11} tick={{ fill: dark ? '#9ca3af' : '#6b7280' }} />
           <YAxis domain={[0, 100]} fontSize={11} tick={{ fill: dark ? '#9ca3af' : '#6b7280' }} />
-          <Tooltip
-            contentStyle={{
-              fontSize: 12, borderRadius: 8,
-              border: dark ? '1px solid #374151' : '1px solid #e5e7eb',
-              backgroundColor: dark ? '#1f2937' : '#fff',
-              color: dark ? '#e5e7eb' : '#111',
-            }}
-            formatter={(value: number) => [`${value}%`]}
-          />
+          <Tooltip content={<CpuTooltip />} />
           <Legend wrapperStyle={{ fontSize: 12, color: dark ? '#d1d5db' : undefined }} />
           <Line type="monotone" dataKey="SQL CPU" stroke="#3b82f6" strokeWidth={2} dot={false} />
           <Line type="monotone" dataKey="Other CPU" stroke="#f59e0b" strokeWidth={2} dot={false} />
-          <Line type="monotone" dataKey="Idle" stroke={dark ? '#4b5563' : '#d1d5db'} strokeWidth={1} dot={false} strokeDasharray="4 4" />
         </LineChart>
       </ResponsiveContainer>
     </div>
