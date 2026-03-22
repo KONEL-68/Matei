@@ -23,6 +23,8 @@ WHERE counter_name IN (
     'Lazy writes/sec',
     'Checkpoint pages/sec',
     'Lock Waits/sec',
-    'Deadlocks/sec'
+    'Deadlocks/sec',
+    'Database Cache Memory (KB)',
+    'SQL Cache Memory (KB)'
 )
 AND instance_name IN ('', '_Total')

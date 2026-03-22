@@ -618,6 +618,50 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
     })));
   });
 
+  // GET /api/metrics/:instanceId/memory/breakdown — SQL memory component breakdown
+  app.get<{ Params: IdParam }>('/api/metrics/:id/memory/breakdown', async (req, reply) => {
+    const { id } = req.params;
+
+    // Latest os_memory row for committed/target
+    const memResult = await pool.query(
+      `SELECT sql_committed_mb, sql_target_mb
+       FROM os_memory
+       WHERE instance_id = $1 AND collected_at > NOW() - INTERVAL '5 minutes'
+       ORDER BY collected_at DESC LIMIT 1`,
+      [id],
+    );
+
+    // Latest perf_counters for buffer pool (Database Cache Memory) and plan cache (SQL Cache Memory)
+    const cacheResult = await pool.query(
+      `SELECT counter_name, cntr_value
+       FROM perf_counters_raw
+       WHERE instance_id = $1 AND collected_at > NOW() - INTERVAL '5 minutes'
+         AND counter_name IN ('Database Cache Memory (KB)', 'SQL Cache Memory (KB)')
+       ORDER BY collected_at DESC`,
+      [id],
+    );
+
+    // De-duplicate: take only the first (most recent) value per counter
+    const cacheMap = new Map<string, number>();
+    for (const row of cacheResult.rows) {
+      if (!cacheMap.has(row.counter_name)) {
+        cacheMap.set(row.counter_name, Number(row.cntr_value));
+      }
+    }
+
+    const mem = memResult.rows[0];
+    if (!mem) {
+      return reply.send(null);
+    }
+
+    return reply.send({
+      sql_committed_mb: Number(mem.sql_committed_mb),
+      sql_target_mb: Number(mem.sql_target_mb),
+      buffer_pool_mb: Math.round((cacheMap.get('Database Cache Memory (KB)') ?? 0) / 1024),
+      plan_cache_mb: Math.round((cacheMap.get('SQL Cache Memory (KB)') ?? 0) / 1024),
+    });
+  });
+
   // GET /api/metrics/:instanceId/perf-counters?range=1h|6h|24h|7d&from=&to=
   app.get<{ Params: IdParam; Querystring: RangeQuery }>('/api/metrics/:id/perf-counters', async (req, reply) => {
     const { id } = req.params;
