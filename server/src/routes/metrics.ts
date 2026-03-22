@@ -623,12 +623,13 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
     const { id } = req.params;
 
     // Try perf_counters_raw first — has all 5 values we need
+    // No time filter: always return most recent value regardless of age
     const counterMap = new Map<string, number>();
     try {
       const countersResult = await pool.query(
         `SELECT DISTINCT ON (counter_name) counter_name, cntr_value
          FROM perf_counters_raw
-         WHERE instance_id = $1 AND collected_at > NOW() - INTERVAL '5 minutes'
+         WHERE instance_id = $1
            AND counter_name IN (
              'Total Server Memory (KB)',
              'Target Server Memory (KB)',
@@ -689,28 +690,27 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
   // GET /api/metrics/:instanceId/perf-counters?range=1h|6h|24h|7d&from=&to=
   app.get<{ Params: IdParam; Querystring: RangeQuery }>('/api/metrics/:id/perf-counters', async (req, reply) => {
     const { id } = req.params;
-    const tf = resolveTimeFilter(req.query, 'collected_at', 2);
 
-    // Latest values (most recent row per counter)
+    // Latest values — always return the most recent value per counter, no time filter
     const latestResult = await pool.query(
       `SELECT DISTINCT ON (counter_name) counter_name, cntr_value, collected_at
        FROM perf_counters_raw
-       WHERE instance_id = $1 AND ${tf.condition}
+       WHERE instance_id = $1
        ORDER BY counter_name, collected_at DESC`,
-      [id, ...tf.params],
+      [id],
     );
 
-    // Time series for sparklines (bucketed by 1 minute)
-    const tf2 = resolveTimeFilter(req.query, 'collected_at', 2);
+    // Time series for sparklines (bucketed by 1 minute) — uses time filter
+    const tf = resolveTimeFilter(req.query, 'collected_at', 2);
     const seriesResult = await pool.query(
       `SELECT date_trunc('minute', collected_at) AS bucket,
               counter_name,
               AVG(cntr_value)::float AS cntr_value
        FROM perf_counters_raw
-       WHERE instance_id = $1 AND ${tf2.condition}
+       WHERE instance_id = $1 AND ${tf.condition}
        GROUP BY bucket, counter_name
        ORDER BY bucket ASC`,
-      [id, ...tf2.params],
+      [id, ...tf.params],
     );
 
     return reply.send({
@@ -724,6 +724,27 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
         counter_name: r.counter_name,
         cntr_value: Number(r.cntr_value),
       })),
+    });
+  });
+
+  // GET /api/metrics/:instanceId/perf-counters/debug — diagnostic info
+  app.get<{ Params: IdParam }>('/api/metrics/:id/perf-counters/debug', async (req, reply) => {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `SELECT COUNT(*)::int AS total_rows,
+              MAX(collected_at) AS latest_row,
+              ARRAY_AGG(DISTINCT counter_name ORDER BY counter_name) AS distinct_counters
+       FROM perf_counters_raw
+       WHERE instance_id = $1`,
+      [id],
+    );
+
+    const row = result.rows[0];
+    return reply.send({
+      total_rows: row?.total_rows ?? 0,
+      latest_row: row?.latest_row ?? null,
+      distinct_counters: row?.distinct_counters ?? [],
     });
   });
 

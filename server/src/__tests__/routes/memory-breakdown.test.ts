@@ -77,4 +77,22 @@ describe('memory breakdown endpoint', () => {
     expect(body.total_mb).toBe(2048);
     expect(body.target_mb).toBe(4096);
   });
+
+  it('perf_counters query has no time filter — returns data regardless of age', async () => {
+    mockPool.query.mockResolvedValueOnce({
+      rows: [
+        { counter_name: 'Total Server Memory (KB)', cntr_value: '8388608' },
+        { counter_name: 'Target Server Memory (KB)', cntr_value: '8388608' },
+      ],
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/api/metrics/1/memory/breakdown' });
+    expect(res.statusCode).toBe(200);
+
+    // The perf_counters query should NOT have a time filter
+    const sql = mockPool.query.mock.calls[0][0] as string;
+    expect(sql).not.toContain('NOW()');
+    expect(sql).not.toContain('interval');
+    expect(sql).not.toContain('5 minutes');
+  });
 });
