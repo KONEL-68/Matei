@@ -26,14 +26,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 /server              — Fastify API + collector scheduler + background jobs
   /src/index.ts        — Entry point: Fastify setup, route registration, scheduler start
   /src/collector/      — scheduler.ts → worker-pool.ts → collectors/*.ts
-  /src/routes/         — auth.ts, instances.ts, metrics.ts, alerts.ts, queries.ts, groups.ts, deadlocks.ts, settings.ts
+  /src/routes/         — auth.ts, instances.ts, metrics.ts, alerts.ts, queries.ts, groups.ts, deadlocks.ts, settings.ts, users.ts
   /src/alerts/         — engine.ts (threshold eval), webhook.ts (Slack/Telegram)
   /src/jobs/           — aggregator.ts (5min/hourly rollups), partition-manager.ts
   /src/lib/            — crypto.ts (AES-256-GCM), mssql.ts (connection pool), auth.ts
-  /src/migrations/     — Numbered SQL migration files + run.ts executor
+  /src/migrations/     — SQL files (###_description.sql, e.g. 001_initial.sql) + run.ts executor
 /web                 — React frontend (Vite)
   /src/pages/          — Dashboard, Instances, InstanceDetail, QueryExplorer, Alerts, Login, Settings
-  /src/components/     — CpuChart, MemoryChart, SessionsTable, WaitsTable, DeadlocksTable, InstanceForm, Layout
+  /src/components/     — StatusBar, CpuChart, MemoryChart, MemoryBreakdown, SessionsTable, WaitsTable, TopWaitsTable, WaitsChart, DeadlocksTable, BlockingTree, FileIoChart, DiskChart, CollapsibleSection, InstanceForm, Layout
   /src/components/settings/ — GroupsSettings, AlertsSettings, RetentionSettings, AboutSettings
 /docker              — Docker Compose stack + nginx config
 /sql                 — DMV query library (one .sql file per metric category)
@@ -45,7 +45,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Development
 docker compose -f docker/docker-compose.yml up -d postgres   # start PostgreSQL
 cd server && npm install && npm run dev                       # backend with hot reload (tsx watch)
-cd web && npm install && npm run dev                          # frontend Vite dev server (port 5173)
+cd web && npm install && npm run dev                          # frontend Vite dev server (port 5173, proxies /api to :3001)
 
 # Testing
 cd server && npx vitest run                  # all backend tests
@@ -62,8 +62,8 @@ cd web && npm run preview                    # preview production build locally
 # Production
 cd server && npm start                       # run built server (dist/index.js)
 
-# Database migrations
-cd server && npm run migrate                 # run pending migrations
+# Database migrations (auto-run on backend startup, or manually)
+cd server && npm run migrate                 # run pending migrations manually
 
 # Full stack (Docker)
 docker compose -f docker/docker-compose.yml up --build       # all services on port 80
@@ -77,6 +77,8 @@ docker compose -f docker/docker-compose.yml up --build       # all services on p
 - SQL queries: parameterized, never string concatenation
 - Connections: use connection pool, timeout 5s connect / 10s query
 - Tests: Vitest for backend, Vitest + React Testing Library for frontend
+- No linter or formatter configured — no ESLint, no Prettier
+- Frontend path alias: `@/` maps to `web/src/` (configured in tsconfig + vite.config.ts)
 - Dependencies: must be MIT/Apache-2.0/BSD licensed — no GPL, SSPL, or BSL (ADR-005)
 
 ## Git workflow
@@ -91,8 +93,9 @@ docker compose -f docker/docker-compose.yml up --build       # all services on p
 ## Collector design
 - Worker pool: 40 concurrent workers
 - Collection cycle: must complete 200 instances within 30 seconds
+- Cycle skipping: if a previous cycle is still running, the next trigger is skipped (no overlap)
 - Per-instance: connect → run DMV queries → disconnect → batch insert to PostgreSQL
-- Delta metrics (wait_stats, query_stats, file_io): store snapshot in memory,
+- Delta metrics (wait_stats, query_stats, file_io, perf_counters): store snapshot in memory,
   compute delta, write delta to PostgreSQL
 - Snapshot metrics (active sessions, server properties): write as-is
 - Failed instance: log error, mark unreachable, continue to next, retry next cycle
@@ -108,17 +111,20 @@ docker compose -f docker/docker-compose.yml up --build       # all services on p
 - file_io_stats is also cumulative (delta computation same pattern as wait_stats)
 
 ## Collection frequencies
+Default cycle interval: 30s (COLLECTOR_INTERVAL_MS). Some metrics skip cycles:
 | Metric | Frequency | Type |
 |--------|-----------|------|
 | active_sessions | 15s | snapshot |
-| wait_stats | 30s | delta |
-| os_cpu | 30s | snapshot |
-| os_memory | 30s | snapshot |
-| file_io_stats | 30s | delta |
-| instance_health | 60s | snapshot |
-| os_disk | 5min | snapshot |
-| os_host_info | on connect | snapshot |
+| wait_stats | 30s (every cycle) | delta |
+| os_cpu | 30s (every cycle) | snapshot |
+| os_memory | 30s (every cycle) | snapshot |
+| file_io_stats | 30s (every cycle) | delta |
+| perf_counters | 30s (every cycle) | delta (rate) + snapshot (instantaneous), includes dm_os_schedulers Pending Tasks |
+| instance_health | 60s (every 2nd cycle) | snapshot |
+| query_stats | 60s (every 2nd cycle) | delta |
 | deadlocks | 60s (every 2nd cycle) | snapshot (event-based) |
+| os_disk | 5min (every 10th cycle) | snapshot |
+| os_host_info | on connect | snapshot |
 
 ## Data retention
 - Raw metrics: 7 days (partitioned by day)
@@ -138,7 +144,7 @@ docker compose -f docker/docker-compose.yml up --build       # all services on p
   computes diff on next cycle, writes only the delta. Restart detection via sqlserver_start_time
   change resets the baseline.
 - **Credentials**: encrypted at rest with AES-256-GCM (lib/crypto.ts), decrypted only at
-  connection time (lib/mssql.ts). ENCRYPTION_KEY from environment.
+  connection time (lib/mssql.ts). ENCRYPTION_KEY from environment (also used as JWT secret).
 - **Alerts**: engine.ts evaluates thresholds after each collection cycle, uses in-memory
   cycle counting for multi-cycle thresholds, 15-minute dedup cooldown.
 
