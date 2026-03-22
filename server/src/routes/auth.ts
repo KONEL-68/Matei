@@ -55,6 +55,9 @@ export async function authRoutes(app: FastifyInstance, pool: pg.Pool, jwtSecret:
     const payload: TokenPayload = { userId: user.id, username: user.username, role: user.role };
     const tokens = createTokenPair(payload, jwtSecret);
 
+    // Record last login time (best-effort, don't fail login if this fails)
+    pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]).catch(() => {});
+
     return reply.send({
       ...tokens,
       user: { id: user.id, username: user.username, role: user.role },

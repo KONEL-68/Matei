@@ -2,14 +2,16 @@ import { useState } from 'react';
 import { GroupsSettings } from '@/components/settings/GroupsSettings';
 import { AlertsSettings } from '@/components/settings/AlertsSettings';
 import { RetentionSettings } from '@/components/settings/RetentionSettings';
+import { UsersSettings } from '@/components/settings/UsersSettings';
 import { AboutSettings } from '@/components/settings/AboutSettings';
 
-type Tab = 'groups' | 'alerts' | 'retention' | 'about';
+type Tab = 'groups' | 'alerts' | 'retention' | 'users' | 'about';
 
 const tabs: Array<{ key: Tab; label: string }> = [
   { key: 'groups', label: 'Groups' },
   { key: 'alerts', label: 'Alerts' },
   { key: 'retention', label: 'Retention' },
+  { key: 'users', label: 'Users' },
   { key: 'about', label: 'About' },
 ];
 
@@ -40,6 +42,7 @@ export function Settings() {
         {activeTab === 'groups' && <GroupsSettings />}
         {activeTab === 'alerts' && <AlertsSettings />}
         {activeTab === 'retention' && <RetentionSettings />}
+        {activeTab === 'users' && <UsersSettings />}
         {activeTab === 'about' && <AboutSettings />}
       </div>
     </div>

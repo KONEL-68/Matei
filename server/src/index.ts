@@ -10,6 +10,7 @@ import { queryRoutes } from './routes/queries.js';
 import { groupRoutes } from './routes/groups.js';
 import { deadlockRoutes } from './routes/deadlocks.js';
 import { settingsRoutes } from './routes/settings.js';
+import { userRoutes } from './routes/users.js';
 import { registerAuthHook } from './middleware/auth.js';
 import { CollectorScheduler } from './collector/scheduler.js';
 import { startPartitionManager } from './jobs/partition-manager.js';
@@ -36,6 +37,7 @@ await queryRoutes(app, pool, config);
 await groupRoutes(app, pool);
 await deadlockRoutes(app, pool);
 await settingsRoutes(app, pool);
+await userRoutes(app, pool);
 
 const scheduler = new CollectorScheduler(pool, config, app.log);
 

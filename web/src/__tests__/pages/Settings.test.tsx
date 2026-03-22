@@ -36,6 +36,12 @@ vi.mock('@/lib/auth', () => ({
     if (url.includes('/api/instances')) {
       return { ok: true, json: async () => [] };
     }
+    if (url.includes('/api/users')) {
+      return { ok: true, json: async () => [] };
+    }
+    if (url.includes('/api/settings/webhook')) {
+      return { ok: true, json: async () => ({ url: '', enabled: false }) };
+    }
     return { ok: true, json: async () => ({}) };
   }),
 }));
@@ -50,11 +56,12 @@ function renderSettings() {
 }
 
 describe('Settings', () => {
-  it('renders all 4 tabs', () => {
+  it('renders all 5 tabs', () => {
     renderSettings();
     expect(screen.getByText('Groups')).toBeInTheDocument();
     expect(screen.getByText('Alerts')).toBeInTheDocument();
     expect(screen.getByText('Retention')).toBeInTheDocument();
+    expect(screen.getByText('Users')).toBeInTheDocument();
     expect(screen.getByText('About')).toBeInTheDocument();
   });
 
