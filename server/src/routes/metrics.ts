@@ -8,6 +8,34 @@ interface IdParam {
 
 interface RangeQuery {
   range?: '1h' | '6h' | '24h' | '7d' | '30d' | '1y';
+  from?: string;
+  to?: string;
+}
+
+/**
+ * Resolve time filter: if from+to are provided, use them; otherwise use range preset.
+ * Returns { condition, params } for SQL WHERE clause.
+ * `timeCol` is the column name (e.g. 'collected_at' or 'bucket').
+ * `paramOffset` is the starting $N index for params.
+ */
+export function resolveTimeFilter(
+  query: RangeQuery,
+  timeCol: string,
+  paramOffset: number,
+): { condition: string; params: string[]; interval: string } {
+  if (query.from && query.to) {
+    return {
+      condition: `${timeCol} >= $${paramOffset} AND ${timeCol} <= $${paramOffset + 1}`,
+      params: [query.from, query.to],
+      interval: '24 hours', // fallback for tier detection
+    };
+  }
+  const interval = rangeToInterval(query.range);
+  return {
+    condition: `${timeCol} > NOW() - $${paramOffset}::interval`,
+    params: [interval],
+    interval,
+  };
 }
 
 function rangeToInterval(range: string | undefined): string {
@@ -163,20 +191,21 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
     });
   });
 
-  // GET /api/metrics/:instanceId/cpu?range=1h|6h|24h|7d|30d|1y
+  // GET /api/metrics/:instanceId/cpu?range=1h|6h|24h|7d|30d|1y&from=&to=
   app.get<{ Params: IdParam; Querystring: RangeQuery }>('/api/metrics/:id/cpu', async (req, reply) => {
     const { id } = req.params;
     const interval = rangeToInterval(req.query.range);
-    const tier = queryTier(req.query.range);
+    const tier = (req.query.from && req.query.to) ? 'raw' : queryTier(req.query.range);
 
     let result;
     if (tier === 'raw') {
+      const tf = resolveTimeFilter(req.query, 'collected_at', 2);
       result = await pool.query(
         `SELECT sql_cpu_pct, other_process_cpu_pct, system_idle_pct, collected_at
          FROM os_cpu
-         WHERE instance_id = $1 AND collected_at > NOW() - $2::interval
+         WHERE instance_id = $1 AND ${tf.condition}
          ORDER BY collected_at ASC`,
-        [id, interval],
+        [id, ...tf.params],
       );
     } else {
       const table = tier === '5min' ? 'os_cpu_5min' : 'os_cpu_hourly';
@@ -193,21 +222,22 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
     return reply.send(result.rows);
   });
 
-  // GET /api/metrics/:instanceId/memory?range=1h|6h|24h|7d|30d|1y
+  // GET /api/metrics/:instanceId/memory?range=1h|6h|24h|7d|30d|1y&from=&to=
   app.get<{ Params: IdParam; Querystring: RangeQuery }>('/api/metrics/:id/memory', async (req, reply) => {
     const { id } = req.params;
     const interval = rangeToInterval(req.query.range);
-    const tier = queryTier(req.query.range);
+    const tier = (req.query.from && req.query.to) ? 'raw' : queryTier(req.query.range);
 
     let result;
     if (tier === 'raw') {
+      const tf = resolveTimeFilter(req.query, 'collected_at', 2);
       result = await pool.query(
         `SELECT os_total_memory_mb, os_available_memory_mb, os_used_memory_mb, os_memory_used_pct,
                 sql_committed_mb, sql_target_mb, collected_at
          FROM os_memory
-         WHERE instance_id = $1 AND collected_at > NOW() - $2::interval
+         WHERE instance_id = $1 AND ${tf.condition}
          ORDER BY collected_at ASC`,
-        [id, interval],
+        [id, ...tf.params],
       );
     } else {
       const table = tier === '5min' ? 'os_memory_5min' : 'os_memory_hourly';
