@@ -8,13 +8,12 @@ vi.mock('@/lib/auth', () => ({
 }));
 
 vi.mock('@/lib/theme', () => ({
-  useTheme: () => ({ theme: 'light', setTheme: vi.fn() }),
+  useTheme: () => ({ theme: 'dark', setTheme: vi.fn() }),
 }));
 
-// Mock Recharts to avoid canvas issues in test env
 vi.mock('recharts', () => ({
-  AreaChart: ({ children }: { children: React.ReactNode }) => <div data-testid="area-chart">{children}</div>,
-  Area: () => <div data-testid="area" />,
+  BarChart: ({ children }: { children: React.ReactNode }) => <div data-testid="bar-chart">{children}</div>,
+  Bar: () => <div data-testid="bar" />,
   XAxis: () => null,
   YAxis: () => null,
   CartesianGrid: () => null,
@@ -36,11 +35,10 @@ describe('WaitsChart', () => {
     mockAuthFetch.mockResolvedValueOnce({ ok: true, json: async () => [] });
     const { container } = renderWithQuery(<WaitsChart instanceId="1" range="1h" />);
     await new Promise((r) => setTimeout(r, 50));
-    // No chart rendered
-    expect(container.querySelector('[data-testid="area-chart"]')).toBeNull();
+    expect(container.querySelector('[data-testid="bar-chart"]')).toBeNull();
   });
 
-  it('renders chart with data', async () => {
+  it('renders stacked bar chart with data', async () => {
     const data = [
       { bucket: '2026-03-22T10:00:00Z', wait_type: 'CXPACKET', wait_ms_per_sec: 12.5 },
       { bucket: '2026-03-22T10:01:00Z', wait_type: 'CXPACKET', wait_ms_per_sec: 8.0 },
@@ -49,6 +47,13 @@ describe('WaitsChart', () => {
     renderWithQuery(<WaitsChart instanceId="1" range="1h" />);
 
     expect(await screen.findByText('Wait Stats Over Time (ms/sec)')).toBeInTheDocument();
-    expect(screen.getByTestId('area-chart')).toBeInTheDocument();
+    expect(screen.getByTestId('bar-chart')).toBeInTheDocument();
+  });
+
+  it('does not fetch when enabled=false', () => {
+    mockAuthFetch.mockClear();
+    const { container } = renderWithQuery(<WaitsChart instanceId="1" range="1h" enabled={false} />);
+    expect(container.querySelector('[data-testid="bar-chart"]')).toBeNull();
+    expect(mockAuthFetch).not.toHaveBeenCalled();
   });
 });
