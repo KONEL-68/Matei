@@ -1,3 +1,6 @@
+import { useQuery } from '@tanstack/react-query';
+import { authFetch } from '@/lib/auth';
+
 interface PerfCounterLatest {
   counter_name: string;
   cntr_value: number;
@@ -22,11 +25,7 @@ interface CpuRow {
 }
 
 export interface StatusBarProps {
-  cpuData: CpuRow[];
-  waitsData: WaitRow[];
-  sessionsData: SessionRow[];
-  fileIoData: FileIoRow[];
-  perfCounters?: { latest: PerfCounterLatest[] };
+  instanceId: string;
 }
 
 type Severity = 'green' | 'yellow' | 'red' | 'gray';
@@ -67,7 +66,46 @@ function formatPle(v: number | null): string {
   return `${Math.round(v)}s`;
 }
 
-export function StatusBar({ cpuData, waitsData, sessionsData, fileIoData, perfCounters }: StatusBarProps) {
+async function fetchJson<T>(url: string): Promise<T> {
+  const res = await authFetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch ${url}`);
+  return res.json();
+}
+
+const DIV = 'inline-flex items-center gap-1.5 border-l border-gray-300 dark:border-gray-600 pl-3';
+
+export function StatusBar({ instanceId }: StatusBarProps) {
+  // All queries use short range or no range — always latest values, independent of time range picker
+  const { data: cpuData = [] } = useQuery<CpuRow[]>({
+    queryKey: ['statusbar-cpu', instanceId],
+    queryFn: () => fetchJson(`/api/metrics/${instanceId}/cpu?range=1h`),
+    refetchInterval: 15_000,
+  });
+
+  const { data: waitsData = [] } = useQuery<WaitRow[]>({
+    queryKey: ['statusbar-waits', instanceId],
+    queryFn: () => fetchJson(`/api/metrics/${instanceId}/waits?range=1h`),
+    refetchInterval: 15_000,
+  });
+
+  const { data: sessionsData = [] } = useQuery<SessionRow[]>({
+    queryKey: ['statusbar-sessions', instanceId],
+    queryFn: () => fetchJson(`/api/metrics/${instanceId}/sessions`),
+    refetchInterval: 15_000,
+  });
+
+  const { data: fileIoData = [] } = useQuery<FileIoRow[]>({
+    queryKey: ['statusbar-fileio', instanceId],
+    queryFn: () => fetchJson(`/api/metrics/${instanceId}/file-io?range=1h`),
+    refetchInterval: 15_000,
+  });
+
+  const { data: perfCounters } = useQuery<{ latest: PerfCounterLatest[] }>({
+    queryKey: ['statusbar-perf', instanceId],
+    queryFn: () => fetchJson(`/api/metrics/${instanceId}/perf-counters?range=1h`),
+    refetchInterval: 15_000,
+  });
+
   const latestCpu = cpuData.length > 0 ? cpuData[cpuData.length - 1].sql_cpu_pct : null;
   const cpuSev = sev(latestCpu, 75, 90);
 
@@ -83,7 +121,6 @@ export function StatusBar({ cpuData, waitsData, sessionsData, fileIoData, perfCo
   const pending = getCounter(counters, 'Pending Tasks');
   const pendingSev = sev(pending, 5, 20);
 
-  // Average read/write latency across all files
   const avgRead = fileIoData.length > 0
     ? fileIoData.reduce((sum, f) => sum + f.avg_read_latency_ms, 0) / fileIoData.length
     : null;
@@ -107,27 +144,36 @@ export function StatusBar({ cpuData, waitsData, sessionsData, fileIoData, perfCo
       <span className="inline-flex items-center gap-1.5">
         <Dot severity={cpuSev} />CPU {latestCpu != null ? `${latestCpu}%` : '\u2014'}
       </span>
-      <span className="inline-flex items-center gap-1.5 border-l border-gray-300 dark:border-gray-600 pl-3">
+      <span className={DIV}>
         <Dot severity={topWaitSev} />
         Top Wait: {topWait ? `${topWait.wait_type} ${topWait.wait_ms_per_sec.toFixed(0)}ms/s` : '\u2014'}
       </span>
-      <span className="inline-flex items-center gap-1.5 border-l border-gray-300 dark:border-gray-600 pl-3">
+      <span className={DIV}>
         <Dot severity={blockedSev} />Blocked {blockedCount}
       </span>
-      <span className="inline-flex items-center gap-1.5 border-l border-gray-300 dark:border-gray-600 pl-3">
+      <span className={DIV}>
         <Dot severity={pendingSev} />Pending {pending != null ? pending : '\u2014'}
       </span>
-      <span className="inline-flex items-center gap-1.5 border-l border-gray-300 dark:border-gray-600 pl-3">
+      <span className={DIV}>
         <Dot severity={readSev} />Read IO {avgRead != null ? `${avgRead.toFixed(1)}ms` : '\u2014'}
       </span>
-      <span className="inline-flex items-center gap-1.5 border-l border-gray-300 dark:border-gray-600 pl-3">
+      <span className={DIV}>
         <Dot severity={writeSev} />Write IO {avgWrite != null ? `${avgWrite.toFixed(1)}ms` : '\u2014'}
       </span>
-      <span className="inline-flex items-center gap-1.5 border-l border-gray-300 dark:border-gray-600 pl-3">
+      <span className={DIV}>
         <Dot severity={pleSev} />PLE {formatPle(ple)}
       </span>
-      <span className="inline-flex items-center gap-1.5 border-l border-gray-300 dark:border-gray-600 pl-3">
+      <span className={DIV}>
         <Dot severity={memGrantsSev} />Mem Grants Pending {memGrants != null ? memGrants : '\u2014'}
+      </span>
+      <span
+        className="ml-auto inline-flex items-center gap-1 text-gray-400 dark:text-gray-500"
+        title="Showing latest values, independent of time range filter"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+        </svg>
+        Live
       </span>
     </div>
   );

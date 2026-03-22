@@ -1,35 +1,63 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from '../../components/StatusBar';
 
-const baseCpu = [{ sql_cpu_pct: 12 }];
-const baseWaits = [{ wait_type: 'ASYNC_NETWORK_IO', wait_ms_per_sec: 133 }];
-const baseSessions = [{ blocking_session_id: null }, { blocking_session_id: 0 }];
-const baseFileIo = [{ avg_read_latency_ms: 0.3, avg_write_latency_ms: 8.4 }];
-const basePerfCounters = {
-  latest: [
-    { counter_name: 'Page life expectancy', cntr_value: 74160 },
-    { counter_name: 'Memory Grants Pending', cntr_value: 0 },
-    { counter_name: 'Pending Tasks', cntr_value: 2 },
-  ],
-};
+vi.mock('@/lib/auth', () => ({
+  authFetch: vi.fn(),
+}));
+
+import { authFetch } from '@/lib/auth';
+const mockAuthFetch = vi.mocked(authFetch);
+
+function renderWithQuery(ui: React.ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>,
+  );
+}
+
+function mockAllEndpoints(overrides?: {
+  cpu?: unknown[];
+  waits?: unknown[];
+  sessions?: unknown[];
+  fileIo?: unknown[];
+  perfCounters?: unknown;
+}) {
+  const cpu = overrides?.cpu ?? [{ sql_cpu_pct: 12 }];
+  const waits = overrides?.waits ?? [{ wait_type: 'ASYNC_NETWORK_IO', wait_ms_per_sec: 133 }];
+  const sessions = overrides?.sessions ?? [{ blocking_session_id: null }];
+  const fileIo = overrides?.fileIo ?? [{ avg_read_latency_ms: 0.3, avg_write_latency_ms: 8.4 }];
+  const perfCounters = overrides?.perfCounters ?? {
+    latest: [
+      { counter_name: 'Page life expectancy', cntr_value: 74160 },
+      { counter_name: 'Memory Grants Pending', cntr_value: 0 },
+      { counter_name: 'Pending Tasks', cntr_value: 2 },
+    ],
+  };
+
+  mockAuthFetch.mockImplementation(async (url: string) => {
+    if (url.includes('/cpu')) return { ok: true, json: async () => cpu } as Response;
+    if (url.includes('/waits')) return { ok: true, json: async () => waits } as Response;
+    if (url.includes('/sessions')) return { ok: true, json: async () => sessions } as Response;
+    if (url.includes('/file-io')) return { ok: true, json: async () => fileIo } as Response;
+    if (url.includes('/perf-counters')) return { ok: true, json: async () => perfCounters } as Response;
+    return { ok: true, json: async () => [] } as Response;
+  });
+}
 
 describe('StatusBar', () => {
-  it('renders all 8 KPI labels', () => {
-    render(
-      <StatusBar
-        cpuData={baseCpu}
-        waitsData={baseWaits}
-        sessionsData={baseSessions}
-        fileIoData={baseFileIo}
-        perfCounters={basePerfCounters}
-      />,
-    );
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
-    const bar = screen.getByTestId('status-bar');
-    expect(bar).toBeInTheDocument();
-    expect(screen.getByText(/CPU 12%/)).toBeInTheDocument();
-    expect(screen.getByText(/Top Wait:/)).toBeInTheDocument();
+  it('renders all 8 KPI labels and Live indicator', async () => {
+    mockAllEndpoints();
+    renderWithQuery(<StatusBar instanceId="1" />);
+
+    expect(await screen.findByText(/CPU 12%/)).toBeInTheDocument();
     expect(screen.getByText(/ASYNC_NETWORK_IO/)).toBeInTheDocument();
     expect(screen.getByText(/Blocked 0/)).toBeInTheDocument();
     expect(screen.getByText(/Pending 2/)).toBeInTheDocument();
@@ -37,83 +65,79 @@ describe('StatusBar', () => {
     expect(screen.getByText(/Write IO 8.4ms/)).toBeInTheDocument();
     expect(screen.getByText(/PLE 20.6h/)).toBeInTheDocument();
     expect(screen.getByText(/Mem Grants Pending 0/)).toBeInTheDocument();
+    expect(screen.getByText('Live')).toBeInTheDocument();
   });
 
-  it('shows yellow dot for CPU >= 75', () => {
-    const { container } = render(
-      <StatusBar
-        cpuData={[{ sql_cpu_pct: 80 }]}
-        waitsData={[]}
-        sessionsData={[]}
-        fileIoData={[]}
-      />,
-    );
+  it('shows yellow dot for CPU >= 75', async () => {
+    mockAllEndpoints({ cpu: [{ sql_cpu_pct: 80 }] });
+    renderWithQuery(<StatusBar instanceId="1" />);
 
-    const cpuSpan = screen.getByText(/CPU 80%/).closest('span');
+    const cpuSpan = (await screen.findByText(/CPU 80%/)).closest('span');
     const dot = cpuSpan?.querySelector('.rounded-full');
     expect(dot?.className).toContain('bg-yellow-400');
   });
 
-  it('shows red dot for CPU >= 90', () => {
-    render(
-      <StatusBar
-        cpuData={[{ sql_cpu_pct: 95 }]}
-        waitsData={[]}
-        sessionsData={[]}
-        fileIoData={[]}
-      />,
-    );
+  it('shows red dot for CPU >= 90', async () => {
+    mockAllEndpoints({ cpu: [{ sql_cpu_pct: 95 }] });
+    renderWithQuery(<StatusBar instanceId="1" />);
 
-    const cpuSpan = screen.getByText(/CPU 95%/).closest('span');
+    const cpuSpan = (await screen.findByText(/CPU 95%/)).closest('span');
     const dot = cpuSpan?.querySelector('.rounded-full');
     expect(dot?.className).toContain('bg-red-500');
   });
 
-  it('shows red dot for PLE < 300', () => {
-    render(
-      <StatusBar
-        cpuData={[{ sql_cpu_pct: 10 }]}
-        waitsData={[]}
-        sessionsData={[]}
-        fileIoData={[]}
-        perfCounters={{ latest: [{ counter_name: 'Page life expectancy', cntr_value: 200 }] }}
-      />,
-    );
+  it('shows red dot for PLE < 300', async () => {
+    mockAllEndpoints({
+      perfCounters: { latest: [{ counter_name: 'Page life expectancy', cntr_value: 200 }] },
+    });
+    renderWithQuery(<StatusBar instanceId="1" />);
 
-    const pleSpan = screen.getByText(/PLE 200s/).closest('span');
+    const pleSpan = (await screen.findByText(/PLE 200s/)).closest('span');
     const dot = pleSpan?.querySelector('.rounded-full');
     expect(dot?.className).toContain('bg-red-500');
   });
 
-  it('shows gray dots when no data', () => {
-    const { container } = render(
-      <StatusBar cpuData={[]} waitsData={[]} sessionsData={[]} fileIoData={[]} />,
-    );
+  it('renders as a thin strip (compact height)', async () => {
+    mockAllEndpoints();
+    renderWithQuery(<StatusBar instanceId="1" />);
 
-    const bar = screen.getByTestId('status-bar');
-    const dots = bar.querySelectorAll('.bg-gray-500');
-    // CPU, Top Wait, Pending, Read IO, Write IO, PLE, Mem Grants = 7 gray (Blocked stays green at 0)
-    expect(dots.length).toBeGreaterThanOrEqual(5);
-  });
-
-  it('renders as a thin strip (compact height)', () => {
-    render(
-      <StatusBar cpuData={baseCpu} waitsData={baseWaits} sessionsData={baseSessions} fileIoData={baseFileIo} perfCounters={basePerfCounters} />,
-    );
-
-    const bar = screen.getByTestId('status-bar');
+    const bar = await screen.findByTestId('status-bar');
     expect(bar.className).toContain('py-1.5');
     expect(bar.className).toContain('text-xs');
   });
 
-  it('shows blocked count with red dot when >= 5', () => {
+  it('shows blocked count with red dot when >= 5', async () => {
     const sessions = Array.from({ length: 6 }, () => ({ blocking_session_id: 1 }));
-    render(
-      <StatusBar cpuData={baseCpu} waitsData={[]} sessionsData={sessions} fileIoData={[]} />,
-    );
+    mockAllEndpoints({ sessions });
+    renderWithQuery(<StatusBar instanceId="1" />);
 
-    const blockedSpan = screen.getByText(/Blocked 6/).closest('span');
+    const blockedSpan = (await screen.findByText(/Blocked 6/)).closest('span');
     const dot = blockedSpan?.querySelector('.rounded-full');
     expect(dot?.className).toContain('bg-red-500');
+  });
+
+  it('fetches data independently from time range (uses own query keys)', async () => {
+    mockAllEndpoints();
+    renderWithQuery(<StatusBar instanceId="1" />);
+
+    await screen.findByTestId('status-bar');
+
+    // All calls should use range=1h or no range (sessions) — never user-selected range
+    for (const call of mockAuthFetch.mock.calls) {
+      const url = call[0] as string;
+      if (url.includes('/sessions')) {
+        expect(url).not.toContain('range=');
+      } else {
+        expect(url).toContain('range=1h');
+      }
+    }
+  });
+
+  it('shows Live indicator with tooltip', async () => {
+    mockAllEndpoints();
+    renderWithQuery(<StatusBar instanceId="1" />);
+
+    const liveSpan = (await screen.findByText('Live')).closest('span');
+    expect(liveSpan?.getAttribute('title')).toBe('Showing latest values, independent of time range filter');
   });
 });

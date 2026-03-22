@@ -66,22 +66,6 @@ interface FileIoRow {
   avg_write_latency_ms: number;
 }
 
-interface PerfCounterLatest {
-  counter_name: string;
-  cntr_value: number;
-}
-
-interface PerfCounterSeries {
-  bucket: string;
-  counter_name: string;
-  cntr_value: number;
-}
-
-interface PerfCountersData {
-  latest: PerfCounterLatest[];
-  series: PerfCounterSeries[];
-}
-
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await authFetch(url);
   if (!res.ok) throw new Error(`Failed to fetch ${url}`);
@@ -159,12 +143,6 @@ export function InstanceDetail() {
   const { data: waitsData = [] } = useQuery({
     queryKey: ['metrics-waits', id, range, customRange],
     queryFn: () => fetchJson<Array<Record<string, unknown>>>(`/api/metrics/${id}/waits?${rangeParams}`),
-    refetchInterval: customRange ? false : 30000,
-  });
-
-  const { data: perfCounters } = useQuery<PerfCountersData>({
-    queryKey: ['perf-counters', id, range, customRange],
-    queryFn: () => fetchJson<PerfCountersData>(`/api/metrics/${id}/perf-counters?${rangeParams}`),
     refetchInterval: customRange ? false : 30000,
   });
 
@@ -296,15 +274,9 @@ export function InstanceDetail() {
         )}
       </div>
 
-      {/* 1. Status bar: 8 KPIs in a thin strip */}
+      {/* 1. Status bar: 8 KPIs in a thin strip (always live, independent of time range) */}
       <div className="mt-3">
-        <StatusBar
-          cpuData={cpuData as Array<{ sql_cpu_pct: number }>}
-          waitsData={waitsData as Array<{ wait_type: string; wait_ms_per_sec: number }>}
-          sessionsData={sessionsData as Array<{ blocking_session_id: number | null }>}
-          fileIoData={fileIoData as Array<{ avg_read_latency_ms: number; avg_write_latency_ms: number }>}
-          perfCounters={perfCounters}
-        />
+        <StatusBar instanceId={id!} />
       </div>
 
       {/* 2. CPU Chart (full width, 200px) */}
