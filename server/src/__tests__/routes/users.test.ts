@@ -8,7 +8,7 @@ function createMockPool() {
 
 // Attach a mock user to all requests (simulates auth middleware)
 function attachUser(app: ReturnType<typeof Fastify>, user: { userId: number; username: string; role: string }) {
-  app.addHook('preHandler', async (req) => {
+  app.addHook('preHandler', async (req: { user?: typeof user }) => {
     (req as unknown as { user: typeof user }).user = user;
   });
 }

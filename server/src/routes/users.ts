@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type pg from 'pg';
 import { hashPassword, verifyPassword, type TokenPayload } from '../lib/auth.js';
 
@@ -20,7 +20,7 @@ interface ResetPasswordBody {
   new_password: string;
 }
 
-function getUser(req: { user?: TokenPayload }): TokenPayload {
+function getUser(req: FastifyRequest): TokenPayload {
   return (req as unknown as { user: TokenPayload }).user;
 }
 
