@@ -22,7 +22,7 @@ function ProgressBar({ label, valueMb, maxMb, color = 'bg-blue-500' }: {
 }) {
   const pct = maxMb > 0 ? Math.min(100, Math.abs(valueMb) / maxMb * 100) : 0;
   return (
-    <div className="mb-2.5">
+    <div>
       <div className="flex items-center justify-between text-xs mb-0.5">
         <span className="text-gray-600 dark:text-gray-400">{label}</span>
         <span className="font-mono text-gray-900 dark:text-gray-100">{formatMb(valueMb)}</span>
@@ -48,8 +48,11 @@ export function MemoryBreakdown({ instanceId }: { instanceId: string }) {
     refetchInterval: 30_000,
   });
 
+  const deficitLabel = data && data.deficit_mb <= 0 ? 'Memory Surplus' : 'Memory Deficit';
+  const deficitColor = data && data.deficit_mb <= 0 ? 'bg-emerald-500' : 'bg-red-500';
+
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900 h-full">
+    <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900 flex flex-col" data-testid="memory-breakdown">
       <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">SQL Memory Breakdown</h3>
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
@@ -59,18 +62,18 @@ export function MemoryBreakdown({ instanceId }: { instanceId: string }) {
       ) : !data ? (
         <p className="text-sm text-gray-500 dark:text-gray-400">Waiting for memory data...</p>
       ) : (
-        <>
+        <div className="flex-1 flex flex-col justify-evenly py-2">
           <ProgressBar label="Total Server Memory" valueMb={data.total_mb} maxMb={data.total_mb} />
           <ProgressBar label="Target Server Memory" valueMb={data.target_mb} maxMb={data.total_mb} />
           <ProgressBar label="Stolen Server Memory" valueMb={data.stolen_mb} maxMb={data.total_mb} color="bg-amber-500" />
           <ProgressBar label="Database Cache Memory" valueMb={data.database_cache_mb} maxMb={data.total_mb} color="bg-emerald-500" />
           <ProgressBar
-            label="Memory Deficit"
+            label={deficitLabel}
             valueMb={data.deficit_mb}
             maxMb={data.total_mb}
-            color={data.deficit_mb > 0 ? 'bg-red-500' : 'bg-emerald-500'}
+            color={deficitColor}
           />
-        </>
+        </div>
       )}
     </div>
   );
