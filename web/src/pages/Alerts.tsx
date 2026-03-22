@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { authFetch } from '@/lib/auth';
 
@@ -19,6 +20,7 @@ const severityColors: Record<string, string> = {
 };
 
 export function Alerts() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [severityFilter, setSeverityFilter] = useState<string>('');
   const [ackFilter, setAckFilter] = useState<string>('false');
@@ -104,15 +106,23 @@ export function Alerts() {
                     {new Date(alert.created_at).toLocaleString()}
                   </td>
                   <td className="px-4 py-3">
-                    {!alert.acknowledged && (
+                    <div className="flex gap-2">
                       <button
-                        className="rounded bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-                        onClick={() => ackMutation.mutate(alert.id)}
-                        disabled={ackMutation.isPending}
+                        className="rounded bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-300 dark:hover:bg-blue-800"
+                        onClick={() => navigate(`/instances/${alert.instance_id}?at=${encodeURIComponent(alert.created_at)}&range=1h`)}
                       >
-                        Acknowledge
+                        Investigate
                       </button>
-                    )}
+                      {!alert.acknowledged && (
+                        <button
+                          className="rounded bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                          onClick={() => ackMutation.mutate(alert.id)}
+                          disabled={ackMutation.isPending}
+                        >
+                          Acknowledge
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

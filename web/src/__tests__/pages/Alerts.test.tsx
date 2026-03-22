@@ -39,4 +39,10 @@ describe('Alerts', () => {
     expect(await screen.findByText('CPU > 90% for 3 cycles')).toBeInTheDocument();
     expect(screen.getByText('Disk > 90%')).toBeInTheDocument();
   });
+
+  it('renders Investigate button on each alert', async () => {
+    renderAlerts();
+    const buttons = await screen.findAllByText('Investigate');
+    expect(buttons).toHaveLength(2);
+  });
 });
