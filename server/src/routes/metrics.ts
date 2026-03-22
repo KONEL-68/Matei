@@ -36,7 +36,11 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
   // GET /api/metrics/overview — fleet summary
   app.get('/api/metrics/overview', async (_req, reply) => {
     const instancesResult = await pool.query(
-      `SELECT id, name, host, port, status, last_seen, is_enabled FROM instances ORDER BY name`,
+      `SELECT i.id, i.name, i.host, i.port, i.status, i.last_seen, i.is_enabled,
+              i.group_id, g.name AS group_name
+       FROM instances i
+       LEFT JOIN instance_groups g ON g.id = i.group_id
+       ORDER BY i.name`,
     );
 
     const instances = instancesResult.rows;
@@ -126,13 +130,15 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
       } catch { /* no wait data yet */ }
     }
 
-    const instanceData = instances.map((inst: { id: number; name: string; host: string; port: number; status: string; last_seen: string | null; is_enabled: boolean }) => ({
+    const instanceData = instances.map((inst: { id: number; name: string; host: string; port: number; status: string; last_seen: string | null; is_enabled: boolean; group_id: number | null; group_name: string | null }) => ({
       id: inst.id,
       name: inst.name,
       host: inst.host,
       port: inst.port,
       status: inst.status,
       last_seen: inst.last_seen,
+      group_id: inst.group_id,
+      group_name: inst.group_name,
       cpu: latestCpu[inst.id] ?? null,
       memory: latestMemory[inst.id] ?? null,
       health: latestHealth[inst.id] ?? null,
@@ -333,4 +339,168 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
       instance: instanceResult.rows[0] ?? null,
     });
   });
+
+  // GET /api/metrics/:instanceId/blocking-chains — build blocking trees from latest sessions
+  app.get<{ Params: IdParam }>('/api/metrics/:id/blocking-chains', async (req, reply) => {
+    const { id } = req.params;
+
+    const latestResult = await pool.query(
+      `SELECT MAX(collected_at) as latest FROM active_sessions_snapshot WHERE instance_id = $1`,
+      [id],
+    );
+
+    if (!latestResult.rows[0]?.latest) {
+      return reply.send([]);
+    }
+
+    const result = await pool.query(
+      `SELECT session_id, blocking_session_id, login_name, database_name,
+              wait_type, wait_time_ms, elapsed_time_ms, current_statement
+       FROM active_sessions_snapshot
+       WHERE instance_id = $1 AND collected_at = $2
+         AND (blocking_session_id > 0 OR session_id IN (
+           SELECT blocking_session_id FROM active_sessions_snapshot
+           WHERE instance_id = $1 AND collected_at = $2 AND blocking_session_id > 0
+         ))`,
+      [id, latestResult.rows[0].latest],
+    );
+
+    return reply.send(buildBlockingTrees(result.rows));
+  });
+
+  // GET /api/metrics/:instanceId/disk — latest disk data
+  app.get<{ Params: IdParam }>('/api/metrics/:id/disk', async (req, reply) => {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `SELECT DISTINCT ON (volume_mount_point)
+              volume_mount_point, logical_volume_name, file_system_type,
+              total_mb, available_mb, used_mb, used_pct, collected_at
+       FROM os_disk
+       WHERE instance_id = $1 AND collected_at > NOW() - INTERVAL '10 minutes'
+       ORDER BY volume_mount_point, collected_at DESC`,
+      [id],
+    );
+
+    return reply.send(result.rows);
+  });
+
+  // GET /api/metrics/:instanceId/file-io?range=1h|6h|24h|7d
+  app.get<{ Params: IdParam; Querystring: RangeQuery }>('/api/metrics/:id/file-io', async (req, reply) => {
+    const { id } = req.params;
+    const interval = rangeToInterval(req.query.range);
+
+    const result = await pool.query(
+      `SELECT database_name, file_name, file_type,
+              SUM(num_of_reads_delta) AS total_reads,
+              SUM(num_of_writes_delta) AS total_writes,
+              CASE WHEN SUM(num_of_reads_delta) > 0
+                   THEN SUM(io_stall_read_ms_delta)::float / SUM(num_of_reads_delta)
+                   ELSE 0 END AS avg_read_latency_ms,
+              CASE WHEN SUM(num_of_writes_delta) > 0
+                   THEN SUM(io_stall_write_ms_delta)::float / SUM(num_of_writes_delta)
+                   ELSE 0 END AS avg_write_latency_ms,
+              SUM(num_of_bytes_read_delta) AS total_bytes_read,
+              SUM(num_of_bytes_written_delta) AS total_bytes_written
+       FROM file_io_stats
+       WHERE instance_id = $1 AND collected_at > NOW() - $2::interval
+       GROUP BY database_name, file_name, file_type
+       ORDER BY (SUM(io_stall_read_ms_delta) + SUM(io_stall_write_ms_delta)) DESC
+       LIMIT 20`,
+      [id, interval],
+    );
+
+    return reply.send(result.rows.map((r) => ({
+      ...r,
+      total_reads: Number(r.total_reads),
+      total_writes: Number(r.total_writes),
+      avg_read_latency_ms: Number(r.avg_read_latency_ms),
+      avg_write_latency_ms: Number(r.avg_write_latency_ms),
+      total_bytes_read: Number(r.total_bytes_read),
+      total_bytes_written: Number(r.total_bytes_written),
+    })));
+  });
+
+  // GET /api/metrics/:instanceId/host-info — OS host info
+  app.get<{ Params: IdParam }>('/api/metrics/:id/host-info', async (req, reply) => {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `SELECT host_platform, host_distribution, host_release,
+              host_service_pack_level, host_sku, os_language_version, collected_at
+       FROM os_host_info
+       WHERE instance_id = $1
+       ORDER BY collected_at DESC
+       LIMIT 1`,
+      [id],
+    );
+
+    if (result.rows.length === 0) {
+      return reply.send(null);
+    }
+
+    return reply.send(result.rows[0]);
+  });
+}
+
+// --- Blocking chain tree builder ---
+
+interface SessionNode {
+  session_id: number;
+  blocking_session_id: number | null;
+  login_name: string;
+  database_name: string;
+  wait_type: string | null;
+  wait_time_ms: number | null;
+  elapsed_time_ms: number | null;
+  current_statement: string | null;
+  children: SessionNode[];
+}
+
+/** Exported for testing. */
+export function buildBlockingTrees(
+  rows: Array<{
+    session_id: number;
+    blocking_session_id: number | null;
+    login_name: string;
+    database_name: string;
+    wait_type: string | null;
+    wait_time_ms: number | null;
+    elapsed_time_ms: number | null;
+    current_statement: string | null;
+  }>,
+): SessionNode[] {
+  const nodeMap = new Map<number, SessionNode>();
+
+  for (const row of rows) {
+    nodeMap.set(row.session_id, {
+      session_id: row.session_id,
+      blocking_session_id: row.blocking_session_id,
+      login_name: row.login_name,
+      database_name: row.database_name,
+      wait_type: row.wait_type,
+      wait_time_ms: row.wait_time_ms,
+      elapsed_time_ms: row.elapsed_time_ms,
+      current_statement: row.current_statement,
+      children: [],
+    });
+  }
+
+  const roots: SessionNode[] = [];
+
+  for (const node of nodeMap.values()) {
+    if (node.blocking_session_id && node.blocking_session_id > 0) {
+      const parent = nodeMap.get(node.blocking_session_id);
+      if (parent) {
+        parent.children.push(node);
+      } else {
+        // Blocker not in our data set — this node is effectively a root
+        roots.push(node);
+      }
+    } else {
+      roots.push(node);
+    }
+  }
+
+  return roots;
 }

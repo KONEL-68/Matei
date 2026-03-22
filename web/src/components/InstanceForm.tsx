@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { authFetch } from '@/lib/auth';
 
 export interface InstanceFormData {
   name: string;
@@ -7,6 +9,12 @@ export interface InstanceFormData {
   auth_type: 'sql' | 'windows';
   username: string;
   password: string;
+  group_id: number | null;
+}
+
+interface GroupOption {
+  id: number;
+  name: string;
 }
 
 interface InstanceFormProps {
@@ -26,12 +34,22 @@ const defaultData: InstanceFormData = {
   auth_type: 'sql',
   username: '',
   password: '',
+  group_id: null,
 };
 
 export function InstanceForm({ initial, onSubmit, onCancel, onTest, isSubmitting, isTesting, testResult }: InstanceFormProps) {
   const [form, setForm] = useState<InstanceFormData>({ ...defaultData, ...initial });
 
-  const set = (field: keyof InstanceFormData, value: string | number) =>
+  const { data: groups = [] } = useQuery<GroupOption[]>({
+    queryKey: ['groups-list'],
+    queryFn: async () => {
+      const res = await authFetch('/api/groups');
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const set = (field: keyof InstanceFormData, value: string | number | null) =>
     setForm((prev) => ({ ...prev, [field]: value }));
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -88,6 +106,22 @@ export function InstanceForm({ initial, onSubmit, onCancel, onTest, isSubmitting
         </select>
       </div>
 
+      {groups.length > 0 && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Group</label>
+          <select
+            value={form.group_id ?? ''}
+            onChange={(e) => set('group_id', e.target.value ? parseInt(e.target.value, 10) : null)}
+            className="mt-1 block w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+          >
+            <option value="">No group</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>{g.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {form.auth_type === 'sql' && (
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -113,7 +147,7 @@ export function InstanceForm({ initial, onSubmit, onCancel, onTest, isSubmitting
       )}
 
       {testResult && (
-        <div className={`rounded p-3 text-sm ${testResult.ok ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+        <div className={`rounded p-3 text-sm ${testResult.ok ? 'bg-green-50 text-green-800 border border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800' : 'bg-red-50 text-red-800 border border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800'}`}>
           {testResult.ok ? (
             <div>
               <p className="font-medium">Connection successful</p>
@@ -137,7 +171,7 @@ export function InstanceForm({ initial, onSubmit, onCancel, onTest, isSubmitting
           type="button"
           onClick={() => onTest(form)}
           disabled={isTesting || !form.host}
-          className="rounded bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+          className="rounded bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
         >
           {isTesting ? 'Testing...' : 'Test Connection'}
         </button>
@@ -145,7 +179,7 @@ export function InstanceForm({ initial, onSubmit, onCancel, onTest, isSubmitting
           <button
             type="button"
             onClick={onCancel}
-            className="rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
           >
             Cancel
           </button>

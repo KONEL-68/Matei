@@ -26,14 +26,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 /server              — Fastify API + collector scheduler + background jobs
   /src/index.ts        — Entry point: Fastify setup, route registration, scheduler start
   /src/collector/      — scheduler.ts → worker-pool.ts → collectors/*.ts
-  /src/routes/         — auth.ts, instances.ts, metrics.ts, alerts.ts, queries.ts
+  /src/routes/         — auth.ts, instances.ts, metrics.ts, alerts.ts, queries.ts, groups.ts, deadlocks.ts, settings.ts
   /src/alerts/         — engine.ts (threshold eval), webhook.ts (Slack/Telegram)
   /src/jobs/           — aggregator.ts (5min/hourly rollups), partition-manager.ts
   /src/lib/            — crypto.ts (AES-256-GCM), mssql.ts (connection pool), auth.ts
   /src/migrations/     — Numbered SQL migration files + run.ts executor
 /web                 — React frontend (Vite)
-  /src/pages/          — Dashboard, Instances, InstanceDetail, QueryExplorer, Alerts, Login
-  /src/components/     — CpuChart, MemoryChart, SessionsTable, WaitsTable, InstanceForm, Layout
+  /src/pages/          — Dashboard, Instances, InstanceDetail, QueryExplorer, Alerts, Login, Settings
+  /src/components/     — CpuChart, MemoryChart, SessionsTable, WaitsTable, DeadlocksTable, InstanceForm, Layout
+  /src/components/settings/ — GroupsSettings, AlertsSettings, RetentionSettings, AboutSettings
 /docker              — Docker Compose stack + nginx config
 /sql                 — DMV query library (one .sql file per metric category)
 /docs                — architecture decisions, metric specs
@@ -50,10 +51,16 @@ cd web && npm install && npm run dev                          # frontend Vite de
 cd server && npx vitest run                  # all backend tests
 cd server && npx vitest run src/path/test.ts # single test file
 cd web && npx vitest run                     # all frontend tests
+cd server && npx vitest                      # watch mode (re-runs on changes)
+cd web && npx vitest                         # watch mode
 
 # Build
 cd server && npm run build                   # TypeScript → dist/
 cd web && npm run build                      # tsc + Vite build
+cd web && npm run preview                    # preview production build locally
+
+# Production
+cd server && npm start                       # run built server (dist/index.js)
 
 # Database migrations
 cd server && npm run migrate                 # run pending migrations
@@ -70,6 +77,7 @@ docker compose -f docker/docker-compose.yml up --build       # all services on p
 - SQL queries: parameterized, never string concatenation
 - Connections: use connection pool, timeout 5s connect / 10s query
 - Tests: Vitest for backend, Vitest + React Testing Library for frontend
+- Dependencies: must be MIT/Apache-2.0/BSD licensed — no GPL, SSPL, or BSL (ADR-005)
 
 ## Collector design
 - Worker pool: 40 concurrent workers
@@ -89,7 +97,6 @@ docker compose -f docker/docker-compose.yml up --build       # all services on p
 - NEVER call dm_exec_query_plan() in collector hot path — only on-demand in API
 - All timestamps in UTC
 - file_io_stats is also cumulative (delta computation same pattern as wait_stats)
-- os_cpu ring_buffer approach is deprecated in SQL Server 2025 — plan migration to dm_os_ring_buffer_entries
 
 ## Collection frequencies
 | Metric | Frequency | Type |
@@ -102,17 +109,7 @@ docker compose -f docker/docker-compose.yml up --build       # all services on p
 | instance_health | 60s | snapshot |
 | os_disk | 5min | snapshot |
 | os_host_info | on connect | snapshot |
-
-## OS-level metrics via DMV (no WinRM/SSH needed)
-Most OS metrics are available through SQL Server DMVs — no need for agents or OS-level access:
-- CPU (SQL + OS + other): dm_os_ring_buffers (RING_BUFFER_SCHEDULER_MONITOR)
-- Memory (OS + SQL process): dm_os_sys_memory + dm_os_process_memory
-- Disk space per volume: dm_os_volume_stats (only volumes with SQL files)
-- Disk I/O per file: dm_io_virtual_file_stats (delta, same as wait stats)
-- OS info: dm_os_host_info (SQL 2017+, fallback to @@VERSION for 2016)
-
-Phase 2 (optional, future): WinRM for Windows / SSH for Linux for full OS metrics
-(network throughput, all disk volumes, services). This is NOT in scope for initial release.
+| deadlocks | 60s (every 2nd cycle) | snapshot (event-based) |
 
 ## Data retention
 - Raw metrics: 7 days (partitioned by day)
@@ -164,20 +161,9 @@ Phase 2 (optional, future): WinRM for Windows / SSH for Linux for full OS metric
 7. Add API endpoint in /server/src/routes/
 8. Add frontend component in /web/src/components/
 
-## Known issues / TODO (review before next session)
+## Known issues / TODO
 
-1. ~~**Wait stats API should also filter excluded waits on read**~~ — FIXED in 957065a.
-
-2. ~~**os_host_info collector missing**~~ — DONE. Added collector/os-host-info.ts,
-   migration 006_os_host_info.sql, integrated into worker-pool.ts. Collects once per
-   instance per process lifetime (tracked in hostInfoCollected Set).
-
-3. ~~**README.md outdated**~~ — DONE. Updated with actual implemented features, metrics table,
-   quick-start instructions, alert thresholds.
-
-4. ~~**excluded_waits.json incomplete**~~ — DONE. Merged the 281-entry version (ed6e6b5) with
-   the 143-entry version into a comprehensive 311-entry list covering all Paul Randal +
-   PREEMPTIVE_* + additional benign waits.
-
-5. **Docker rebuild required after code changes** — run `docker compose -f docker/docker-compose.yml up -d --build`
+1. **Docker rebuild required after code changes** — run `docker compose -f docker/docker-compose.yml up -d --build`
    after any code changes. Hot reload only works in local dev mode (npm run dev).
+2. **os_cpu ring_buffer deprecation** — `dm_os_ring_buffers` is deprecated in SQL Server 2025.
+   Plan migration to `dm_os_ring_buffer_entries` when adding SQL 2025 support.

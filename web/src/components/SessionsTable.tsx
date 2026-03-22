@@ -44,7 +44,7 @@ export function SessionsTable({ data }: SessionsTableProps) {
     return (
       <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
         <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">Active Sessions</h3>
-        <p className="text-sm text-gray-500">No active sessions</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">No active sessions</p>
       </div>
     );
   }

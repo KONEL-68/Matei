@@ -12,6 +12,7 @@ interface InstanceBody {
   auth_type?: 'sql' | 'windows';
   username?: string;
   password?: string;
+  group_id?: number | null;
 }
 
 interface IdParam {
@@ -22,8 +23,11 @@ export async function instanceRoutes(app: FastifyInstance, pool: pg.Pool, config
   // GET /api/instances — list all
   app.get('/api/instances', async (_req, reply) => {
     const result = await pool.query(
-      `SELECT id, name, host, port, auth_type, status, last_seen, is_enabled, created_at, updated_at
-       FROM instances ORDER BY name`,
+      `SELECT i.id, i.name, i.host, i.port, i.auth_type, i.status, i.last_seen,
+              i.is_enabled, i.created_at, i.updated_at, i.group_id, g.name AS group_name
+       FROM instances i
+       LEFT JOIN instance_groups g ON g.id = i.group_id
+       ORDER BY i.name`,
     );
     return reply.send(result.rows);
   });
@@ -32,8 +36,11 @@ export async function instanceRoutes(app: FastifyInstance, pool: pg.Pool, config
   app.get<{ Params: IdParam }>('/api/instances/:id', async (req, reply) => {
     const { id } = req.params;
     const result = await pool.query(
-      `SELECT id, name, host, port, auth_type, status, last_seen, is_enabled, created_at, updated_at
-       FROM instances WHERE id = $1`,
+      `SELECT i.id, i.name, i.host, i.port, i.auth_type, i.status, i.last_seen,
+              i.is_enabled, i.created_at, i.updated_at, i.group_id, g.name AS group_name
+       FROM instances i
+       LEFT JOIN instance_groups g ON g.id = i.group_id
+       WHERE i.id = $1`,
       [id],
     );
     if (result.rows.length === 0) {
@@ -44,7 +51,7 @@ export async function instanceRoutes(app: FastifyInstance, pool: pg.Pool, config
 
   // POST /api/instances — create
   app.post<{ Body: InstanceBody }>('/api/instances', async (req, reply) => {
-    const { name, host, port = 1433, auth_type = 'sql', username, password } = req.body;
+    const { name, host, port = 1433, auth_type = 'sql', username, password, group_id } = req.body;
 
     if (!host || !host.trim()) {
       return reply.status(400).send({ error: 'host is required' });
@@ -62,10 +69,10 @@ export async function instanceRoutes(app: FastifyInstance, pool: pg.Pool, config
 
     try {
       const result = await pool.query(
-        `INSERT INTO instances (name, host, port, auth_type, encrypted_credentials)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, name, host, port, auth_type, status, last_seen, is_enabled, created_at, updated_at`,
-        [name.trim(), host.trim(), port, auth_type, encryptedCreds ? Buffer.from(encryptedCreds, 'utf8') : null],
+        `INSERT INTO instances (name, host, port, auth_type, encrypted_credentials, group_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, name, host, port, auth_type, status, last_seen, is_enabled, created_at, updated_at, group_id`,
+        [name.trim(), host.trim(), port, auth_type, encryptedCreds ? Buffer.from(encryptedCreds, 'utf8') : null, group_id ?? null],
       );
       return reply.status(201).send(result.rows[0]);
     } catch (err: unknown) {
@@ -83,7 +90,7 @@ export async function instanceRoutes(app: FastifyInstance, pool: pg.Pool, config
   // PUT /api/instances/:id — update
   app.put<{ Params: IdParam; Body: InstanceBody }>('/api/instances/:id', async (req, reply) => {
     const { id } = req.params;
-    const { name, host, port = 1433, auth_type = 'sql', username, password } = req.body;
+    const { name, host, port = 1433, auth_type = 'sql', username, password, group_id } = req.body;
 
     if (!host || !host.trim()) {
       return reply.status(400).send({ error: 'host is required' });
@@ -102,10 +109,10 @@ export async function instanceRoutes(app: FastifyInstance, pool: pg.Pool, config
       const result = await pool.query(
         `UPDATE instances
          SET name = $1, host = $2, port = $3, auth_type = $4,
-             encrypted_credentials = $5, updated_at = NOW()
-         WHERE id = $6
-         RETURNING id, name, host, port, auth_type, status, last_seen, is_enabled, created_at, updated_at`,
-        [name.trim(), host.trim(), port, auth_type, encryptedCreds ? Buffer.from(encryptedCreds, 'utf8') : null, id],
+             encrypted_credentials = $5, group_id = $6, updated_at = NOW()
+         WHERE id = $7
+         RETURNING id, name, host, port, auth_type, status, last_seen, is_enabled, created_at, updated_at, group_id`,
+        [name.trim(), host.trim(), port, auth_type, encryptedCreds ? Buffer.from(encryptedCreds, 'utf8') : null, group_id ?? null, id],
       );
       if (result.rows.length === 0) {
         return reply.status(404).send({ error: 'Instance not found' });

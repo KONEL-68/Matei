@@ -5,9 +5,11 @@ import { CpuChart } from '@/components/CpuChart';
 import { MemoryChart } from '@/components/MemoryChart';
 import { WaitsTable } from '@/components/WaitsTable';
 import { SessionsTable } from '@/components/SessionsTable';
+import { DeadlocksTable } from '@/components/DeadlocksTable';
+import { BlockingTree } from '@/components/BlockingTree';
 import { authFetch } from '@/lib/auth';
 
-type TimeRange = '1h' | '6h' | '24h' | '7d';
+type TimeRange = '1h' | '6h' | '24h' | '7d' | '30d' | '1y';
 
 interface HealthData {
   instance_name: string;
@@ -24,6 +26,32 @@ interface HealthData {
   sqlserver_start_time: string;
   collected_at: string;
   instance: { name: string; host: string; port: number; status: string; last_seen: string | null } | null;
+}
+
+interface HostInfo {
+  host_platform: string;
+  host_distribution: string;
+  host_release: string;
+  host_service_pack_level: string;
+}
+
+interface DiskRow {
+  volume_mount_point: string;
+  logical_volume_name: string;
+  total_mb: number;
+  available_mb: number;
+  used_mb: number;
+  used_pct: number;
+}
+
+interface FileIoRow {
+  database_name: string;
+  file_name: string;
+  file_type: string;
+  total_reads: number;
+  total_writes: number;
+  avg_read_latency_ms: number;
+  avg_write_latency_ms: number;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -52,6 +80,12 @@ export function InstanceDetail() {
     refetchInterval: 60000,
   });
 
+  const { data: hostInfo } = useQuery({
+    queryKey: ['host-info', id],
+    queryFn: () => fetchJson<HostInfo | null>(`/api/metrics/${id}/host-info`),
+    refetchInterval: 300000,
+  });
+
   const { data: cpuData = [] } = useQuery({
     queryKey: ['metrics-cpu', id, range],
     queryFn: () => fetchJson<Array<Record<string, unknown>>>(`/api/metrics/${id}/cpu?range=${range}`),
@@ -76,7 +110,19 @@ export function InstanceDetail() {
     refetchInterval: 15000,
   });
 
-  const ranges: TimeRange[] = ['1h', '6h', '24h', '7d'];
+  const { data: diskData = [] } = useQuery<DiskRow[]>({
+    queryKey: ['metrics-disk', id],
+    queryFn: () => fetchJson<DiskRow[]>(`/api/metrics/${id}/disk`),
+    refetchInterval: 60000,
+  });
+
+  const { data: fileIoData = [] } = useQuery<FileIoRow[]>({
+    queryKey: ['metrics-file-io', id, range],
+    queryFn: () => fetchJson<FileIoRow[]>(`/api/metrics/${id}/file-io?range=${range}`),
+    refetchInterval: 30000,
+  });
+
+  const ranges: TimeRange[] = ['1h', '6h', '24h', '7d', '30d', '1y'];
   const instance = health?.instance;
 
   return (
@@ -124,6 +170,30 @@ export function InstanceDetail() {
         </div>
       </div>
 
+      {/* Host info card */}
+      {hostInfo && (
+        <div className="mt-4 rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
+          <div className="flex items-center gap-6 text-sm">
+            <div>
+              <span className="text-gray-500 dark:text-gray-400">OS: </span>
+              <span className="text-gray-900 dark:text-gray-100">{hostInfo.host_distribution || hostInfo.host_platform}</span>
+            </div>
+            {hostInfo.host_release && (
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Release: </span>
+                <span className="text-gray-900 dark:text-gray-100">{hostInfo.host_release}</span>
+              </div>
+            )}
+            {hostInfo.host_service_pack_level && (
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">SP: </span>
+                <span className="text-gray-900 dark:text-gray-100">{hostInfo.host_service_pack_level}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Time range picker */}
       <div className="mt-4 flex gap-1">
         {ranges.map((r) => (
@@ -147,6 +217,11 @@ export function InstanceDetail() {
         <MemoryChart data={memoryData as never[]} />
       </div>
 
+      {/* Blocking chains (only shows when there are active blocking chains) */}
+      <div className="mt-4">
+        <BlockingTree instanceId={id!} />
+      </div>
+
       {/* Waits */}
       <div className="mt-4">
         <WaitsTable data={waitsData as never[]} />
@@ -155,6 +230,89 @@ export function InstanceDetail() {
       {/* Sessions */}
       <div className="mt-4">
         <SessionsTable data={sessionsData as never[]} />
+      </div>
+
+      {/* Disk space */}
+      {diskData.length > 0 && (
+        <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+          <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">Disk Space</h3>
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-gray-200 bg-gray-50 text-xs font-medium uppercase text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">
+              <tr>
+                <th className="px-3 py-2">Volume</th>
+                <th className="px-3 py-2 text-right">Total GB</th>
+                <th className="px-3 py-2 text-right">Free GB</th>
+                <th className="px-3 py-2 text-right">Used %</th>
+                <th className="px-3 py-2 w-40">Usage</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+              {diskData.map((d) => (
+                <tr key={d.volume_mount_point} className="dark:text-gray-300">
+                  <td className="px-3 py-2 font-mono text-xs">{d.volume_mount_point} {d.logical_volume_name ? `(${d.logical_volume_name})` : ''}</td>
+                  <td className="px-3 py-2 text-right">{(d.total_mb / 1024).toFixed(1)}</td>
+                  <td className="px-3 py-2 text-right">{(d.available_mb / 1024).toFixed(1)}</td>
+                  <td className="px-3 py-2 text-right font-medium">{Number(d.used_pct).toFixed(1)}%</td>
+                  <td className="px-3 py-2">
+                    <div className="h-2 w-full rounded-full bg-gray-100 dark:bg-gray-800">
+                      <div
+                        className={`h-2 rounded-full transition-all ${
+                          Number(d.used_pct) > 95 ? 'bg-red-500' : Number(d.used_pct) > 90 ? 'bg-yellow-500' : 'bg-blue-500'
+                        }`}
+                        style={{ width: `${Math.min(100, Number(d.used_pct))}%` }}
+                      />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* File I/O */}
+      {fileIoData.length > 0 && (
+        <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+          <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">File I/O (top by latency)</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-gray-200 bg-gray-50 text-xs font-medium uppercase text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">
+                <tr>
+                  <th className="px-3 py-2">File</th>
+                  <th className="px-3 py-2">Type</th>
+                  <th className="px-3 py-2 text-right">Reads</th>
+                  <th className="px-3 py-2 text-right">Writes</th>
+                  <th className="px-3 py-2 text-right">Avg Read ms</th>
+                  <th className="px-3 py-2 text-right">Avg Write ms</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {fileIoData.map((f) => (
+                  <tr key={`${f.database_name}-${f.file_name}`} className="dark:text-gray-300">
+                    <td className="px-3 py-2">
+                      <span className="text-gray-500 dark:text-gray-400 text-xs">{f.database_name}/</span>
+                      <span className="font-mono text-xs">{f.file_name}</span>
+                    </td>
+                    <td className="px-3 py-2 text-xs">{f.file_type}</td>
+                    <td className="px-3 py-2 text-right">{f.total_reads.toLocaleString()}</td>
+                    <td className="px-3 py-2 text-right">{f.total_writes.toLocaleString()}</td>
+                    <td className={`px-3 py-2 text-right font-medium ${f.avg_read_latency_ms > 50 ? 'text-red-600 dark:text-red-400' : f.avg_read_latency_ms > 20 ? 'text-yellow-600 dark:text-yellow-400' : ''}`}>
+                      {f.avg_read_latency_ms.toFixed(1)}
+                    </td>
+                    <td className={`px-3 py-2 text-right font-medium ${f.avg_write_latency_ms > 50 ? 'text-red-600 dark:text-red-400' : f.avg_write_latency_ms > 20 ? 'text-yellow-600 dark:text-yellow-400' : ''}`}>
+                      {f.avg_write_latency_ms.toFixed(1)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Deadlocks */}
+      <div className="mt-4">
+        <DeadlocksTable instanceId={id!} range={range} />
       </div>
     </div>
   );

@@ -10,6 +10,7 @@ import { collectOsDisk, type OsDiskRow } from './collectors/os-disk.js';
 import { collectFileIoStats, type FileIoDelta } from './collectors/file-io-stats.js';
 import { collectQueryStats, type QueryStatsDelta } from './collectors/query-stats.js';
 import { collectOsHostInfo, type OsHostInfoRow } from './collectors/os-host-info.js';
+import { collectDeadlocks, type DeadlockRow } from './collectors/deadlocks.js';
 import { evaluateAlerts, writeAlerts } from '../alerts/engine.js';
 import { fireWebhook } from '../alerts/webhook.js';
 
@@ -32,6 +33,7 @@ export interface InstanceResult {
   fileIoStats: FileIoDelta[] | null;
   queryStats: QueryStatsDelta[] | null;
   osHostInfo: OsHostInfoRow[];
+  deadlocks: DeadlockRow[];
 }
 
 // Track cycle count for os_disk (runs every 10th cycle)
@@ -95,6 +97,7 @@ async function collectFromInstance(
     fileIoStats: null,
     queryStats: null,
     osHostInfo: [],
+    deadlocks: [],
   };
 
   let pool: sql.ConnectionPool | null = null;
@@ -122,6 +125,7 @@ async function collectFromInstance(
       Promise<OsDiskRow[]>,
       Promise<QueryStatsDelta[] | null>,
       Promise<OsHostInfoRow[]>,
+      Promise<DeadlockRow[]>,
     ] = [
       collectWaitStats(pool.request(), instance.id, startTime),
       collectActiveSessions(pool.request()),
@@ -131,15 +135,16 @@ async function collectFromInstance(
       isDiskCycle ? collectOsDisk(pool.request()) : Promise.resolve([]),
       isQueryStatsCycle ? collectQueryStats(pool.request(), instance.id, startTime) : Promise.resolve(null),
       needsHostInfo ? collectOsHostInfo(pool.request()) : Promise.resolve([]),
+      isQueryStatsCycle ? collectDeadlocks(pool.request(), instance.id) : Promise.resolve([]),
     ];
 
-    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, osHostInfo] = await Promise.all(collectorsPromise);
+    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, osHostInfo, deadlocks] = await Promise.all(collectorsPromise);
 
     if (needsHostInfo && osHostInfo.length > 0) {
       hostInfoCollected.add(instance.id);
     }
 
-    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'}${needsHostInfo ? ` hostinfo=${osHostInfo.length}` : ''}`);
+    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} deadlocks=${deadlocks.length}${needsHostInfo ? ` hostinfo=${osHostInfo.length}` : ''}`);
 
     return {
       instanceId: instance.id,
@@ -153,6 +158,7 @@ async function collectFromInstance(
       fileIoStats,
       queryStats,
       osHostInfo,
+      deadlocks,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -204,6 +210,7 @@ export async function collectAll(
     ['file_io_stats', () => batchInsertFileIoStats(pgPool, results)],
     ['query_stats', () => batchInsertQueryStats(pgPool, results)],
     ['os_host_info', () => batchInsertOsHostInfo(pgPool, results)],
+    ['deadlocks', () => batchInsertDeadlocks(pgPool, results)],
   ] as const) {
     try {
       await insertFn();
@@ -550,6 +557,35 @@ async function batchInsertOsHostInfo(pgPool: pg.Pool, results: InstanceResult[])
       host_release, host_service_pack_level, host_sku,
       os_language_version, collected_at
     ) VALUES ${placeholders.join(', ')}`,
+    values,
+  );
+}
+
+async function batchInsertDeadlocks(pgPool: pg.Pool, results: InstanceResult[]): Promise<void> {
+  const values: unknown[] = [];
+  const placeholders: string[] = [];
+  let idx = 1;
+
+  for (const r of results) {
+    for (const row of r.deadlocks) {
+      placeholders.push(
+        `($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`,
+      );
+      values.push(
+        r.instanceId, row.deadlock_time, row.victim_spid,
+        row.victim_query, row.deadlock_xml, new Date(),
+      );
+    }
+  }
+
+  if (placeholders.length === 0) return;
+
+  await pgPool.query(
+    `INSERT INTO deadlocks (
+      instance_id, deadlock_time, victim_spid,
+      victim_query, deadlock_xml, collected_at
+    ) VALUES ${placeholders.join(', ')}
+    ON CONFLICT (instance_id, deadlock_time, collected_at) DO NOTHING`,
     values,
   );
 }

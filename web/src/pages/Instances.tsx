@@ -14,6 +14,13 @@ interface Instance {
   is_enabled: boolean;
   created_at: string;
   updated_at: string;
+  group_id: number | null;
+  group_name: string | null;
+}
+
+interface GroupOption {
+  id: number;
+  name: string;
 }
 
 interface TestResult {
@@ -47,6 +54,11 @@ export function Instances() {
     queryFn: () => fetchJson<Instance[]>(API),
   });
 
+  const { data: groups = [] } = useQuery<GroupOption[]>({
+    queryKey: ['groups-options'],
+    queryFn: () => fetchJson<GroupOption[]>('/api/groups'),
+  });
+
   const createMutation = useMutation({
     mutationFn: (data: InstanceFormData) =>
       fetchJson(API, { method: 'POST', body: JSON.stringify(data) }),
@@ -75,6 +87,15 @@ export function Instances() {
 
   const testSavedMutation = useMutation({
     mutationFn: (id: number) => fetchJson<TestResult>(`${API}/${id}/test`, { method: 'POST' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['instances'] }),
+  });
+
+  const changeGroupMutation = useMutation({
+    mutationFn: ({ id, group_id }: { id: number; group_id: number | null }) =>
+      fetchJson(`${API}/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ ...instances.find((i) => i.id === id)!, group_id }),
+      }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['instances'] }),
   });
 
@@ -115,7 +136,7 @@ export function Instances() {
     return (
       <span className="inline-flex items-center gap-1.5">
         <span className={`inline-block h-2.5 w-2.5 rounded-full ${colors[status] ?? colors.unknown}`} />
-        <span className="capitalize">{status}</span>
+        <span className="capitalize dark:text-gray-300">{status}</span>
       </span>
     );
   }
@@ -158,6 +179,7 @@ export function Instances() {
                       host: editInstance.host,
                       port: editInstance.port,
                       auth_type: editInstance.auth_type as 'sql' | 'windows',
+                      group_id: editInstance.group_id,
                     }
                   : undefined
               }
@@ -213,9 +235,9 @@ export function Instances() {
       {/* Table */}
       <div className="mt-6 overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
         {isLoading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : instances.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No instances registered yet. Click "Add Instance" to get started.
           </div>
         ) : (
@@ -224,6 +246,7 @@ export function Instances() {
               <tr>
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Host</th>
+                <th className="px-4 py-3">Group</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Last Seen</th>
                 <th className="px-4 py-3 text-right">Actions</th>
@@ -234,6 +257,21 @@ export function Instances() {
                 <tr key={inst.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                   <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{inst.name}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{inst.host}:{inst.port}</td>
+                  <td className="px-4 py-3">
+                    <select
+                      value={inst.group_id ?? ''}
+                      onChange={(e) => changeGroupMutation.mutate({
+                        id: inst.id,
+                        group_id: e.target.value ? parseInt(e.target.value, 10) : null,
+                      })}
+                      className="rounded border border-gray-200 bg-transparent px-2 py-0.5 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-400"
+                    >
+                      <option value="">--</option>
+                      {groups.map((g) => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                      ))}
+                    </select>
+                  </td>
                   <td className="px-4 py-3">{statusDot(inst.status)}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{formatLastSeen(inst.last_seen)}</td>
                   <td className="px-4 py-3 text-right">

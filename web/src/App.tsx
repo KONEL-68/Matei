@@ -6,6 +6,7 @@ import { InstanceDetail } from './pages/InstanceDetail';
 import { Alerts } from './pages/Alerts';
 import { QueryExplorer } from './pages/QueryExplorer';
 import { Login } from './pages/Login';
+import { Settings } from './pages/Settings';
 import { isAuthenticated } from './lib/auth';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="/instances/:id" element={<InstanceDetail />} />
           <Route path="/instances/:id/queries" element={<QueryExplorer />} />
           <Route path="/alerts" element={<Alerts />} />
+          <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -8,6 +8,7 @@ const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/instances', label: 'Instances' },
   { to: '/alerts', label: 'Alerts' },
+  { to: '/settings', label: 'Settings' },
 ];
 
 export function Layout() {
