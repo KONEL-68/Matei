@@ -241,7 +241,7 @@ export async function collectAll(
 
       if (alerts.length > 0) {
         await writeAlerts(pgPool, r.instanceId, alerts);
-        fireWebhook(r.instanceId, alerts);
+        fireWebhook(r.instanceId, alerts, undefined, pgPool);
         log.info(`[instance=${r.instanceId}] ${alerts.length} alert(s) created`);
       }
     } catch (err) {
