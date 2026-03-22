@@ -160,12 +160,12 @@ describe('InstanceDetail', () => {
     expect(screen.getByText('Enterprise')).toBeInTheDocument();
   });
 
-  it('renders collapsible sections', async () => {
+  it('renders collapsible sections in correct order', async () => {
     renderDetail();
     expect(await screen.findByText('Wait Stats History')).toBeInTheDocument();
     expect(screen.getByText('Active Sessions')).toBeInTheDocument();
-    expect(screen.getByText('File I/O')).toBeInTheDocument();
     expect(screen.getByText('Deadlocks')).toBeInTheDocument();
+    expect(screen.getByText('File I/O')).toBeInTheDocument();
   });
 
   it('renders SQL Memory Breakdown section', async () => {
@@ -173,9 +173,17 @@ describe('InstanceDetail', () => {
     expect(await screen.findByText('SQL Memory Breakdown')).toBeInTheDocument();
   });
 
-  it('renders Query Explorer link button', async () => {
+  it('Query Explorer button is in header, not a standalone link', async () => {
     renderDetail();
-    const links = await screen.findAllByText(/Query Explorer/);
-    expect(links.length).toBeGreaterThanOrEqual(1);
+    const btn = await screen.findByTestId('query-explorer-header');
+    expect(btn).toBeInTheDocument();
+    expect(btn.tagName).toBe('BUTTON');
+  });
+
+  it('sessions and disk are in a 3-column grid', async () => {
+    renderDetail();
+    const grid = await screen.findByTestId('sessions-disk-grid');
+    expect(grid).toBeInTheDocument();
+    expect(grid.className).toContain('lg:grid-cols-3');
   });
 });

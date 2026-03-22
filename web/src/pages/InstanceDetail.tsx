@@ -98,6 +98,18 @@ function formatUptime(seconds: number): string {
   return `${mins}m`;
 }
 
+function diskBarColor(pct: number): string {
+  if (pct > 90) return 'bg-red-500';
+  if (pct > 75) return 'bg-yellow-500';
+  return 'bg-blue-500';
+}
+
+function diskTextColor(pct: number): string {
+  if (pct > 90) return 'text-red-600 dark:text-red-400';
+  if (pct > 75) return 'text-yellow-600 dark:text-yellow-400';
+  return 'text-gray-600 dark:text-gray-400';
+}
+
 export function InstanceDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -161,7 +173,7 @@ export function InstanceDetail() {
     ? `/api/metrics/${id}/sessions?at=${encodeURIComponent(sessionAt)}`
     : `/api/metrics/${id}/sessions`;
 
-  const { data: sessionsData = [] } = useQuery({
+  const { data: sessionsData = [], isLoading: sessionsLoading } = useQuery({
     queryKey: ['metrics-sessions', id, sessionAt],
     queryFn: () => fetchJson<Array<Record<string, unknown>>>(sessionsUrl),
     refetchInterval: sessionAt ? false : 15000,
@@ -200,7 +212,7 @@ export function InstanceDetail() {
 
   return (
     <div>
-      {/* Header: Instance name + status + version + inline stats */}
+      {/* Header: Instance name + status + Query Explorer + inline stats */}
       <div className="flex items-center gap-3">
         <button
           onClick={() => navigate('/dashboard')}
@@ -219,11 +231,13 @@ export function InstanceDetail() {
             {instance && (
               <span className={`inline-block h-2.5 w-2.5 rounded-full ${instance.status === 'online' ? 'bg-emerald-500' : 'bg-red-500'}`} title={instance.status} />
             )}
+            <span className="text-gray-300 dark:text-gray-600">|</span>
             <button
               onClick={() => navigate(`/instances/${id}/queries`)}
-              className="rounded bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              className="text-sm text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
+              data-testid="query-explorer-header"
             >
-              Query Explorer
+              Query Explorer &rarr;
             </button>
           </div>
           <div className="mt-1 flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
@@ -306,114 +320,125 @@ export function InstanceDetail() {
         )}
       </div>
 
-      {/* KPI Row: 4 cards from perf_counters */}
+      {/* 1. KPI Row: 4 cards from perf_counters */}
       <div className="mt-4">
         <KpiRow perfCounters={perfCounters} />
       </div>
 
-      {/* CPU Chart (full width, 200px) */}
+      {/* 2. CPU Chart (full width, 200px) */}
       <div className="mt-4">
         <CpuChart data={cpuData as never[]} height={200} />
       </div>
 
-      {/* Memory Chart + SQL Memory Breakdown (side by side) */}
+      {/* 3. Memory Chart + SQL Memory Breakdown (side by side) */}
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <MemoryChart data={memoryData as never[]} />
         <MemoryBreakdown instanceId={id!} />
       </div>
 
-      {/* Top Waits (always visible) */}
+      {/* 4. Top Waits (always visible) */}
       <div className="mt-4">
         <TopWaitsTable data={waitsData as Array<{ wait_type: string; wait_ms_per_sec: number; wait_time_ms: number }>} />
       </div>
 
-      {/* Waits History (collapsible, default open) */}
+      {/* 5. Wait Stats History (collapsible, default open) */}
       <div className="mt-4">
         <CollapsibleSection title="Wait Stats History" defaultOpen>
           <WaitsChart instanceId={id!} range={range} />
         </CollapsibleSection>
       </div>
 
-      {/* Sessions + Disk compact card (side by side) */}
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Active Sessions */}
-        <CollapsibleSection title="Active Sessions" badge={sessionsData.length || undefined}>
-          {sessionTimestamps.length > 1 && (
-            <div className="mb-2 rounded border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Snapshot:</span>
-                <button
-                  onClick={() => setSessionAt(null)}
-                  className={`rounded px-2 py-0.5 text-xs font-medium transition-colors ${
-                    !sessionAt
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  Latest
-                </button>
-                {sessionTimestamps.slice(0, 20).map((ts) => {
-                  const d = new Date(ts);
-                  const label = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                  const isSelected = sessionAt === ts;
-                  return (
-                    <button
-                      key={ts}
-                      onClick={() => setSessionAt(ts)}
-                      className={`rounded px-2 py-0.5 text-xs font-mono transition-colors ${
-                        isSelected
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-              {sessionAt && (
-                <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Showing snapshot: {new Date(sessionAt).toLocaleString()}
+      {/* 6. Active Sessions (2/3) + Disk Space (1/3) */}
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3" data-testid="sessions-disk-grid">
+        {/* Active Sessions: col-span-2 */}
+        <div className="lg:col-span-2">
+          <CollapsibleSection title="Active Sessions" badge={sessionsData.length} defaultOpen>
+            {/* Snapshot scrubber — show even with 1 timestamp */}
+            {sessionTimestamps.length >= 1 && (
+              <div className="mb-2 rounded border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Snapshot:</span>
+                  <button
+                    onClick={() => setSessionAt(null)}
+                    className={`rounded px-2 py-0.5 text-xs font-medium transition-colors ${
+                      !sessionAt
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    Latest
+                  </button>
+                  {sessionTimestamps.slice(0, 20).map((ts) => {
+                    const d = new Date(ts);
+                    const label = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    const isSelected = sessionAt === ts;
+                    return (
+                      <button
+                        key={ts}
+                        onClick={() => setSessionAt(ts)}
+                        className={`rounded px-2 py-0.5 text-xs font-mono transition-colors ${
+                          isSelected
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
                 </div>
-              )}
-            </div>
-          )}
-          <SessionsTable data={sessionsData as never[]} />
-        </CollapsibleSection>
+                {sessionAt && (
+                  <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Showing snapshot: {new Date(sessionAt).toLocaleString()}
+                  </div>
+                )}
+              </div>
+            )}
+            {sessionsLoading ? (
+              <div className="flex items-center gap-2 py-4 text-sm text-gray-500 dark:text-gray-400">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-500" />
+                Loading sessions...
+              </div>
+            ) : (
+              <SessionsTable data={sessionsData as never[]} compact />
+            )}
+          </CollapsibleSection>
+        </div>
 
-        {/* Disk Space + Disk Growth */}
-        <div>
+        {/* Disk Space + Disk Growth: col-span-1 */}
+        <div className="lg:col-span-1">
           <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
             <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">Disk Space</h3>
             {diskData.length === 0 ? (
               <p className="text-sm text-gray-500 dark:text-gray-400">No disk data</p>
             ) : (
               <div className="space-y-2">
-                {diskData.map((d) => (
-                  <div key={d.volume_mount_point}>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-mono text-gray-700 dark:text-gray-300 truncate" title={`${d.volume_mount_point} ${d.logical_volume_name || ''}`}>
-                        {d.volume_mount_point}
-                      </span>
-                      <span className="ml-2 text-gray-500 dark:text-gray-400">
-                        {(d.available_mb / 1024).toFixed(0)}/{(d.total_mb / 1024).toFixed(0)} GB
-                      </span>
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-2">
-                      <div className="h-2 flex-1 rounded-full bg-gray-100 dark:bg-gray-800">
-                        <div
-                          className={`h-2 rounded-full transition-all ${
-                            Number(d.used_pct) > 95 ? 'bg-red-500' : Number(d.used_pct) > 90 ? 'bg-yellow-500' : 'bg-blue-500'
-                          }`}
-                          style={{ width: `${Math.min(100, Number(d.used_pct))}%` }}
-                        />
+                {diskData.map((d) => {
+                  const pct = Number(d.used_pct);
+                  return (
+                    <div key={d.volume_mount_point}>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-mono text-gray-700 dark:text-gray-300 truncate" title={`${d.volume_mount_point} ${d.logical_volume_name || ''}`}>
+                          {d.volume_mount_point}
+                        </span>
+                        <span className="ml-2 text-gray-500 dark:text-gray-400">
+                          {(d.available_mb / 1024).toFixed(0)}/{(d.total_mb / 1024).toFixed(0)} GB
+                        </span>
                       </div>
-                      <span className={`text-xs font-medium w-10 text-right ${Number(d.used_pct) > 95 ? 'text-red-600 dark:text-red-400' : Number(d.used_pct) > 90 ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-600 dark:text-gray-400'}`}>
-                        {Number(d.used_pct).toFixed(0)}%
-                      </span>
+                      <div className="mt-0.5 flex items-center gap-2">
+                        <div className="h-2 flex-1 rounded-full bg-gray-100 dark:bg-gray-800">
+                          <div
+                            className={`h-2 rounded-full transition-all ${diskBarColor(pct)}`}
+                            style={{ width: `${Math.min(100, pct)}%` }}
+                          />
+                        </div>
+                        <span className={`text-xs font-medium w-10 text-right ${diskTextColor(pct)}`}>
+                          {pct.toFixed(0)}%
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -425,12 +450,19 @@ export function InstanceDetail() {
         </div>
       </div>
 
-      {/* Blocking chains (only visible when data) */}
+      {/* 7. Blocking chains (only visible when data, collapsible) */}
       <div className="mt-4">
         <BlockingTree instanceId={id!} />
       </div>
 
-      {/* File I/O (collapsible) */}
+      {/* 8. Deadlocks (collapsible) */}
+      <div className="mt-4">
+        <CollapsibleSection title="Deadlocks" badge={0}>
+          <DeadlocksTable instanceId={id!} range={range} />
+        </CollapsibleSection>
+      </div>
+
+      {/* 9. File I/O chart + table (collapsible) */}
       <div className="mt-4">
         <CollapsibleSection title="File I/O">
           <FileIoChart instanceId={id!} range={range} />
@@ -468,23 +500,6 @@ export function InstanceDetail() {
               </table>
             </div>
           )}
-        </CollapsibleSection>
-      </div>
-
-      {/* Query Explorer link */}
-      <div className="mt-4">
-        <button
-          onClick={() => navigate(`/instances/${id}/queries`)}
-          className="w-full rounded-lg border border-gray-200 bg-white px-4 py-3 text-left text-sm font-medium text-blue-600 hover:bg-blue-50 dark:border-gray-700 dark:bg-gray-900 dark:text-blue-400 dark:hover:bg-gray-800"
-        >
-          Query Explorer &rarr;
-        </button>
-      </div>
-
-      {/* Deadlocks (collapsible) */}
-      <div className="mt-4">
-        <CollapsibleSection title="Deadlocks">
-          <DeadlocksTable instanceId={id!} range={range} />
         </CollapsibleSection>
       </div>
     </div>
