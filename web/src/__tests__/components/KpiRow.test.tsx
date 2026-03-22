@@ -52,10 +52,18 @@ describe('KpiRow', () => {
     expect(screen.getByText('200s')).toBeInTheDocument();
   });
 
-  it('renders with no perf_counters data', () => {
+  it('renders dash for no-data state instead of 0s', () => {
     render(<KpiRow />);
     expect(screen.getByTestId('kpi-row')).toBeInTheDocument();
-    // Should show defaults (0s)
-    expect(screen.getByText('0s')).toBeInTheDocument(); // PLE
+    // All 4 cards should show em-dash when no data
+    const dashes = screen.getAllByText('\u2014');
+    expect(dashes).toHaveLength(4);
+  });
+
+  it('uses nodata severity (gray) when no perf_counters', () => {
+    const { container } = render(<KpiRow />);
+    // All cards should have gray background (bg-gray-500), not red
+    const cards = container.querySelectorAll('.bg-gray-500');
+    expect(cards).toHaveLength(4);
   });
 });

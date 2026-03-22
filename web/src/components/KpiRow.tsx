@@ -3,7 +3,7 @@ import { LineChart, Line, ResponsiveContainer } from 'recharts';
 interface KpiProps {
   label: string;
   value: string;
-  severity: 'ok' | 'warning' | 'critical';
+  severity: 'ok' | 'warning' | 'critical' | 'nodata';
   sparkData?: number[];
 }
 
@@ -11,12 +11,14 @@ const bgColors = {
   ok: 'bg-emerald-600',
   warning: 'bg-yellow-500',
   critical: 'bg-red-600',
+  nodata: 'bg-gray-500',
 };
 
 const lineColors = {
   ok: '#6ee7b7',
   warning: '#fde68a',
   critical: '#fca5a5',
+  nodata: '#9ca3af',
 };
 
 function Kpi({ label, value, severity, sparkData }: KpiProps) {
@@ -72,8 +74,9 @@ export interface KpiRowProps {
   };
 }
 
-function getLatest(counters: PerfCounterLatest[], name: string): number {
-  return counters.find((c) => c.counter_name === name)?.cntr_value ?? 0;
+function getLatest(counters: PerfCounterLatest[], name: string): number | null {
+  const found = counters.find((c) => c.counter_name === name);
+  return found ? found.cntr_value : null;
 }
 
 function getSpark(series: PerfCounterSeries[], name: string): number[] {
@@ -82,9 +85,30 @@ function getSpark(series: PerfCounterSeries[], name: string): number[] {
     .map((s) => s.cntr_value);
 }
 
+function formatBatchReqs(v: number | null): string {
+  if (v == null) return '\u2014';
+  return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v));
+}
+
+function formatConnections(v: number | null): string {
+  if (v == null) return '\u2014';
+  return String(Math.round(v));
+}
+
+function formatDeadlocks(v: number | null): string {
+  if (v == null) return '\u2014';
+  return v >= 1 ? v.toFixed(1) : v.toFixed(2);
+}
+
+function formatPle(v: number | null): string {
+  if (v == null) return '\u2014';
+  return v >= 3600 ? `${(v / 3600).toFixed(1)}h` : `${Math.round(v)}s`;
+}
+
 export function KpiRow({ perfCounters }: KpiRowProps) {
   const latest = perfCounters?.latest ?? [];
   const series = perfCounters?.series ?? [];
+  const hasData = latest.length > 0;
 
   const batchReqs = getLatest(latest, 'Batch Requests/sec');
   const userConns = getLatest(latest, 'User Connections');
@@ -95,26 +119,26 @@ export function KpiRow({ perfCounters }: KpiRowProps) {
     <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" data-testid="kpi-row">
       <Kpi
         label="Batch Req/s"
-        value={batchReqs >= 1000 ? `${(batchReqs / 1000).toFixed(1)}k` : String(Math.round(batchReqs))}
-        severity="ok"
+        value={formatBatchReqs(batchReqs)}
+        severity={!hasData ? 'nodata' : 'ok'}
         sparkData={getSpark(series, 'Batch Requests/sec')}
       />
       <Kpi
         label="Connections"
-        value={String(Math.round(userConns))}
-        severity={severity(userConns, 100, 500)}
+        value={formatConnections(userConns)}
+        severity={!hasData || userConns == null ? 'nodata' : severity(userConns, 100, 500)}
         sparkData={getSpark(series, 'User Connections')}
       />
       <Kpi
         label="Deadlocks/s"
-        value={deadlocks >= 1 ? deadlocks.toFixed(1) : deadlocks.toFixed(2)}
-        severity={severity(deadlocks, 0.1, 1)}
+        value={formatDeadlocks(deadlocks)}
+        severity={!hasData || deadlocks == null ? 'nodata' : severity(deadlocks, 0.1, 1)}
         sparkData={getSpark(series, 'Deadlocks/sec')}
       />
       <Kpi
         label="Page Life Exp"
-        value={ple >= 3600 ? `${(ple / 3600).toFixed(1)}h` : `${Math.round(ple)}s`}
-        severity={severityInverse(ple, 1000, 300)}
+        value={formatPle(ple)}
+        severity={!hasData || ple == null ? 'nodata' : severityInverse(ple, 1000, 300)}
         sparkData={getSpark(series, 'Page life expectancy')}
       />
     </div>
