@@ -24,8 +24,8 @@ export function TopWaitsTable({ data }: TopWaitsTableProps) {
         <thead className="text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
           <tr>
             <th className="py-1 pr-3">Wait Type</th>
-            <th className="py-1 pr-3 text-right">ms/sec</th>
-            <th className="py-1 text-right">% of total</th>
+            <th className="py-1 pr-3 text-right w-[100px]">ms/sec</th>
+            <th className="py-1 text-right w-[100px]">% of total</th>
           </tr>
         </thead>
         <tbody>

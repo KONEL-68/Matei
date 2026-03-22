@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { CpuChart } from '@/components/CpuChart';
-import { MemoryChart } from '@/components/MemoryChart';
 import { MemoryBreakdown } from '@/components/MemoryBreakdown';
 import { WaitsChart } from '@/components/WaitsChart';
 import { SessionsTable } from '@/components/SessionsTable';
@@ -131,12 +130,6 @@ export function InstanceDetail() {
   const { data: cpuData = [] } = useQuery({
     queryKey: ['metrics-cpu', id, range, customRange],
     queryFn: () => fetchJson<Array<Record<string, unknown>>>(`/api/metrics/${id}/cpu?${rangeParams}`),
-    refetchInterval: customRange ? false : 15000,
-  });
-
-  const { data: memoryData = [] } = useQuery({
-    queryKey: ['metrics-memory', id, range, customRange],
-    queryFn: () => fetchJson<Array<Record<string, unknown>>>(`/api/metrics/${id}/memory?${rangeParams}`),
     refetchInterval: customRange ? false : 15000,
   });
 
@@ -284,15 +277,14 @@ export function InstanceDetail() {
         <CpuChart data={cpuData as never[]} height={200} />
       </div>
 
-      {/* 3. Memory Chart + SQL Memory Breakdown (side by side) */}
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2 items-stretch">
-        <MemoryChart data={memoryData as never[]} />
-        <MemoryBreakdown instanceId={id!} />
-      </div>
-
-      {/* 4. Top Waits (always visible) */}
-      <div className="mt-4">
-        <TopWaitsTable data={waitsData as Array<{ wait_type: string; wait_ms_per_sec: number; wait_time_ms: number }>} />
+      {/* 3. Top Waits + SQL Memory Breakdown (side by side) */}
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-5 items-stretch">
+        <div className="lg:col-span-3">
+          <TopWaitsTable data={waitsData as Array<{ wait_type: string; wait_ms_per_sec: number; wait_time_ms: number }>} />
+        </div>
+        <div className="lg:col-span-2">
+          <MemoryBreakdown instanceId={id!} />
+        </div>
       </div>
 
       {/* 5. Wait Stats History (collapsible, default open) */}
