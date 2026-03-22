@@ -37,7 +37,7 @@ export function SessionBreakdown({ data }: SessionBreakdownProps) {
   const counts: Record<string, number> = { running: 0, runnable: 0, sleeping: 0, suspended: 0 };
 
   // Exclude WAITFOR sessions entirely
-  const filtered = data.filter((s) => s.wait_type !== 'WAITFOR');
+  const filtered = data.filter((s) => s.wait_type !== 'WAITFOR' && s.wait_type !== 'SP_SERVER_DIAGNOSTICS_SLEEP');
 
   for (const s of filtered) {
     const status = (s.request_status || s.session_status || '').toLowerCase();
