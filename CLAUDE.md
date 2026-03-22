@@ -79,6 +79,15 @@ docker compose -f docker/docker-compose.yml up --build       # all services on p
 - Tests: Vitest for backend, Vitest + React Testing Library for frontend
 - Dependencies: must be MIT/Apache-2.0/BSD licensed — no GPL, SSPL, or BSL (ADR-005)
 
+## Git workflow
+- **Commit after each logical block of work** (one feature = one commit). Do NOT squash an entire session into a single commit.
+- Use descriptive commit messages: `Add blocking chain visualization` not `Session 11 changes`.
+- **After all work is done, rebuild Docker containers** so the user can see UI changes immediately:
+  ```bash
+  docker compose -f docker/docker-compose.yml up -d --build
+  ```
+  This is the last step of every session. Do not skip it.
+
 ## Collector design
 - Worker pool: 40 concurrent workers
 - Collection cycle: must complete 200 instances within 30 seconds
