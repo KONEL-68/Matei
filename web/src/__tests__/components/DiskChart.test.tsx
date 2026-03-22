@@ -76,9 +76,12 @@ describe('daysUntilFull', () => {
 });
 
 describe('DiskChart', () => {
-  it('renders nothing for 1h range', () => {
-    const { container } = renderWithQuery(<DiskChart instanceId="1" range="1h" />);
-    expect(container.querySelector('[data-testid="disk-chart"]')).toBeNull();
+  it('shows "No disk history data yet" when API returns empty', async () => {
+    mockAuthFetch.mockResolvedValueOnce({ ok: true, json: async () => [] });
+    renderWithQuery(<DiskChart instanceId="1" range="1h" />);
+
+    // 1h gets upgraded to 7d internally but still returns empty
+    expect(await screen.findByText('No disk history data yet')).toBeInTheDocument();
   });
 
   it('renders chart with forecast labels', async () => {
@@ -90,5 +93,16 @@ describe('DiskChart', () => {
     renderWithQuery(<DiskChart instanceId="1" range="6h" />);
 
     expect(await screen.findByTestId('disk-chart')).toBeInTheDocument();
+  });
+
+  it('shows Stable label for flat data', async () => {
+    const data = [
+      { bucket: '2026-03-22T10:00:00Z', volume_mount_point: 'C:\\', used_pct: 50 },
+      { bucket: '2026-03-22T16:00:00Z', volume_mount_point: 'C:\\', used_pct: 50 },
+    ];
+    mockAuthFetch.mockResolvedValueOnce({ ok: true, json: async () => data });
+    renderWithQuery(<DiskChart instanceId="1" range="7d" />);
+
+    expect(await screen.findByText('Stable')).toBeInTheDocument();
   });
 });

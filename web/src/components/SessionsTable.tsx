@@ -55,8 +55,8 @@ export function SessionsTable({ data, compact = false }: SessionsTableProps) {
   }
 
   const table = (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-xs">
+    <div className="w-full overflow-x-auto">
+      <table className="w-full min-w-[800px] text-left text-xs">
         <thead className="border-b border-gray-200 bg-gray-50 text-xs font-medium uppercase text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">
           <tr>
             <th className="px-2 py-2">SPID</th>

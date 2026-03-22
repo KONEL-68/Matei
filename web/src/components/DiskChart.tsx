@@ -60,20 +60,22 @@ export function DiskChart({ instanceId, range }: DiskChartProps) {
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
-  const enabled = range !== '1h';
+  // Disk growth needs at least 6h of data to show a trend; default to 7d
+  const effectiveRange = ['1h'].includes(range) ? '7d' : range;
 
   const { data: rawData = [] } = useQuery<RawPoint[]>({
-    queryKey: ['disk-chart', instanceId, range],
+    queryKey: ['disk-chart', instanceId, effectiveRange],
     queryFn: async () => {
-      const res = await authFetch(`/api/metrics/${instanceId}/disk?range=${range}`);
+      const res = await authFetch(`/api/metrics/${instanceId}/disk?range=${effectiveRange}`);
       if (!res.ok) return [];
       return res.json();
     },
-    enabled,
     refetchInterval: 60_000,
   });
 
-  if (!enabled || rawData.length === 0) return null;
+  if (rawData.length === 0) {
+    return <p className="text-sm text-gray-500 dark:text-gray-400">No disk history data yet</p>;
+  }
 
   // Pivot: one line per volume
   const volumes = [...new Set(rawData.map((d) => d.volume_mount_point))];
