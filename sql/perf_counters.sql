@@ -28,6 +28,7 @@ WHERE counter_name IN (
     'SQL Cache Memory (KB)',
     'Total Server Memory (KB)',
     'Target Server Memory (KB)',
-    'Stolen Server Memory (KB)'
+    'Stolen Server Memory (KB)',
+    'Memory Grants Pending'
 )
 AND instance_name IN ('', '_Total')

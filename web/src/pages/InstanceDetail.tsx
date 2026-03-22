@@ -10,10 +10,9 @@ import { DeadlocksTable } from '@/components/DeadlocksTable';
 import { BlockingTree } from '@/components/BlockingTree';
 import { FileIoChart } from '@/components/FileIoChart';
 import { DiskChart } from '@/components/DiskChart';
-import { KpiRow } from '@/components/KpiRow';
+import { StatusBar } from '@/components/StatusBar';
 import { TopWaitsTable } from '@/components/TopWaitsTable';
 import { CollapsibleSection } from '@/components/CollapsibleSection';
-import { severity } from '@/components/KpiRow';
 import { authFetch } from '@/lib/auth';
 
 type PresetRange = '1h' | '6h' | '24h' | '7d' | '30d' | '1y';
@@ -202,14 +201,6 @@ export function InstanceDetail() {
   const ranges: TimeRange[] = ['1h', '6h', '24h', '7d', '30d', '1y'];
   const instance = health?.instance;
 
-  // Inline header stats from CPU, blocking, top wait
-  const latestCpu = cpuData.length > 0 ? (cpuData[cpuData.length - 1] as { sql_cpu_pct: number }).sql_cpu_pct : 0;
-  const blockedCount = (sessionsData as Array<{ blocking_session_id: number | null }>)
-    .filter((s) => s.blocking_session_id && s.blocking_session_id > 0).length;
-  const topWait = (waitsData as Array<{ wait_type: string; wait_ms_per_sec: number }>).length > 0
-    ? (waitsData as Array<{ wait_type: string; wait_ms_per_sec: number }>).reduce((a, b) => a.wait_ms_per_sec > b.wait_ms_per_sec ? a : b)
-    : null;
-
   return (
     <div>
       {/* Header: Instance name + status + Query Explorer + inline stats */}
@@ -246,21 +237,6 @@ export function InstanceDetail() {
             {health?.uptime_seconds != null && <><span className="text-gray-300 dark:text-gray-600">|</span><span>Up {formatUptime(health.uptime_seconds)}</span></>}
             {health?.cpu_count != null && <><span className="text-gray-300 dark:text-gray-600">|</span><span>{health.cpu_count} CPUs</span></>}
             {health?.physical_memory_mb != null && <><span className="text-gray-300 dark:text-gray-600">|</span><span>{(health.physical_memory_mb / 1024).toFixed(0)} GB RAM</span></>}
-            {/* Inline stats badges */}
-            <span className="text-gray-300 dark:text-gray-600">|</span>
-            <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${severity(latestCpu, 75, 90) === 'critical' ? 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' : severity(latestCpu, 75, 90) === 'warning' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300' : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'}`}>
-              CPU {latestCpu}%
-            </span>
-            {blockedCount > 0 && (
-              <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900 dark:text-red-300">
-                {blockedCount} blocked
-              </span>
-            )}
-            {topWait && topWait.wait_ms_per_sec > 5 && (
-              <span className="rounded bg-yellow-100 px-1.5 py-0.5 text-xs font-medium text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300">
-                {topWait.wait_type}
-              </span>
-            )}
           </div>
         </div>
       </div>
@@ -320,9 +296,15 @@ export function InstanceDetail() {
         )}
       </div>
 
-      {/* 1. KPI Row: 4 cards from perf_counters */}
-      <div className="mt-4">
-        <KpiRow perfCounters={perfCounters} />
+      {/* 1. Status bar: 8 KPIs in a thin strip */}
+      <div className="mt-3">
+        <StatusBar
+          cpuData={cpuData as Array<{ sql_cpu_pct: number }>}
+          waitsData={waitsData as Array<{ wait_type: string; wait_ms_per_sec: number }>}
+          sessionsData={sessionsData as Array<{ blocking_session_id: number | null }>}
+          fileIoData={fileIoData as Array<{ avg_read_latency_ms: number; avg_write_latency_ms: number }>}
+          perfCounters={perfCounters}
+        />
       </div>
 
       {/* 2. CPU Chart (full width, 200px) */}

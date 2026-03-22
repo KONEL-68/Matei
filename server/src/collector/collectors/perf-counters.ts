@@ -47,9 +47,20 @@ WHERE counter_name IN (
     'SQL Cache Memory (KB)',
     'Total Server Memory (KB)',
     'Target Server Memory (KB)',
-    'Stolen Server Memory (KB)'
+    'Stolen Server Memory (KB)',
+    'Memory Grants Pending'
 )
 AND instance_name IN ('', '_Total')
+`;
+
+const SCHEDULER_QUERY = `
+SELECT
+    SUM(runnable_tasks_count) AS runnable_tasks,
+    SUM(pending_disk_io_count) AS pending_disk_io,
+    SUM(work_queue_count) AS work_queue
+FROM sys.dm_os_schedulers
+WHERE scheduler_id < 255
+  AND is_online = 1
 `;
 
 /**
@@ -92,13 +103,34 @@ export function computePerfCounterValues(
  * Collect performance counters and compute deltas for rate counters.
  * Returns null on first collection or after instance restart.
  */
+/**
+ * Collect scheduler stats (pending tasks) and return as a synthetic perf counter.
+ * Exported for testing.
+ */
+export async function collectSchedulerStats(
+  request: sql.Request,
+): Promise<PerfCounterResult> {
+  const result = await request.query(SCHEDULER_QUERY);
+  const row = result.recordset[0] ?? { runnable_tasks: 0, pending_disk_io: 0, work_queue: 0 };
+  const pending = Number(row.runnable_tasks) + Number(row.pending_disk_io) + Number(row.work_queue);
+  return { counter_name: 'Pending Tasks', cntr_value: pending };
+}
+
+/**
+ * Collect performance counters and compute deltas for rate counters.
+ * Also collects scheduler stats (Pending Tasks).
+ * Returns null on first collection or after instance restart.
+ */
 export async function collectPerfCounters(
   request: sql.Request,
   instanceId: number,
   sqlserverStartTime: Date,
 ): Promise<PerfCounterResult[] | null> {
-  const result = await request.query(QUERY);
-  const currentSnapshot = result.recordset as PerfCounterSnapshot[];
+  const [perfResult, schedulerStats] = await Promise.all([
+    request.query(QUERY),
+    collectSchedulerStats(request),
+  ]);
+  const currentSnapshot = perfResult.recordset as PerfCounterSnapshot[];
   const collectedAt = new Date();
 
   const prev = previousSnapshots.get(instanceId);
@@ -113,9 +145,11 @@ export async function collectPerfCounters(
   // First collection — no previous data
   if (!prev) {
     // Return instantaneous counters immediately on first run
-    return currentSnapshot
+    const results = currentSnapshot
       .filter((c) => c.cntr_type !== RATE_COUNTER_TYPE)
       .map((c) => ({ counter_name: c.counter_name, cntr_value: c.cntr_value }));
+    results.push(schedulerStats);
+    return results;
   }
 
   // Instance restarted — sqlserver_start_time changed
@@ -124,7 +158,9 @@ export async function collectPerfCounters(
   }
 
   const elapsedSeconds = (collectedAt.getTime() - prev.collectedAt.getTime()) / 1000;
-  return computePerfCounterValues(currentSnapshot, prev.snapshot, elapsedSeconds);
+  const results = computePerfCounterValues(currentSnapshot, prev.snapshot, elapsedSeconds);
+  results.push(schedulerStats);
+  return results;
 }
 
 /** Clear stored snapshot for an instance. */

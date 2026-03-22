@@ -144,9 +144,9 @@ describe('InstanceDetail', () => {
     expect(screen.getByText('Custom')).toBeInTheDocument();
   });
 
-  it('renders KPI row', async () => {
+  it('renders status bar', async () => {
     renderDetail();
-    expect(await screen.findByTestId('kpi-row')).toBeInTheDocument();
+    expect(await screen.findByTestId('status-bar')).toBeInTheDocument();
   });
 
   it('renders compact disk card in grid', async () => {
