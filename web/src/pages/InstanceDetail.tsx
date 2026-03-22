@@ -317,7 +317,7 @@ export function InstanceDetail() {
             </div>
           )}
         </div>
-        <SessionBreakdown data={sessionsData as Array<{ request_status: string | null; session_status: string }>} />
+        <SessionBreakdown data={sessionsData as Array<{ request_status: string | null; session_status: string; wait_type: string | null }>} />
       </div>
 
       {/* 5. Wait Stats History (collapsible, default open) */}
