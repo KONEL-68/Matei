@@ -4,6 +4,24 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { InstanceDetail } from '../../pages/InstanceDetail';
 
+vi.mock('@/lib/theme', () => ({
+  useTheme: () => ({ theme: 'light', setTheme: vi.fn() }),
+}));
+
+vi.mock('recharts', () => ({
+  LineChart: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  AreaChart: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Line: () => null,
+  Area: () => null,
+  XAxis: () => null,
+  YAxis: () => null,
+  CartesianGrid: () => null,
+  Tooltip: () => null,
+  Legend: () => null,
+  ReferenceLine: () => null,
+  ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+}));
+
 vi.mock('@/lib/auth', () => ({
   authFetch: vi.fn(async (url: string) => {
     if (url.includes('/host-info')) {

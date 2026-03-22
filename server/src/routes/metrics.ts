@@ -22,6 +22,15 @@ function rangeToInterval(range: string | undefined): string {
   }
 }
 
+/** Bucket size in minutes for time-series charts. */
+export function chartBucketMinutes(range: string | undefined): number {
+  switch (range) {
+    case '7d': return 30;
+    case '24h': return 5;
+    default: return 1; // 1h, 6h
+  }
+}
+
 /** Determine which table tier to query based on requested time range. */
 function queryTier(range: string | undefined): 'raw' | '5min' | 'hourly' {
   switch (range) {
@@ -279,18 +288,91 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
     return reply.send(rows);
   });
 
-  // GET /api/metrics/:instanceId/sessions
-  app.get<{ Params: IdParam }>('/api/metrics/:id/sessions', async (req, reply) => {
+  // GET /api/metrics/:instanceId/waits/chart?range=1h|6h|24h|7d
+  app.get<{ Params: IdParam; Querystring: RangeQuery }>('/api/metrics/:id/waits/chart', async (req, reply) => {
     const { id } = req.params;
+    const interval = rangeToInterval(req.query.range);
+    const bucketMinutes = chartBucketMinutes(req.query.range);
+    const excludedWaitsArray = [...EXCLUDED_WAITS];
 
-    // Get the latest snapshot timestamp
-    const latestResult = await pool.query(
-      `SELECT MAX(collected_at) as latest FROM active_sessions_snapshot WHERE instance_id = $1`,
-      [id],
+    // Step 1: find top 5 wait types in range
+    const topResult = await pool.query(
+      `SELECT wait_type, SUM(wait_time_ms_delta) AS total
+       FROM wait_stats_raw
+       WHERE instance_id = $1 AND collected_at > NOW() - $2::interval
+         AND wait_type != ALL($3)
+       GROUP BY wait_type ORDER BY total DESC LIMIT 5`,
+      [id, interval, excludedWaitsArray],
+    );
+    const topTypes = topResult.rows.map((r: { wait_type: string }) => r.wait_type);
+    if (topTypes.length === 0) return reply.send([]);
+
+    // Step 2: time-bucketed series for those types
+    const result = await pool.query(
+      `SELECT date_trunc('minute', collected_at) -
+              (EXTRACT(minute FROM collected_at)::int % $3) * INTERVAL '1 minute' AS bucket,
+              wait_type,
+              SUM(wait_time_ms_delta)::float / ($3 * 60) AS wait_ms_per_sec
+       FROM wait_stats_raw
+       WHERE instance_id = $1 AND collected_at > NOW() - $2::interval
+         AND wait_type = ANY($4)
+       GROUP BY bucket, wait_type
+       ORDER BY bucket ASC`,
+      [id, interval, bucketMinutes, topTypes],
     );
 
-    if (!latestResult.rows[0]?.latest) {
-      return reply.send([]);
+    return reply.send(result.rows.map((r: { bucket: string; wait_type: string; wait_ms_per_sec: number }) => ({
+      bucket: r.bucket,
+      wait_type: r.wait_type,
+      wait_ms_per_sec: Number(r.wait_ms_per_sec),
+    })));
+  });
+
+  // GET /api/metrics/:instanceId/sessions/history?range=1h|6h|24h
+  app.get<{ Params: IdParam; Querystring: RangeQuery }>('/api/metrics/:id/sessions/history', async (req, reply) => {
+    const { id } = req.params;
+    const interval = rangeToInterval(req.query.range);
+
+    const result = await pool.query(
+      `SELECT DISTINCT collected_at
+       FROM active_sessions_snapshot
+       WHERE instance_id = $1 AND collected_at > NOW() - $2::interval
+       ORDER BY collected_at DESC`,
+      [id, interval],
+    );
+
+    return reply.send(result.rows.map((r: { collected_at: string }) => r.collected_at));
+  });
+
+  // GET /api/metrics/:instanceId/sessions?at=<ISO timestamp>
+  app.get<{ Params: IdParam; Querystring: { at?: string } }>('/api/metrics/:id/sessions', async (req, reply) => {
+    const { id } = req.params;
+    const at = req.query.at;
+
+    let snapshotTime: string;
+
+    if (at) {
+      // Find exact match or closest snapshot before the given time
+      const snapResult = await pool.query(
+        `SELECT collected_at FROM active_sessions_snapshot
+         WHERE instance_id = $1 AND collected_at <= $2
+         ORDER BY collected_at DESC LIMIT 1`,
+        [id, at],
+      );
+      if (snapResult.rows.length === 0) {
+        return reply.send([]);
+      }
+      snapshotTime = snapResult.rows[0].collected_at;
+    } else {
+      // Get the latest snapshot timestamp
+      const latestResult = await pool.query(
+        `SELECT MAX(collected_at) as latest FROM active_sessions_snapshot WHERE instance_id = $1`,
+        [id],
+      );
+      if (!latestResult.rows[0]?.latest) {
+        return reply.send([]);
+      }
+      snapshotTime = latestResult.rows[0].latest;
     }
 
     const result = await pool.query(
@@ -302,7 +384,7 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
        FROM active_sessions_snapshot
        WHERE instance_id = $1 AND collected_at = $2
        ORDER BY cpu_time_ms DESC NULLS LAST`,
-      [id, latestResult.rows[0].latest],
+      [id, snapshotTime],
     );
 
     return reply.send(result.rows);
@@ -368,10 +450,36 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
     return reply.send(buildBlockingTrees(result.rows));
   });
 
-  // GET /api/metrics/:instanceId/disk — latest disk data
-  app.get<{ Params: IdParam }>('/api/metrics/:id/disk', async (req, reply) => {
+  // GET /api/metrics/:instanceId/disk?range=6h|24h|7d (time series) or no range (latest)
+  app.get<{ Params: IdParam; Querystring: RangeQuery }>('/api/metrics/:id/disk', async (req, reply) => {
     const { id } = req.params;
+    const range = req.query.range;
 
+    if (range && range !== '1h') {
+      // Time series mode: disk usage over time
+      const interval = rangeToInterval(range);
+      const bucketMinutes = range === '7d' ? 30 : 5;
+
+      const result = await pool.query(
+        `SELECT date_trunc('minute', collected_at) -
+                (EXTRACT(minute FROM collected_at)::int % $3) * INTERVAL '1 minute' AS bucket,
+                volume_mount_point,
+                AVG(used_pct)::float AS used_pct
+         FROM os_disk
+         WHERE instance_id = $1 AND collected_at > NOW() - $2::interval
+         GROUP BY bucket, volume_mount_point
+         ORDER BY bucket ASC`,
+        [id, interval, bucketMinutes],
+      );
+
+      return reply.send(result.rows.map((r: { bucket: string; volume_mount_point: string; used_pct: number }) => ({
+        bucket: r.bucket,
+        volume_mount_point: r.volume_mount_point,
+        used_pct: Number(r.used_pct),
+      })));
+    }
+
+    // Latest snapshot (default)
     const result = await pool.query(
       `SELECT DISTINCT ON (volume_mount_point)
               volume_mount_point, logical_volume_name, file_system_type,
@@ -385,11 +493,57 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
     return reply.send(result.rows);
   });
 
-  // GET /api/metrics/:instanceId/file-io?range=1h|6h|24h|7d
-  app.get<{ Params: IdParam; Querystring: RangeQuery }>('/api/metrics/:id/file-io', async (req, reply) => {
+  // GET /api/metrics/:instanceId/file-io?range=1h|6h|24h|7d&mode=table|chart
+  app.get<{ Params: IdParam; Querystring: RangeQuery & { mode?: string } }>('/api/metrics/:id/file-io', async (req, reply) => {
     const { id } = req.params;
     const interval = rangeToInterval(req.query.range);
+    const mode = req.query.mode;
 
+    if (mode === 'chart') {
+      const bucketMinutes = chartBucketMinutes(req.query.range);
+
+      // Step 1: top 5 files by total stall
+      const topResult = await pool.query(
+        `SELECT database_name, file_name,
+                SUM(io_stall_read_ms_delta + io_stall_write_ms_delta) AS total_stall
+         FROM file_io_stats
+         WHERE instance_id = $1 AND collected_at > NOW() - $2::interval
+         GROUP BY database_name, file_name
+         ORDER BY total_stall DESC LIMIT 5`,
+        [id, interval],
+      );
+      const topFiles = topResult.rows.map((r: { database_name: string; file_name: string }) =>
+        `${r.database_name}/${r.file_name}`);
+      if (topFiles.length === 0) return reply.send([]);
+
+      // Step 2: time series for those files
+      const result = await pool.query(
+        `SELECT date_trunc('minute', collected_at) -
+                (EXTRACT(minute FROM collected_at)::int % $3) * INTERVAL '1 minute' AS bucket,
+                database_name || '/' || file_name AS file_key,
+                CASE WHEN SUM(num_of_reads_delta) > 0
+                     THEN SUM(io_stall_read_ms_delta)::float / SUM(num_of_reads_delta)
+                     ELSE 0 END AS avg_read_latency_ms,
+                CASE WHEN SUM(num_of_writes_delta) > 0
+                     THEN SUM(io_stall_write_ms_delta)::float / SUM(num_of_writes_delta)
+                     ELSE 0 END AS avg_write_latency_ms
+         FROM file_io_stats
+         WHERE instance_id = $1 AND collected_at > NOW() - $2::interval
+           AND database_name || '/' || file_name = ANY($4)
+         GROUP BY bucket, file_key
+         ORDER BY bucket ASC`,
+        [id, interval, bucketMinutes, topFiles],
+      );
+
+      return reply.send(result.rows.map((r: { bucket: string; file_key: string; avg_read_latency_ms: number; avg_write_latency_ms: number }) => ({
+        bucket: r.bucket,
+        file_key: r.file_key,
+        avg_read_latency_ms: Number(r.avg_read_latency_ms),
+        avg_write_latency_ms: Number(r.avg_write_latency_ms),
+      })));
+    }
+
+    // Default table mode
     const result = await pool.query(
       `SELECT database_name, file_name, file_type,
               SUM(num_of_reads_delta) AS total_reads,

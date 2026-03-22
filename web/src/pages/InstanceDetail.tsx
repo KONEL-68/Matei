@@ -1,12 +1,15 @@
-import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { CpuChart } from '@/components/CpuChart';
 import { MemoryChart } from '@/components/MemoryChart';
 import { WaitsTable } from '@/components/WaitsTable';
+import { WaitsChart } from '@/components/WaitsChart';
 import { SessionsTable } from '@/components/SessionsTable';
 import { DeadlocksTable } from '@/components/DeadlocksTable';
 import { BlockingTree } from '@/components/BlockingTree';
+import { FileIoChart } from '@/components/FileIoChart';
+import { DiskChart } from '@/components/DiskChart';
 import { authFetch } from '@/lib/auth';
 
 type TimeRange = '1h' | '6h' | '24h' | '7d' | '30d' | '1y';
@@ -72,7 +75,16 @@ function formatUptime(seconds: number): string {
 export function InstanceDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [range, setRange] = useState<TimeRange>('1h');
+  const [searchParams] = useSearchParams();
+  const initialAt = searchParams.get('at');
+  const initialRange = (searchParams.get('range') as TimeRange) || '1h';
+  const [range, setRange] = useState<TimeRange>(initialRange);
+  const [sessionAt, setSessionAt] = useState<string | null>(initialAt);
+
+  // When navigated via alert deep-link, set sessionAt from URL
+  useEffect(() => {
+    if (initialAt) setSessionAt(initialAt);
+  }, [initialAt]);
 
   const { data: health } = useQuery({
     queryKey: ['metrics-health', id],
@@ -104,10 +116,22 @@ export function InstanceDetail() {
     refetchInterval: 30000,
   });
 
+  const sessionsUrl = sessionAt
+    ? `/api/metrics/${id}/sessions?at=${encodeURIComponent(sessionAt)}`
+    : `/api/metrics/${id}/sessions`;
+
   const { data: sessionsData = [] } = useQuery({
-    queryKey: ['metrics-sessions', id],
-    queryFn: () => fetchJson<Array<Record<string, unknown>>>(`/api/metrics/${id}/sessions`),
-    refetchInterval: 15000,
+    queryKey: ['metrics-sessions', id, sessionAt],
+    queryFn: () => fetchJson<Array<Record<string, unknown>>>(sessionsUrl),
+    refetchInterval: sessionAt ? false : 15000,
+  });
+
+  // Session history timestamps for the scrubber
+  const sessionHistoryRange: TimeRange = (['1h', '6h', '24h'].includes(range) ? range : '1h') as TimeRange;
+  const { data: sessionTimestamps = [] } = useQuery<string[]>({
+    queryKey: ['session-history', id, sessionHistoryRange],
+    queryFn: () => fetchJson<string[]>(`/api/metrics/${id}/sessions/history?range=${sessionHistoryRange}`),
+    refetchInterval: 30000,
   });
 
   const { data: diskData = [] } = useQuery<DiskRow[]>({
@@ -222,17 +246,65 @@ export function InstanceDetail() {
         <BlockingTree instanceId={id!} />
       </div>
 
-      {/* Waits */}
+      {/* Waits chart + table */}
+      <div className="mt-4">
+        <WaitsChart instanceId={id!} range={range} />
+      </div>
       <div className="mt-4">
         <WaitsTable data={waitsData as never[]} />
       </div>
 
       {/* Sessions */}
       <div className="mt-4">
+        {sessionTimestamps.length > 1 && (
+          <div className="mb-2 rounded-lg border border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-gray-900">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Snapshot:</span>
+              <button
+                onClick={() => setSessionAt(null)}
+                className={`rounded px-2 py-0.5 text-xs font-medium transition-colors ${
+                  !sessionAt
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+                }`}
+              >
+                Latest
+              </button>
+              {sessionTimestamps.slice(0, 20).map((ts) => {
+                const d = new Date(ts);
+                const label = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const isSelected = sessionAt === ts;
+                return (
+                  <button
+                    key={ts}
+                    onClick={() => setSessionAt(ts)}
+                    className={`rounded px-2 py-0.5 text-xs font-mono transition-colors ${
+                      isSelected
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            {sessionAt && (
+              <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Showing snapshot: {new Date(sessionAt).toLocaleString()}
+              </div>
+            )}
+          </div>
+        )}
         <SessionsTable data={sessionsData as never[]} />
       </div>
 
-      {/* Disk space */}
+      {/* Disk chart */}
+      <div className="mt-4">
+        <DiskChart instanceId={id!} range={range} />
+      </div>
+
+      {/* Disk space table */}
       {diskData.length > 0 && (
         <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
           <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">Disk Space</h3>
@@ -270,7 +342,12 @@ export function InstanceDetail() {
         </div>
       )}
 
-      {/* File I/O */}
+      {/* File I/O chart */}
+      <div className="mt-4">
+        <FileIoChart instanceId={id!} range={range} />
+      </div>
+
+      {/* File I/O table */}
       {fileIoData.length > 0 && (
         <div className="mt-4 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
           <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">File I/O (top by latency)</h3>
