@@ -618,11 +618,50 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
     })));
   });
 
-  // GET /api/metrics/:instanceId/memory/breakdown — SQL memory component breakdown
+  // GET /api/metrics/:instanceId/memory/breakdown — SQL memory component breakdown (Grafana-style)
   app.get<{ Params: IdParam }>('/api/metrics/:id/memory/breakdown', async (req, reply) => {
     const { id } = req.params;
 
-    // Latest os_memory row for committed/target
+    // Try perf_counters_raw first — has all 5 values we need
+    const counterMap = new Map<string, number>();
+    try {
+      const countersResult = await pool.query(
+        `SELECT DISTINCT ON (counter_name) counter_name, cntr_value
+         FROM perf_counters_raw
+         WHERE instance_id = $1 AND collected_at > NOW() - INTERVAL '5 minutes'
+           AND counter_name IN (
+             'Total Server Memory (KB)',
+             'Target Server Memory (KB)',
+             'Stolen Server Memory (KB)',
+             'Database Cache Memory (KB)'
+           )
+         ORDER BY counter_name, collected_at DESC`,
+        [id],
+      );
+      for (const row of countersResult.rows) {
+        counterMap.set(row.counter_name, Number(row.cntr_value));
+      }
+    } catch { /* perf_counters_raw table may not exist yet */ }
+
+    const totalKb = counterMap.get('Total Server Memory (KB)');
+    const targetKb = counterMap.get('Target Server Memory (KB)');
+    const stolenKb = counterMap.get('Stolen Server Memory (KB)');
+    const dbCacheKb = counterMap.get('Database Cache Memory (KB)');
+
+    // If perf_counters data is available, use it
+    if (totalKb != null && targetKb != null) {
+      const total_mb = Math.round(totalKb / 1024);
+      const target_mb = Math.round(targetKb / 1024);
+      return reply.send({
+        total_mb,
+        target_mb,
+        stolen_mb: Math.round((stolenKb ?? 0) / 1024),
+        database_cache_mb: Math.round((dbCacheKb ?? 0) / 1024),
+        deficit_mb: total_mb - target_mb,
+      });
+    }
+
+    // Fallback to os_memory table
     const memResult = await pool.query(
       `SELECT sql_committed_mb, sql_target_mb
        FROM os_memory
@@ -631,37 +670,19 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
       [id],
     );
 
-    // Latest perf_counters for buffer pool (Database Cache Memory) and plan cache (SQL Cache Memory)
-    // Wrapped in try/catch: perf_counters_raw table may not exist if migration 010 hasn't run yet
-    const cacheMap = new Map<string, number>();
-    try {
-      const cacheResult = await pool.query(
-        `SELECT counter_name, cntr_value
-         FROM perf_counters_raw
-         WHERE instance_id = $1 AND collected_at > NOW() - INTERVAL '5 minutes'
-           AND counter_name IN ('Database Cache Memory (KB)', 'SQL Cache Memory (KB)')
-         ORDER BY collected_at DESC`,
-        [id],
-      );
-
-      // De-duplicate: take only the first (most recent) value per counter
-      for (const row of cacheResult.rows) {
-        if (!cacheMap.has(row.counter_name)) {
-          cacheMap.set(row.counter_name, Number(row.cntr_value));
-        }
-      }
-    } catch { /* perf_counters_raw table may not exist yet */ }
-
     const mem = memResult.rows[0];
     if (!mem) {
       return reply.send(null);
     }
 
+    const total_mb = Number(mem.sql_committed_mb);
+    const target_mb = Number(mem.sql_target_mb);
     return reply.send({
-      sql_committed_mb: Number(mem.sql_committed_mb),
-      sql_target_mb: Number(mem.sql_target_mb),
-      buffer_pool_mb: Math.round((cacheMap.get('Database Cache Memory (KB)') ?? 0) / 1024),
-      plan_cache_mb: Math.round((cacheMap.get('SQL Cache Memory (KB)') ?? 0) / 1024),
+      total_mb,
+      target_mb,
+      stolen_mb: 0,
+      database_cache_mb: 0,
+      deficit_mb: total_mb - target_mb,
     });
   });
 

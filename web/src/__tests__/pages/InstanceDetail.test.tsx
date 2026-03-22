@@ -80,10 +80,11 @@ vi.mock('@/lib/auth', () => ({
       return {
         ok: true,
         json: async () => ({
-          sql_committed_mb: 4096,
-          sql_target_mb: 8192,
-          buffer_pool_mb: 3072,
-          plan_cache_mb: 512,
+          total_mb: 16384,
+          target_mb: 14336,
+          stolen_mb: 3096,
+          database_cache_mb: 6800,
+          deficit_mb: 2048,
         }),
       };
     }
