@@ -138,7 +138,7 @@ export function StatusBar({ instanceId }: StatusBarProps) {
 
   return (
     <div
-      className="flex items-center gap-4 flex-wrap rounded border px-3 py-1.5 text-xs bg-white border-gray-200 dark:bg-gray-900 dark:border-gray-700 text-gray-700 dark:text-gray-300"
+      className="flex items-center justify-center gap-4 flex-wrap rounded border px-3 py-1.5 text-xs bg-white border-gray-200 dark:bg-gray-900 dark:border-gray-700 text-gray-700 dark:text-gray-300"
       data-testid="status-bar"
     >
       <span className="inline-flex items-center gap-1.5">
@@ -167,7 +167,7 @@ export function StatusBar({ instanceId }: StatusBarProps) {
         <Dot severity={memGrantsSev} />Mem Grants Pending {memGrants != null ? memGrants : '\u2014'}
       </span>
       <span
-        className="ml-auto inline-flex items-center gap-1 text-gray-400 dark:text-gray-500"
+        className="inline-flex items-center gap-1 text-gray-400 dark:text-gray-500 border-l border-gray-300 dark:border-gray-600 pl-3"
         title="Showing latest values, independent of time range filter"
       >
         <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
