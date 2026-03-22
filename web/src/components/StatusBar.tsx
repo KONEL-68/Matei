@@ -78,11 +78,6 @@ function formatRate(v: number | null): string {
   return String(Math.round(v));
 }
 
-function formatRateDecimal(v: number | null): string {
-  if (v == null) return '\u2014';
-  return v.toFixed(3);
-}
-
 function formatBytes(v: number | null): string {
   if (v == null) return '\u2014';
   return `${(v / 1024 / 1024).toFixed(1)} MB/s`;
@@ -164,9 +159,6 @@ export function StatusBar({ instanceId }: StatusBarProps) {
   const memGrantsSev = sev(memGrants, 1, 5);
 
   const batchReqs = getCounter(counters, 'Batch Requests/sec');
-  const logins = getCounter(counters, 'Logins/sec');
-  const transactions = getCounter(counters, 'Transactions/sec');
-  const connections = getCounter(counters, 'User Connections');
 
   const hadrEnabled = health?.hadr_enabled ?? false;
   const bytesSent = hadrEnabled ? getCounter(counters, 'Bytes Sent to Replica/sec') : null;
@@ -217,15 +209,6 @@ export function StatusBar({ instanceId }: StatusBarProps) {
       </span>
       <span className={DIV}>
         <Dot severity="gray" />Batch Req/s {formatRate(batchReqs)}
-      </span>
-      <span className={DIV}>
-        <Dot severity="gray" />Logins/s {formatRateDecimal(logins)}
-      </span>
-      <span className={DIV}>
-        <Dot severity="gray" />Trans/s {formatRate(transactions)}
-      </span>
-      <span className={DIV}>
-        <Dot severity="gray" />Connections {connections != null ? Math.round(connections) : '\u2014'}
       </span>
       {hadrEnabled && (
         <>

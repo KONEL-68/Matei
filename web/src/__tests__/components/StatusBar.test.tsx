@@ -37,9 +37,6 @@ function mockAllEndpoints(overrides?: {
       { counter_name: 'Memory Grants Pending', cntr_value: 0 },
       { counter_name: 'Pending Tasks', cntr_value: 2 },
       { counter_name: 'Batch Requests/sec', cntr_value: 1500 },
-      { counter_name: 'Logins/sec', cntr_value: 0.123 },
-      { counter_name: 'Transactions/sec', cntr_value: 450 },
-      { counter_name: 'User Connections', cntr_value: 42 },
     ],
   };
   const health = overrides?.health ?? { hadr_enabled: false };
@@ -73,9 +70,6 @@ describe('StatusBar', () => {
     expect(screen.getByText(/PLE 20.6h/)).toBeInTheDocument();
     expect(screen.getByText(/Mem Grants Pending 0/)).toBeInTheDocument();
     expect(screen.getByText(/Batch Req\/s 1.5k/)).toBeInTheDocument();
-    expect(screen.getByText(/Logins\/s 0.123/)).toBeInTheDocument();
-    expect(screen.getByText(/Trans\/s 450/)).toBeInTheDocument();
-    expect(screen.getByText(/Connections 42/)).toBeInTheDocument();
     expect(screen.getByText('Live')).toBeInTheDocument();
   });
 
