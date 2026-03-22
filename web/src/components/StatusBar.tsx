@@ -4,6 +4,7 @@ import { authFetch } from '@/lib/auth';
 interface PerfCounterLatest {
   counter_name: string;
   cntr_value: number;
+  collected_at?: string;
 }
 
 interface WaitRow {
@@ -22,6 +23,11 @@ interface FileIoRow {
 
 interface CpuRow {
   sql_cpu_pct: number;
+  collected_at?: string;
+}
+
+interface HealthData {
+  hadr_enabled: boolean;
 }
 
 export interface StatusBarProps {
@@ -66,6 +72,22 @@ function formatPle(v: number | null): string {
   return `${Math.round(v)}s`;
 }
 
+function formatRate(v: number | null): string {
+  if (v == null) return '\u2014';
+  if (v >= 1000) return `${(v / 1000).toFixed(1)}k`;
+  return String(Math.round(v));
+}
+
+function formatRateDecimal(v: number | null): string {
+  if (v == null) return '\u2014';
+  return v.toFixed(3);
+}
+
+function formatBytes(v: number | null): string {
+  if (v == null) return '\u2014';
+  return `${(v / 1024 / 1024).toFixed(1)} MB/s`;
+}
+
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await authFetch(url);
   if (!res.ok) throw new Error(`Failed to fetch ${url}`);
@@ -75,7 +97,6 @@ async function fetchJson<T>(url: string): Promise<T> {
 const DIV = 'inline-flex items-center gap-1.5 border-l border-gray-300 dark:border-gray-600 pl-3';
 
 export function StatusBar({ instanceId }: StatusBarProps) {
-  // All queries use short range or no range — always latest values, independent of time range picker
   const { data: cpuData = [] } = useQuery<CpuRow[]>({
     queryKey: ['statusbar-cpu', instanceId],
     queryFn: () => fetchJson(`/api/metrics/${instanceId}/cpu?range=1h`),
@@ -100,10 +121,16 @@ export function StatusBar({ instanceId }: StatusBarProps) {
     refetchInterval: 15_000,
   });
 
-  const { data: perfCounters } = useQuery<{ latest: PerfCounterLatest[] }>({
+  const { data: perfCounters, dataUpdatedAt } = useQuery<{ latest: PerfCounterLatest[] }>({
     queryKey: ['statusbar-perf', instanceId],
     queryFn: () => fetchJson(`/api/metrics/${instanceId}/perf-counters?range=1h`),
     refetchInterval: 15_000,
+  });
+
+  const { data: health } = useQuery<HealthData>({
+    queryKey: ['statusbar-health', instanceId],
+    queryFn: () => fetchJson(`/api/metrics/${instanceId}/health`),
+    refetchInterval: 60_000,
   });
 
   const latestCpu = cpuData.length > 0 ? cpuData[cpuData.length - 1].sql_cpu_pct : null;
@@ -136,12 +163,34 @@ export function StatusBar({ instanceId }: StatusBarProps) {
   const memGrants = getCounter(counters, 'Memory Grants Pending');
   const memGrantsSev = sev(memGrants, 1, 5);
 
+  const batchReqs = getCounter(counters, 'Batch Requests/sec');
+  const logins = getCounter(counters, 'Logins/sec');
+  const transactions = getCounter(counters, 'Transactions/sec');
+  const connections = getCounter(counters, 'User Connections');
+
+  const hadrEnabled = health?.hadr_enabled ?? false;
+  const bytesSent = hadrEnabled ? getCounter(counters, 'Bytes Sent to Replica/sec') : null;
+  const bytesRecv = hadrEnabled ? getCounter(counters, 'Bytes Received from Replica/sec') : null;
+
+  const lastUpdated = dataUpdatedAt
+    ? new Date(dataUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : '\u2014';
+
   return (
     <div
-      className="flex items-center justify-center gap-4 flex-wrap rounded border px-3 py-1.5 text-xs bg-white border-gray-200 dark:bg-gray-900 dark:border-gray-700 text-gray-700 dark:text-gray-300"
+      className="flex items-center gap-4 flex-wrap rounded border px-3 py-1.5 text-xs bg-white border-gray-200 dark:bg-gray-900 dark:border-gray-700 text-gray-700 dark:text-gray-300"
       data-testid="status-bar"
     >
-      <span className="inline-flex items-center gap-1.5">
+      <span
+        className="inline-flex items-center gap-1 text-gray-400 dark:text-gray-500"
+        title={`Last updated: ${lastUpdated}`}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+        </svg>
+        Live
+      </span>
+      <span className={DIV}>
         <Dot severity={cpuSev} />CPU {latestCpu != null ? `${latestCpu}%` : '\u2014'}
       </span>
       <span className={DIV}>
@@ -166,15 +215,28 @@ export function StatusBar({ instanceId }: StatusBarProps) {
       <span className={DIV}>
         <Dot severity={memGrantsSev} />Mem Grants Pending {memGrants != null ? memGrants : '\u2014'}
       </span>
-      <span
-        className="inline-flex items-center gap-1 text-gray-400 dark:text-gray-500 border-l border-gray-300 dark:border-gray-600 pl-3"
-        title="Showing latest values, independent of time range filter"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-        </svg>
-        Live
+      <span className={DIV}>
+        <Dot severity="gray" />Batch Req/s {formatRate(batchReqs)}
       </span>
+      <span className={DIV}>
+        <Dot severity="gray" />Logins/s {formatRateDecimal(logins)}
+      </span>
+      <span className={DIV}>
+        <Dot severity="gray" />Trans/s {formatRate(transactions)}
+      </span>
+      <span className={DIV}>
+        <Dot severity="gray" />Connections {connections != null ? Math.round(connections) : '\u2014'}
+      </span>
+      {hadrEnabled && (
+        <>
+          <span className={DIV}>
+            <Dot severity="gray" />Bytes Sent/s {formatBytes(bytesSent)}
+          </span>
+          <span className={DIV}>
+            <Dot severity="gray" />Bytes Recv/s {formatBytes(bytesRecv)}
+          </span>
+        </>
+      )}
     </div>
   );
 }

@@ -29,6 +29,8 @@ WHERE counter_name IN (
     'Total Server Memory (KB)',
     'Target Server Memory (KB)',
     'Stolen Server Memory (KB)',
-    'Memory Grants Pending'
+    'Memory Grants Pending',
+    'Bytes Sent to Replica/sec',
+    'Bytes Received from Replica/sec'
 )
 AND instance_name IN ('', '_Total')

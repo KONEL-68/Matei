@@ -25,6 +25,7 @@ function mockAllEndpoints(overrides?: {
   sessions?: unknown[];
   fileIo?: unknown[];
   perfCounters?: unknown;
+  health?: unknown;
 }) {
   const cpu = overrides?.cpu ?? [{ sql_cpu_pct: 12 }];
   const waits = overrides?.waits ?? [{ wait_type: 'ASYNC_NETWORK_IO', wait_ms_per_sec: 133 }];
@@ -35,8 +36,13 @@ function mockAllEndpoints(overrides?: {
       { counter_name: 'Page life expectancy', cntr_value: 74160 },
       { counter_name: 'Memory Grants Pending', cntr_value: 0 },
       { counter_name: 'Pending Tasks', cntr_value: 2 },
+      { counter_name: 'Batch Requests/sec', cntr_value: 1500 },
+      { counter_name: 'Logins/sec', cntr_value: 0.123 },
+      { counter_name: 'Transactions/sec', cntr_value: 450 },
+      { counter_name: 'User Connections', cntr_value: 42 },
     ],
   };
+  const health = overrides?.health ?? { hadr_enabled: false };
 
   mockAuthFetch.mockImplementation(async (url: string) => {
     if (url.includes('/cpu')) return { ok: true, json: async () => cpu } as Response;
@@ -44,6 +50,7 @@ function mockAllEndpoints(overrides?: {
     if (url.includes('/sessions')) return { ok: true, json: async () => sessions } as Response;
     if (url.includes('/file-io')) return { ok: true, json: async () => fileIo } as Response;
     if (url.includes('/perf-counters')) return { ok: true, json: async () => perfCounters } as Response;
+    if (url.includes('/health')) return { ok: true, json: async () => health } as Response;
     return { ok: true, json: async () => [] } as Response;
   });
 }
@@ -53,7 +60,7 @@ describe('StatusBar', () => {
     vi.clearAllMocks();
   });
 
-  it('renders all 8 KPI labels and Live indicator', async () => {
+  it('renders all KPI labels, Live indicator first, and informational metrics', async () => {
     mockAllEndpoints();
     renderWithQuery(<StatusBar instanceId="1" />);
 
@@ -65,7 +72,20 @@ describe('StatusBar', () => {
     expect(screen.getByText(/Write IO 8.4ms/)).toBeInTheDocument();
     expect(screen.getByText(/PLE 20.6h/)).toBeInTheDocument();
     expect(screen.getByText(/Mem Grants Pending 0/)).toBeInTheDocument();
+    expect(screen.getByText(/Batch Req\/s 1.5k/)).toBeInTheDocument();
+    expect(screen.getByText(/Logins\/s 0.123/)).toBeInTheDocument();
+    expect(screen.getByText(/Trans\/s 450/)).toBeInTheDocument();
+    expect(screen.getByText(/Connections 42/)).toBeInTheDocument();
     expect(screen.getByText('Live')).toBeInTheDocument();
+  });
+
+  it('Live indicator is the first child in the status bar', async () => {
+    mockAllEndpoints();
+    renderWithQuery(<StatusBar instanceId="1" />);
+
+    const bar = await screen.findByTestId('status-bar');
+    const firstChild = bar.children[0];
+    expect(firstChild.textContent).toContain('Live');
   });
 
   it('shows yellow dot for CPU >= 75', async () => {
@@ -97,13 +117,39 @@ describe('StatusBar', () => {
     expect(dot?.className).toContain('bg-red-500');
   });
 
-  it('renders as a thin strip (compact height)', async () => {
+  it('renders as a thin left-aligned strip', async () => {
     mockAllEndpoints();
     renderWithQuery(<StatusBar instanceId="1" />);
 
     const bar = await screen.findByTestId('status-bar');
     expect(bar.className).toContain('py-1.5');
     expect(bar.className).toContain('text-xs');
+    expect(bar.className).not.toContain('justify-center');
+  });
+
+  it('shows HADR metrics only when hadr_enabled is true', async () => {
+    mockAllEndpoints({
+      health: { hadr_enabled: true },
+      perfCounters: {
+        latest: [
+          { counter_name: 'Bytes Sent to Replica/sec', cntr_value: 5242880 },
+          { counter_name: 'Bytes Received from Replica/sec', cntr_value: 1048576 },
+        ],
+      },
+    });
+    renderWithQuery(<StatusBar instanceId="1" />);
+
+    expect(await screen.findByText(/Bytes Sent\/s/)).toBeInTheDocument();
+    expect(screen.getByText(/Bytes Recv\/s/)).toBeInTheDocument();
+  });
+
+  it('hides HADR metrics when hadr_enabled is false', async () => {
+    mockAllEndpoints({ health: { hadr_enabled: false } });
+    renderWithQuery(<StatusBar instanceId="1" />);
+
+    await screen.findByTestId('status-bar');
+    expect(screen.queryByText(/Bytes Sent\/s/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Bytes Recv\/s/)).not.toBeInTheDocument();
   });
 
   it('shows blocked count with red dot when >= 5', async () => {
@@ -116,28 +162,21 @@ describe('StatusBar', () => {
     expect(dot?.className).toContain('bg-red-500');
   });
 
-  it('fetches data independently from time range (uses own query keys)', async () => {
+  it('fetches data independently from time range', async () => {
     mockAllEndpoints();
     renderWithQuery(<StatusBar instanceId="1" />);
 
     await screen.findByTestId('status-bar');
 
-    // All calls should use range=1h or no range (sessions) — never user-selected range
     for (const call of mockAuthFetch.mock.calls) {
       const url = call[0] as string;
       if (url.includes('/sessions')) {
         expect(url).not.toContain('range=');
+      } else if (url.includes('/health')) {
+        // health has no range param
       } else {
         expect(url).toContain('range=1h');
       }
     }
-  });
-
-  it('shows Live indicator with tooltip', async () => {
-    mockAllEndpoints();
-    renderWithQuery(<StatusBar instanceId="1" />);
-
-    const liveSpan = (await screen.findByText('Live')).closest('span');
-    expect(liveSpan?.getAttribute('title')).toBe('Showing latest values, independent of time range filter');
   });
 });
