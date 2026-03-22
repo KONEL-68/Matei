@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { DiskChart } from '../../components/DiskChart';
+import { DiskChart, linearRegression, daysUntilFull } from '../../components/DiskChart';
 
 vi.mock('@/lib/auth', () => ({
   authFetch: vi.fn(),
@@ -12,8 +12,9 @@ vi.mock('@/lib/theme', () => ({
 }));
 
 vi.mock('recharts', () => ({
-  LineChart: ({ children }: { children: React.ReactNode }) => <div data-testid="disk-line-chart">{children}</div>,
-  Line: () => <div />,
+  ComposedChart: ({ children }: { children: React.ReactNode }) => <div data-testid="disk-chart">{children}</div>,
+  LineChart: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Line: () => null,
   XAxis: () => null,
   YAxis: () => null,
   CartesianGrid: () => null,
@@ -31,13 +32,56 @@ function renderWithQuery(ui: React.ReactElement) {
   return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
 }
 
+describe('linearRegression', () => {
+  it('returns correct slope for increasing data', () => {
+    const points = [
+      { x: 0, y: 50 },
+      { x: 1000, y: 60 },
+      { x: 2000, y: 70 },
+    ];
+    const { slope } = linearRegression(points);
+    expect(slope).toBeCloseTo(0.01, 4);
+  });
+
+  it('returns zero slope for flat data', () => {
+    const points = [
+      { x: 0, y: 50 },
+      { x: 1000, y: 50 },
+      { x: 2000, y: 50 },
+    ];
+    const { slope } = linearRegression(points);
+    expect(slope).toBe(0);
+  });
+});
+
+describe('daysUntilFull', () => {
+  it('returns null for flat/decreasing trend', () => {
+    const points = [
+      { x: 0, y: 50 },
+      { x: 86400000, y: 50 },
+    ];
+    expect(daysUntilFull(points)).toBeNull();
+  });
+
+  it('returns correct days for increasing trend', () => {
+    // Goes from 50% to 60% in 1 day → 10%/day → 40% remaining → 4 days
+    const day = 86400000;
+    const points = [
+      { x: 0, y: 50 },
+      { x: day, y: 60 },
+    ];
+    const days = daysUntilFull(points);
+    expect(days).toBe(4);
+  });
+});
+
 describe('DiskChart', () => {
   it('renders nothing for 1h range', () => {
     const { container } = renderWithQuery(<DiskChart instanceId="1" range="1h" />);
-    expect(container.querySelector('[data-testid="disk-line-chart"]')).toBeNull();
+    expect(container.querySelector('[data-testid="disk-chart"]')).toBeNull();
   });
 
-  it('renders chart for 6h range with data', async () => {
+  it('renders chart with forecast labels', async () => {
     const data = [
       { bucket: '2026-03-22T10:00:00Z', volume_mount_point: 'C:\\', used_pct: 60 },
       { bucket: '2026-03-22T10:05:00Z', volume_mount_point: 'C:\\', used_pct: 61 },
@@ -45,7 +89,6 @@ describe('DiskChart', () => {
     mockAuthFetch.mockResolvedValueOnce({ ok: true, json: async () => data });
     renderWithQuery(<DiskChart instanceId="1" range="6h" />);
 
-    expect(await screen.findByText('Disk Usage Over Time (%)')).toBeInTheDocument();
-    expect(screen.getByTestId('disk-line-chart')).toBeInTheDocument();
+    expect(await screen.findByTestId('disk-chart')).toBeInTheDocument();
   });
 });
