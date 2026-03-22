@@ -15,8 +15,12 @@ import { registerAuthHook } from './middleware/auth.js';
 import { CollectorScheduler } from './collector/scheduler.js';
 import { startPartitionManager } from './jobs/partition-manager.js';
 import { startAggregator } from './jobs/aggregator.js';
+import { runMigrations } from './migrations/run.js';
 
 const config = loadConfig();
+
+// Run pending database migrations before starting the server
+await runMigrations();
 const app = Fastify({ logger: true });
 
 await app.register(cors);
@@ -70,12 +74,8 @@ try {
   await app.listen({ port: config.apiPort, host: '0.0.0.0' });
   app.log.info(`Matei backend listening on port ${config.apiPort}`);
 
-  // Create default admin user if configured
-  try {
-    await ensureDefaultAdmin(pool);
-  } catch (err) {
-    app.log.warn('Could not ensure default admin (users table may not exist yet, run migrations): ' + (err instanceof Error ? err.message : String(err)));
-  }
+  // Create default admin user if configured (migrations already applied above)
+  await ensureDefaultAdmin(pool);
 
   scheduler.start();
   const partitionTimer = startPartitionManager(pool, app.log);

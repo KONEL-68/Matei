@@ -6,7 +6,7 @@ import { loadConfig } from '../config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-async function runMigrations(): Promise<void> {
+export async function runMigrations(): Promise<void> {
   const config = loadConfig();
   const client = new pg.Client({
     host: config.pg.host,
@@ -65,7 +65,11 @@ async function runMigrations(): Promise<void> {
   }
 }
 
-runMigrations().catch((err) => {
-  console.error('Migration failed:', err);
-  process.exit(1);
-});
+// Allow running as standalone script: npx tsx src/migrations/run.ts
+const isMainModule = process.argv[1]?.includes('migrations/run');
+if (isMainModule) {
+  runMigrations().catch((err) => {
+    console.error('Migration failed:', err);
+    process.exit(1);
+  });
+}
