@@ -56,4 +56,34 @@ describe('buildBlockingTrees', () => {
     expect(trees).toHaveLength(1);
     expect(trees[0].session_id).toBe(60);
   });
+
+  it('handles cycles safely (A blocks B, B blocks A)', () => {
+    const rows = [
+      { session_id: 10, blocking_session_id: 20, login_name: 'a', database_name: 'DB', wait_type: 'LCK_M_X', wait_time_ms: 5000, elapsed_time_ms: 5000, current_statement: null },
+      { session_id: 20, blocking_session_id: 10, login_name: 'b', database_name: 'DB', wait_type: 'LCK_M_S', wait_time_ms: 3000, elapsed_time_ms: 3000, current_statement: null },
+    ];
+
+    const trees = buildBlockingTrees(rows);
+    // Should not infinite-loop; both sessions appear somewhere in the output
+    const allIds = new Set<number>();
+    function collectIds(nodes: typeof trees) {
+      for (const n of nodes) {
+        allIds.add(n.session_id);
+        collectIds(n.children);
+      }
+    }
+    collectIds(trees);
+    expect(allIds.has(10)).toBe(true);
+    expect(allIds.has(20)).toBe(true);
+  });
+
+  it('a session cannot be its own blocker', () => {
+    const rows = [
+      { session_id: 10, blocking_session_id: 10, login_name: 'a', database_name: 'DB', wait_type: 'LCK_M_X', wait_time_ms: 1000, elapsed_time_ms: 1000, current_statement: null },
+    ];
+
+    const trees = buildBlockingTrees(rows);
+    // Session 10 blocks itself — should still produce output without infinite loop
+    expect(trees.length).toBeGreaterThanOrEqual(1);
+  });
 });

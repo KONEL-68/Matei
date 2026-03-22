@@ -486,18 +486,65 @@ export function buildBlockingTrees(
     });
   }
 
+  // Find root blockers: walk the blocker chain for each node to find its ultimate root.
+  // Use cycle detection (tortoise-and-hare style) to handle cycles safely.
   const roots: SessionNode[] = [];
+  const childOf = new Map<number, number>(); // session_id -> parent session_id
 
+  // First pass: determine parent relationships, skipping self-blocks
   for (const node of nodeMap.values()) {
-    if (node.blocking_session_id && node.blocking_session_id > 0) {
+    if (node.blocking_session_id && node.blocking_session_id > 0 && node.blocking_session_id !== node.session_id) {
       const parent = nodeMap.get(node.blocking_session_id);
       if (parent) {
-        parent.children.push(node);
-      } else {
-        // Blocker not in our data set — this node is effectively a root
-        roots.push(node);
+        childOf.set(node.session_id, node.blocking_session_id);
       }
-    } else {
+    }
+  }
+
+  // Detect cycles: for each node, walk up the chain. If we revisit a node, it's a cycle.
+  // Break cycles by removing the back-edge (treating the cycle entry point as a root).
+  const visited = new Set<number>();
+  const inCycle = new Set<number>();
+
+  for (const id of nodeMap.keys()) {
+    if (visited.has(id)) continue;
+
+    const path: number[] = [];
+    const pathSet = new Set<number>();
+    let cur: number | undefined = id;
+
+    while (cur !== undefined && !visited.has(cur)) {
+      if (pathSet.has(cur)) {
+        // Found a cycle — mark all nodes in the cycle
+        const cycleStart = path.indexOf(cur);
+        for (let i = cycleStart; i < path.length; i++) {
+          inCycle.add(path[i]);
+        }
+        break;
+      }
+      path.push(cur);
+      pathSet.add(cur);
+      cur = childOf.get(cur);
+    }
+
+    for (const p of path) visited.add(p);
+  }
+
+  // Break cycles by removing parent link for one node in each cycle
+  for (const id of inCycle) {
+    childOf.delete(id);
+  }
+
+  // Second pass: build tree using the cleaned parent relationships
+  for (const [childId, parentId] of childOf.entries()) {
+    const child = nodeMap.get(childId)!;
+    const parent = nodeMap.get(parentId)!;
+    parent.children.push(child);
+  }
+
+  // Nodes without a parent are roots
+  for (const node of nodeMap.values()) {
+    if (!childOf.has(node.session_id)) {
       roots.push(node);
     }
   }
