@@ -632,22 +632,25 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
     );
 
     // Latest perf_counters for buffer pool (Database Cache Memory) and plan cache (SQL Cache Memory)
-    const cacheResult = await pool.query(
-      `SELECT counter_name, cntr_value
-       FROM perf_counters_raw
-       WHERE instance_id = $1 AND collected_at > NOW() - INTERVAL '5 minutes'
-         AND counter_name IN ('Database Cache Memory (KB)', 'SQL Cache Memory (KB)')
-       ORDER BY collected_at DESC`,
-      [id],
-    );
-
-    // De-duplicate: take only the first (most recent) value per counter
+    // Wrapped in try/catch: perf_counters_raw table may not exist if migration 010 hasn't run yet
     const cacheMap = new Map<string, number>();
-    for (const row of cacheResult.rows) {
-      if (!cacheMap.has(row.counter_name)) {
-        cacheMap.set(row.counter_name, Number(row.cntr_value));
+    try {
+      const cacheResult = await pool.query(
+        `SELECT counter_name, cntr_value
+         FROM perf_counters_raw
+         WHERE instance_id = $1 AND collected_at > NOW() - INTERVAL '5 minutes'
+           AND counter_name IN ('Database Cache Memory (KB)', 'SQL Cache Memory (KB)')
+         ORDER BY collected_at DESC`,
+        [id],
+      );
+
+      // De-duplicate: take only the first (most recent) value per counter
+      for (const row of cacheResult.rows) {
+        if (!cacheMap.has(row.counter_name)) {
+          cacheMap.set(row.counter_name, Number(row.cntr_value));
+        }
       }
-    }
+    } catch { /* perf_counters_raw table may not exist yet */ }
 
     const mem = memResult.rows[0];
     if (!mem) {

@@ -29,7 +29,7 @@ function ProgressBar({ label, valueMb, maxMb }: { label: string; valueMb: number
 }
 
 export function MemoryBreakdown({ instanceId }: { instanceId: string }) {
-  const { data } = useQuery<BreakdownData | null>({
+  const { data, isLoading } = useQuery<BreakdownData | null>({
     queryKey: ['memory-breakdown', instanceId],
     queryFn: async () => {
       const res = await authFetch(`/api/metrics/${instanceId}/memory/breakdown`);
@@ -39,22 +39,24 @@ export function MemoryBreakdown({ instanceId }: { instanceId: string }) {
     refetchInterval: 30_000,
   });
 
-  if (!data) {
-    return (
-      <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-        <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">SQL Memory Breakdown</h3>
-        <p className="text-sm text-gray-500 dark:text-gray-400">No data</p>
-      </div>
-    );
-  }
-
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
       <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">SQL Memory Breakdown</h3>
-      <ProgressBar label="Target" valueMb={data.sql_target_mb} maxMb={data.sql_target_mb} />
-      <ProgressBar label="Committed" valueMb={data.sql_committed_mb} maxMb={data.sql_target_mb} />
-      <ProgressBar label="Buffer Pool" valueMb={data.buffer_pool_mb} maxMb={data.sql_target_mb} />
-      <ProgressBar label="Plan Cache" valueMb={data.plan_cache_mb} maxMb={data.sql_target_mb} />
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-500" />
+          Loading...
+        </div>
+      ) : !data ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400">Waiting for memory data...</p>
+      ) : (
+        <>
+          <ProgressBar label="Target" valueMb={data.sql_target_mb} maxMb={data.sql_target_mb} />
+          <ProgressBar label="Committed" valueMb={data.sql_committed_mb} maxMb={data.sql_target_mb} />
+          <ProgressBar label="Buffer Pool" valueMb={data.buffer_pool_mb} maxMb={data.sql_target_mb} />
+          <ProgressBar label="Plan Cache" valueMb={data.plan_cache_mb} maxMb={data.sql_target_mb} />
+        </>
+      )}
     </div>
   );
 }
