@@ -33,7 +33,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   /src/migrations/     — SQL files (###_description.sql, e.g. 001_initial.sql) + run.ts executor
 /web                 — React frontend (Vite)
   /src/pages/          — Dashboard, Instances, InstanceDetail, QueryExplorer, Alerts, Login, Settings
-  /src/components/     — StatusBar, CpuChart, MemoryChart, MemoryBreakdown, SessionBreakdown, SessionsTable, WaitsTable, TopWaitsTable, WaitsChart, DeadlocksTable, BlockingTree, FileIoChart, DiskChart, CollapsibleSection, InstanceForm, Layout
+  /src/components/     — StatusBar, CpuChart, MemoryChart, MemoryBreakdown, SessionBreakdown, SessionsTable, CurrentActivity, WaitsTable, TopWaitsTable, WaitsChart, DeadlocksTable, BlockingTree, FileIoChart, DiskChart, CollapsibleSection, InstanceForm, Layout
   /src/components/settings/ — GroupsSettings, AlertsSettings, RetentionSettings, UsersSettings, AboutSettings
 /docker              — Docker Compose stack + nginx config
 /sql                 — DMV query library (one .sql file per metric category)
@@ -119,7 +119,7 @@ Default cycle interval: 30s (COLLECTOR_INTERVAL_MS). Some metrics skip cycles:
 | os_cpu | 30s (every cycle) | snapshot |
 | os_memory | 30s (every cycle) | snapshot |
 | file_io_stats | 30s (every cycle) | delta |
-| perf_counters | 30s (every cycle) | delta (rate) + snapshot (instantaneous), includes dm_os_schedulers Pending Tasks |
+| perf_counters | 30s (every cycle) | delta (rate) + snapshot (instantaneous), includes dm_os_schedulers Pending Tasks (via scheduler_stats.sql) |
 | instance_health | 60s (every 2nd cycle) | snapshot |
 | query_stats | 60s (every 2nd cycle) | delta |
 | deadlocks | 60s (every 2nd cycle) | snapshot (event-based) |
@@ -175,6 +175,15 @@ Default cycle interval: 30s (COLLECTOR_INTERVAL_MS). Some metrics skip cycles:
 6. Add PostgreSQL migration in /server/src/migrations/
 7. Add API endpoint in /server/src/routes/
 8. Add frontend component in /web/src/components/
+
+## API endpoints
+- `/health` — healthcheck (no auth)
+- `/api/collector/status` — collector cycle status (no auth)
+- All other routes under `/api/` require JWT auth (middleware/auth.ts)
+
+## File naming conventions
+- SQL reference files: snake_case (`active_sessions.sql`, `wait_stats.sql`)
+- TypeScript collector files: kebab-case (`active-sessions.ts`, `wait-stats.ts`)
 
 ## Known issues / TODO
 
