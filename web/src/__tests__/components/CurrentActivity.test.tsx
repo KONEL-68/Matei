@@ -64,6 +64,15 @@ const baseSessions = [
     cpu_time_ms: 400, logical_reads: 200, writes: 50,
     open_transaction_count: 1, granted_memory_kb: 256, current_statement: 'INSERT INTO logs VALUES(...)',
   },
+  {
+    session_id: 55, request_id: 1, blocking_session_id: null,
+    session_status: 'running', request_status: 'running',
+    login_name: 'matei_svc', host_name: 'monitor01', program_name: 'Matei Monitor',
+    database_name: 'master', command: 'SELECT', wait_type: null,
+    wait_time_ms: null, wait_resource: null, elapsed_time_ms: 100,
+    cpu_time_ms: 50, logical_reads: 10, writes: 0,
+    open_transaction_count: 0, granted_memory_kb: 128, current_statement: 'SELECT @@VERSION',
+  },
 ];
 
 function mockSessions(sessions = baseSessions) {
@@ -237,5 +246,34 @@ describe('CurrentActivity', () => {
 
     const lastUpdated = await screen.findByTestId('last-updated');
     expect(lastUpdated.textContent).toContain('Last updated:');
+  });
+
+  it('hides monitoring sessions (Matei Monitor) by default', async () => {
+    mockSessions();
+    renderWithQuery(<CurrentActivity instanceId="1" />);
+    await waitForSessions();
+
+    expect(screen.queryByTestId('session-row-55')).not.toBeInTheDocument();
+  });
+
+  it('shows monitoring sessions when "Show monitoring sessions" is toggled', async () => {
+    mockSessions();
+    renderWithQuery(<CurrentActivity instanceId="1" />);
+    await waitForSessions();
+
+    const toggle = screen.getByTestId('show-monitoring-toggle');
+    fireEvent.click(toggle);
+
+    expect(screen.getByTestId('session-row-55')).toBeInTheDocument();
+  });
+
+  it('excludes monitoring sessions from session count', async () => {
+    mockSessions();
+    renderWithQuery(<CurrentActivity instanceId="1" />);
+    await waitForSessions();
+
+    const badge = screen.getByTestId('session-count');
+    // 5 total: 51, 52, 53 (WAITFOR), 54, 55 (monitor) -> 3 counted
+    expect(badge.textContent).toContain('3 sessions');
   });
 });

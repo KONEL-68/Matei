@@ -43,8 +43,14 @@ const ELAPSED_THRESHOLDS: Record<Exclude<ElapsedFilter, 'all'>, number> = {
 
 const WAITFOR_TYPES = ['WAITFOR', 'SP_SERVER_DIAGNOSTICS_SLEEP'];
 
+const MONITOR_APP_NAME = 'Matei Monitor';
+
 function isWaitforSession(s: SessionRow): boolean {
   return s.wait_type != null && WAITFOR_TYPES.includes(s.wait_type);
+}
+
+function isMonitoringSession(s: SessionRow): boolean {
+  return s.program_name === MONITOR_APP_NAME;
 }
 
 function formatDuration(ms: number | null): string {
@@ -80,6 +86,7 @@ export function CurrentActivity({ instanceId }: CurrentActivityProps) {
   const [loginFilter, setLoginFilter] = useState('all');
   const [dbFilter, setDbFilter] = useState('all');
   const [showSystem, setShowSystem] = useState(false);
+  const [showMonitoring, setShowMonitoring] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   const { data: sessionsData = [], dataUpdatedAt } = useQuery<SessionRow[]>({
@@ -135,9 +142,14 @@ export function CurrentActivity({ instanceId }: CurrentActivityProps) {
   const filteredSessions = useMemo(() => {
     let result = sessionsData;
 
-    // Hide system sessions unless toggled
+    // Hide WAITFOR sessions unless toggled
     if (!showSystem) {
       result = result.filter((s) => !isWaitforSession(s));
+    }
+
+    // Hide monitoring sessions unless toggled
+    if (!showMonitoring) {
+      result = result.filter((s) => !isMonitoringSession(s));
     }
 
     // Status filter
@@ -177,11 +189,11 @@ export function CurrentActivity({ instanceId }: CurrentActivityProps) {
 
     // Sort by elapsed time DESC
     return [...result].sort((a, b) => (b.elapsed_time_ms ?? 0) - (a.elapsed_time_ms ?? 0));
-  }, [sessionsData, showSystem, statusFilter, blockingFilter, elapsedFilter, loginFilter, dbFilter, blockedIds, blockerIds]);
+  }, [sessionsData, showSystem, showMonitoring, statusFilter, blockingFilter, elapsedFilter, loginFilter, dbFilter, blockedIds, blockerIds]);
 
-  // Session count always excludes WAITFOR
+  // Session count always excludes WAITFOR and monitoring sessions
   const sessionCount = useMemo(() => {
-    return sessionsData.filter((s) => !isWaitforSession(s)).length;
+    return sessionsData.filter((s) => !isWaitforSession(s) && !isMonitoringSession(s)).length;
   }, [sessionsData]);
 
   const clearFilters = useCallback(() => {
@@ -191,9 +203,10 @@ export function CurrentActivity({ instanceId }: CurrentActivityProps) {
     setLoginFilter('all');
     setDbFilter('all');
     setShowSystem(false);
+    setShowMonitoring(false);
   }, []);
 
-  const hasFilters = statusFilter !== 'all' || blockingFilter !== 'all' || elapsedFilter !== 'all' || loginFilter !== 'all' || dbFilter !== 'all' || showSystem;
+  const hasFilters = statusFilter !== 'all' || blockingFilter !== 'all' || elapsedFilter !== 'all' || loginFilter !== 'all' || dbFilter !== 'all' || showSystem || showMonitoring;
 
   const toggleRow = useCallback((key: string) => {
     setExpandedRows((prev) => {
@@ -307,16 +320,28 @@ export function CurrentActivity({ instanceId }: CurrentActivityProps) {
           </button>
         )}
 
-        <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showSystem}
-            onChange={(e) => setShowSystem(e.target.checked)}
-            className="rounded border-gray-300 dark:border-gray-600"
-            data-testid="show-system-toggle"
-          />
-          Show system sessions
-        </label>
+        <div className="ml-auto flex items-center gap-4">
+          <label className="inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showMonitoring}
+              onChange={(e) => setShowMonitoring(e.target.checked)}
+              className="rounded border-gray-300 dark:border-gray-600"
+              data-testid="show-monitoring-toggle"
+            />
+            Show monitoring sessions
+          </label>
+          <label className="inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showSystem}
+              onChange={(e) => setShowSystem(e.target.checked)}
+              className="rounded border-gray-300 dark:border-gray-600"
+              data-testid="show-system-toggle"
+            />
+            Show system sessions
+          </label>
+        </div>
       </div>
 
       {/* Sessions table */}

@@ -28,6 +28,7 @@ export function buildConnectionConfig(instance: InstanceRecord, encryptionKey: s
       trustServerCertificate: true,
       connectTimeout: 5000,
       requestTimeout: 10000,
+      appName: 'Matei Monitor',
     },
   };
 

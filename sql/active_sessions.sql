@@ -54,6 +54,7 @@ FROM sys.dm_exec_sessions s
 LEFT JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
 OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) st
 WHERE s.is_user_process = 1
+  AND s.program_name <> 'Matei Monitor'
   AND (
       r.session_id IS NOT NULL          -- has active request
       OR s.open_transaction_count > 0   -- has open transaction (sleeping with locks)
