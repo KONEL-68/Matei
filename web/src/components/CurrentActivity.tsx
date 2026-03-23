@@ -49,9 +49,11 @@ function isWaitforSession(s: SessionRow): boolean {
 
 function formatDuration(ms: number | null): string {
   if (ms == null) return '-';
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
+  const totalSec = Math.floor(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  if (totalSec < 3600) return `${Math.floor(totalSec / 60)}m ${totalSec % 60}s`;
+  if (totalSec < 86400) return `${Math.floor(totalSec / 3600)}h ${Math.floor((totalSec % 3600) / 60)}m`;
+  return `${Math.floor(totalSec / 86400)}d ${Math.floor((totalSec % 86400) / 3600)}h`;
 }
 
 function statusBadgeClass(status: string): string {
@@ -319,10 +321,21 @@ export function CurrentActivity({ instanceId }: CurrentActivityProps) {
 
       {/* Sessions table */}
       <div className="w-full overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-        <table className="w-full min-w-[900px] text-left text-xs">
+        <table className="w-full table-fixed text-left text-xs" data-testid="sessions-table">
+          <colgroup>
+            <col style={{ width: '4%' }} />
+            <col style={{ width: '6%' }} />
+            <col style={{ width: '6%' }} />
+            <col style={{ width: '30%' }} />
+            <col style={{ width: '8%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '12%' }} />
+            <col style={{ width: '6%' }} />
+            <col style={{ width: '6%' }} />
+            <col style={{ width: '12%' }} />
+          </colgroup>
           <thead className="border-b border-gray-200 bg-gray-50 text-xs font-medium uppercase text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">
             <tr>
-              <th className="px-2 py-2 w-6"></th>
               <th className="px-2 py-2">SPID</th>
               <th className="px-2 py-2">Status</th>
               <th className="px-2 py-2">Blocking</th>
@@ -338,7 +351,7 @@ export function CurrentActivity({ instanceId }: CurrentActivityProps) {
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800 dark:text-gray-300">
             {filteredSessions.length === 0 ? (
               <tr>
-                <td colSpan={11} className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                <td colSpan={10} className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                   No sessions match the current filters
                 </td>
               </tr>
@@ -356,42 +369,51 @@ export function CurrentActivity({ instanceId }: CurrentActivityProps) {
                     : 'hover:bg-gray-50 dark:hover:bg-gray-800';
 
                 return (
-                  <tr key={rowKey} className={rowBg}>
-                    <td colSpan={11} className="p-0">
-                      <div
-                        className="grid cursor-pointer px-0"
-                        style={{ gridTemplateColumns: '24px auto auto auto 1fr auto auto auto auto auto auto' }}
-                        onClick={() => toggleRow(rowKey)}
-                        data-testid={`session-row-${s.session_id}`}
-                      >
-                        <span className="px-2 py-1.5 text-gray-400">{isExpanded ? '\u25BC' : '\u25B6'}</span>
-                        <span className="px-2 py-1.5 font-medium">
+                  <tr
+                    key={rowKey}
+                    className={`cursor-pointer ${rowBg}`}
+                    onClick={() => toggleRow(rowKey)}
+                    data-testid={`session-row-${s.session_id}`}
+                  >
+                    {!isExpanded ? (
+                      <>
+                        <td className="px-2 py-1.5 font-medium">
                           {s.session_id}
                           {isBlocker && <span className="ml-1 text-red-600" title="Head blocker">!</span>}
-                        </span>
-                        <span className="px-2 py-1.5">
+                        </td>
+                        <td className="px-2 py-1.5">
                           <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${statusBadgeClass(displayStatus)}`}>
                             {displayStatus}
                           </span>
-                        </span>
-                        <span className="px-2 py-1.5">
+                        </td>
+                        <td className="px-2 py-1.5">
                           {isBlocked ? (
-                            <span className="font-medium text-red-600">blocked by {s.blocking_session_id}</span>
+                            <span className="font-medium text-red-600">{s.blocking_session_id}</span>
                           ) : isBlocker ? (
-                            <span className="font-medium text-orange-600">blocking others</span>
+                            <span className="font-medium text-orange-600">blocker</span>
                           ) : '-'}
-                        </span>
-                        <span className="px-2 py-1.5 max-w-[250px] truncate font-mono" title={s.current_statement ?? ''}>
-                          {s.current_statement ?? '-'}
-                        </span>
-                        <span className="px-2 py-1.5 text-right">{formatDuration(s.elapsed_time_ms)}</span>
-                        <span className="px-2 py-1.5">{s.login_name}</span>
-                        <span className="px-2 py-1.5 max-w-[120px] truncate" title={s.program_name}>{s.program_name || '-'}</span>
-                        <span className="px-2 py-1.5 text-right">{s.logical_reads?.toLocaleString() ?? '-'}</span>
-                        <span className="px-2 py-1.5 text-right">{s.writes?.toLocaleString() ?? '-'}</span>
-                        <span className="px-2 py-1.5">{s.database_name ?? '-'}</span>
-                      </div>
-                      {isExpanded && (
+                        </td>
+                        <td className="max-w-0 overflow-hidden truncate px-2 py-1.5 font-mono" title={s.current_statement ?? ''}>
+                          {s.current_statement || '-'}
+                        </td>
+                        <td className="px-2 py-1.5 text-right">{formatDuration(s.elapsed_time_ms)}</td>
+                        <td className="overflow-hidden truncate px-2 py-1.5">{s.login_name}</td>
+                        <td className="overflow-hidden truncate px-2 py-1.5" title={s.program_name}>{s.program_name || '-'}</td>
+                        <td className="px-2 py-1.5 text-right">{s.logical_reads?.toLocaleString() ?? '-'}</td>
+                        <td className="px-2 py-1.5 text-right">{s.writes?.toLocaleString() ?? '-'}</td>
+                        <td className="overflow-hidden truncate px-2 py-1.5">{s.database_name ?? '-'}</td>
+                      </>
+                    ) : (
+                      <td colSpan={10} className="p-0">
+                        <div className="flex items-center gap-2 px-2 py-1.5">
+                          <span className="font-medium">{s.session_id}</span>
+                          <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${statusBadgeClass(displayStatus)}`}>
+                            {displayStatus}
+                          </span>
+                          <span className="text-gray-400">{formatDuration(s.elapsed_time_ms)}</span>
+                          <span className="text-gray-400">{s.login_name}</span>
+                          <span className="text-gray-400">{s.database_name ?? '-'}</span>
+                        </div>
                         <div className="border-t border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800/50" data-testid={`session-detail-${s.session_id}`}>
                           <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs md:grid-cols-4">
                             <div><span className="text-gray-500 dark:text-gray-400">Wait Type:</span> <span className="font-mono">{s.wait_type ?? '-'}</span></div>
@@ -410,8 +432,8 @@ export function CurrentActivity({ instanceId }: CurrentActivityProps) {
                             </div>
                           )}
                         </div>
-                      )}
-                    </td>
+                      </td>
+                    )}
                   </tr>
                 );
               })
