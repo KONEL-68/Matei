@@ -213,6 +213,11 @@ export function InstanceDetail() {
         </div>
       </div>
 
+      {/* Sticky StatusBar */}
+      <div className="sticky top-0 z-10 bg-gray-950 border-b border-gray-800 -mx-6 px-6 py-2" data-testid="sticky-statusbar">
+        <StatusBar instanceId={id!} />
+      </div>
+
       {/* Time range picker */}
       <div className="mt-4 flex items-center gap-1 flex-wrap">
         {ranges.map((r) => (
@@ -266,11 +271,6 @@ export function InstanceDetail() {
             </button>
           </div>
         )}
-      </div>
-
-      {/* 1. Status bar: 8 KPIs in a thin strip (always live, independent of time range) */}
-      <div className="mt-3">
-        <StatusBar instanceId={id!} />
       </div>
 
       {/* 2. CPU Chart (full width, 200px) */}
