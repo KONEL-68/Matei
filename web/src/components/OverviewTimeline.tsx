@@ -176,9 +176,9 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
     setDragCurrentX(null);
   }, [dragStartX, dragCurrentX, pixelToTimestamp, onWindowChange]);
 
-  // Compute window overlay position in pixels
-  const windowOverlay = useCallback((): { left: number; width: number } | null => {
-    if (!window || !chartWrapRef.current || chartData.length === 0) return null;
+  // Compute an overlay position in pixels from a from/to pair
+  const tsToOverlay = useCallback((from: string, to: string): { left: number; width: number } | null => {
+    if (!chartWrapRef.current || chartData.length === 0) return null;
     const rect = chartWrapRef.current.getBoundingClientRect();
     const chartLeft = 5;
     const chartRight = rect.width - 5;
@@ -189,8 +189,8 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
     const totalMs = lastTs - firstTs;
     if (totalMs <= 0) return null;
 
-    const fromTs = new Date(window.from).getTime();
-    const toTs = new Date(window.to).getTime();
+    const fromTs = new Date(from).getTime();
+    const toTs = new Date(to).getTime();
     const pctLeft = Math.max(0, Math.min(1, (fromTs - firstTs) / totalMs));
     const pctRight = Math.max(0, Math.min(1, (toTs - firstTs) / totalMs));
 
@@ -198,7 +198,7 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
       left: chartLeft + pctLeft * chartWidth,
       width: (pctRight - pctLeft) * chartWidth,
     };
-  }, [window, chartData]);
+  }, [chartData]);
 
   const quickSelect = useCallback((minutes: number) => {
     const now = new Date();
@@ -230,14 +230,14 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
     { label: '12h', minutes: 720 },
   ];
 
-  // Drag overlay position
-  const dragOverlay = (dragStartX != null && dragCurrentX != null) ? {
+  // Drag overlay — only visible while mouse button is held
+  const dragOv = (dragStartX != null && dragCurrentX != null) ? {
     left: Math.min(dragStartX, dragCurrentX),
     width: Math.abs(dragCurrentX - dragStartX),
   } : null;
 
-  // Window highlight overlay
-  const winOv = windowOverlay();
+  // Selected window indicator — visible after selection, until Reset
+  const winOv = window ? tsToOverlay(window.from, window.to) : null;
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900" data-testid="overview-timeline">
@@ -343,20 +343,29 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
           </ComposedChart>
         </ResponsiveContainer>
 
-        {/* Window highlight overlay (blue) */}
+        {/* Selected window indicator — persistent until Reset */}
         {winOv && winOv.width > 0 && (
           <div
-            className="absolute top-0 bottom-0 pointer-events-none"
-            style={{ left: winOv.left, width: winOv.width, backgroundColor: dark ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.1)' }}
+            className="absolute top-0 bottom-0 pointer-events-none border-x"
+            style={{
+              left: winOv.left,
+              width: winOv.width,
+              backgroundColor: dark ? 'rgba(59,130,246,0.12)' : 'rgba(59,130,246,0.08)',
+              borderColor: dark ? 'rgba(59,130,246,0.4)' : 'rgba(59,130,246,0.3)',
+            }}
             data-testid="window-overlay"
           />
         )}
 
-        {/* Drag selection overlay (amber) */}
-        {dragOverlay && dragOverlay.width > 4 && (
+        {/* Drag overlay — only visible while mouse button is held */}
+        {dragOv && dragOv.width > 4 && (
           <div
             className="absolute top-0 bottom-0 pointer-events-none"
-            style={{ left: dragOverlay.left, width: dragOverlay.width, backgroundColor: dark ? 'rgba(245,158,11,0.25)' : 'rgba(245,158,11,0.2)' }}
+            style={{
+              left: dragOv.left,
+              width: dragOv.width,
+              backgroundColor: dark ? 'rgba(245,158,11,0.25)' : 'rgba(245,158,11,0.2)',
+            }}
             data-testid="drag-overlay"
           />
         )}
