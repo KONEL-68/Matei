@@ -32,6 +32,11 @@ interface NormalizedPoint {
   memory: number | null;
   waits: number | null;
   disk_io: number | null;
+  // Raw values for tooltip display
+  raw_cpu: number | null;
+  raw_memory: number | null;
+  raw_waits: number | null;
+  raw_disk_io: number | null;
 }
 
 function formatTime(ts: string): string {
@@ -52,18 +57,40 @@ const LABELS: Record<string, string> = {
   disk_io: 'Disk I/O MB/s',
 };
 
+const RAW_KEYS: Record<string, string> = {
+  cpu: 'raw_cpu',
+  memory: 'raw_memory',
+  waits: 'raw_waits',
+  disk_io: 'raw_disk_io',
+};
+const UNITS: Record<string, string> = {
+  cpu: '%',
+  memory: ' GB',
+  waits: ' ms/s',
+  disk_io: ' MB/s',
+};
+
 function OvTooltip({ active, payload, label }: { active?: boolean; payload?: TPayload[]; label?: string }) {
   if (!active || !payload?.length) return null;
+  // Access the raw data point from the first payload entry
+  const rawPt = (payload[0] as unknown as { payload?: Record<string, number | null> })?.payload;
   return (
     <div className="rounded border border-gray-700 bg-gray-900 p-2 text-xs shadow-lg">
-      <p className="mb-1 text-gray-400">{label ?? ''}</p>
-      {payload.filter(p => p.value != null).map((p) => (
-        <div key={p.dataKey} className="flex items-center gap-2">
-          <span style={{ color: p.color }}>&#9632;</span>
-          <span className="text-gray-300">{LABELS[p.dataKey] ?? p.dataKey}</span>
-          <span className="ml-auto font-mono text-white">{Number(p.value).toFixed(1)}%</span>
-        </div>
-      ))}
+      <p className="mb-1 text-gray-400">{label ? formatTime(label) : ''}</p>
+      {payload.filter(p => p.value != null).map((p) => {
+        const rawKey = RAW_KEYS[p.dataKey];
+        const rawVal = rawPt && rawKey ? rawPt[rawKey] : null;
+        const unit = UNITS[p.dataKey] ?? '';
+        return (
+          <div key={p.dataKey} className="flex items-center gap-2">
+            <span style={{ color: p.color }}>&#9632;</span>
+            <span className="text-gray-300">{LABELS[p.dataKey] ?? p.dataKey}</span>
+            <span className="ml-auto font-mono text-white">
+              {rawVal != null ? `${Number(rawVal).toFixed(1)}${unit}` : '\u2014'}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -119,6 +146,10 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
       memory: pt.memory_gb != null ? (pt.memory_gb / maxMem) * 100 : null,
       waits: pt.waits_ms_per_sec != null ? (pt.waits_ms_per_sec / maxWaits) * 100 : null,
       disk_io: pt.disk_io_mb_per_sec != null ? (pt.disk_io_mb_per_sec / maxIo) * 100 : null,
+      raw_cpu: pt.cpu_pct,
+      raw_memory: pt.memory_gb,
+      raw_waits: pt.waits_ms_per_sec,
+      raw_disk_io: pt.disk_io_mb_per_sec,
     }));
   }, [rawData]);
 
