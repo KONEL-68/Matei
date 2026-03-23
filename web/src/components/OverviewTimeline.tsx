@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ComposedChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
+import { ComposedChart, Line, XAxis, YAxis, ReferenceArea, ResponsiveContainer, Tooltip } from 'recharts';
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
 
@@ -176,28 +176,17 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
     setDragCurrentX(null);
   }, [dragStartX, dragCurrentX, pixelToTimestamp, onWindowChange]);
 
-  // Compute an overlay position in pixels from a from/to pair
-  const tsToOverlay = useCallback((from: string, to: string): { left: number; width: number } | null => {
-    if (!chartWrapRef.current || chartData.length === 0) return null;
-    const rect = chartWrapRef.current.getBoundingClientRect();
-    const chartLeft = 5;
-    const chartRight = rect.width - 5;
-    const chartWidth = chartRight - chartLeft;
-
-    const firstTs = chartData[0].ts;
-    const lastTs = chartData[chartData.length - 1].ts;
-    const totalMs = lastTs - firstTs;
-    if (totalMs <= 0) return null;
-
-    const fromTs = new Date(from).getTime();
-    const toTs = new Date(to).getTime();
-    const pctLeft = Math.max(0, Math.min(1, (fromTs - firstTs) / totalMs));
-    const pctRight = Math.max(0, Math.min(1, (toTs - firstTs) / totalMs));
-
-    return {
-      left: chartLeft + pctLeft * chartWidth,
-      width: (pctRight - pctLeft) * chartWidth,
-    };
+  // Find the closest bucket timestamp to a given ISO timestamp
+  const closestBucket = useCallback((iso: string): string | null => {
+    if (chartData.length === 0) return null;
+    const target = new Date(iso).getTime();
+    let best = chartData[0];
+    let bestDiff = Math.abs(best.ts - target);
+    for (const pt of chartData) {
+      const diff = Math.abs(pt.ts - target);
+      if (diff < bestDiff) { best = pt; bestDiff = diff; }
+    }
+    return best.bucket;
   }, [chartData]);
 
   const quickSelect = useCallback((minutes: number) => {
@@ -236,8 +225,9 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
     width: Math.abs(dragCurrentX - dragStartX),
   } : null;
 
-  // Selected window indicator — visible after selection, until Reset
-  const winOv = window ? tsToOverlay(window.from, window.to) : null;
+  // Map window timestamps to closest chart bucket values for ReferenceArea
+  const winRefX1 = window ? closestBucket(window.from) : null;
+  const winRefX2 = window ? closestBucket(window.to) : null;
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900" data-testid="overview-timeline">
@@ -340,22 +330,19 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
             {activeMetrics.has('memory') && <Line yAxisId="auto" type="monotone" dataKey="memory" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />}
             {activeMetrics.has('waits') && <Line yAxisId="auto" type="monotone" dataKey="waits" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />}
             {activeMetrics.has('disk_io') && <Line yAxisId="auto" type="monotone" dataKey="disk_io" stroke="#10b981" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />}
+            {/* Selected window indicator — Recharts ReferenceArea at correct time coordinates */}
+            {winRefX1 && winRefX2 && (
+              <ReferenceArea
+                x1={winRefX1}
+                x2={winRefX2}
+                fill="rgba(59,130,246,0.15)"
+                stroke="rgba(59,130,246,0.5)"
+                strokeWidth={1}
+                ifOverflow="extendDomain"
+              />
+            )}
           </ComposedChart>
         </ResponsiveContainer>
-
-        {/* Selected window indicator — persistent until Reset */}
-        {winOv && winOv.width > 0 && (
-          <div
-            className="absolute top-0 bottom-0 pointer-events-none border-x"
-            style={{
-              left: winOv.left,
-              width: winOv.width,
-              backgroundColor: dark ? 'rgba(59,130,246,0.12)' : 'rgba(59,130,246,0.08)',
-              borderColor: dark ? 'rgba(59,130,246,0.4)' : 'rgba(59,130,246,0.3)',
-            }}
-            data-testid="window-overlay"
-          />
-        )}
 
         {/* Drag overlay — only visible while mouse button is held */}
         {dragOv && dragOv.width > 4 && (

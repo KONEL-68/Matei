@@ -14,6 +14,7 @@ vi.mock('recharts', () => ({
   Line: () => null,
   XAxis: () => null,
   YAxis: () => null,
+  ReferenceArea: () => <div data-testid="reference-area" />,
   ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   Tooltip: () => null,
 }));
