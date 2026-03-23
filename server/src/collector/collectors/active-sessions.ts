@@ -46,7 +46,7 @@ SELECT
     r.wait_resource,
     r.total_elapsed_time                            AS elapsed_time_ms,
     r.cpu_time                                      AS cpu_time_ms,
-    r.reads                                         AS logical_reads,
+    r.logical_reads,
     r.writes,
     r.row_count,
     r.open_transaction_count,
