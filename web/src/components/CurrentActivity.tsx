@@ -59,6 +59,7 @@ function hasActiveRequest(s: SessionRow): boolean {
 
 function formatDuration(ms: number | null): string {
   if (ms == null) return '-';
+  if (ms < 1000) return `${ms}ms`;
   const totalSec = Math.floor(ms / 1000);
   if (totalSec < 60) return `${totalSec}s`;
   if (totalSec < 3600) return `${Math.floor(totalSec / 60)}m ${totalSec % 60}s`;
