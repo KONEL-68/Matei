@@ -15,6 +15,7 @@ import { SessionBreakdown } from '@/components/SessionBreakdown';
 import { CollapsibleSection } from '@/components/CollapsibleSection';
 import { CurrentActivity } from '@/components/CurrentActivity';
 import { OverviewTimeline, type TimeWindow } from '@/components/OverviewTimeline';
+import { AnalysisSection } from '@/components/AnalysisSection';
 import { authFetch } from '@/lib/auth';
 
 type PresetRange = '1h' | '6h' | '24h' | '7d' | '30d' | '1y';
@@ -500,6 +501,9 @@ export function InstanceDetail() {
           )}
         </CollapsibleSection>
       </div>
+
+      {/* Analysis section */}
+      <AnalysisSection instanceId={id!} range={range} timeWindow={timeWindow} />
       </>}
     </div>
   );
