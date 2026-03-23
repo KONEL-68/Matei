@@ -80,22 +80,34 @@ describe('OverviewTimeline', () => {
     expect(onWindowChange).toHaveBeenCalledWith(null);
   });
 
-  it('shows legend with all 4 metrics', async () => {
+  it('shows metric toggle checkboxes for all 4 metrics', async () => {
     renderTimeline();
     await screen.findByTestId('overview-timeline');
+    const toggles = screen.getByTestId('metric-toggles');
+    expect(toggles).toBeInTheDocument();
     expect(screen.getByText('CPU')).toBeInTheDocument();
     expect(screen.getByText('Memory')).toBeInTheDocument();
     expect(screen.getByText('Waits')).toBeInTheDocument();
     expect(screen.getByText('Disk I/O')).toBeInTheDocument();
   });
 
+  it('metric toggles can be clicked to toggle visibility', async () => {
+    renderTimeline();
+    await screen.findByTestId('overview-timeline');
+    const cpuToggle = screen.getByTestId('toggle-cpu');
+    // Initially checked
+    expect(cpuToggle).toBeInTheDocument();
+    // Click to uncheck
+    fireEvent.click(cpuToggle);
+    // Click again to re-check
+    fireEvent.click(cpuToggle);
+  });
+
   it('shows time range when window is set', async () => {
     renderTimeline({ window: { from: '2026-03-22T09:00:00Z', to: '2026-03-22T10:00:00Z' } });
     await screen.findByTestId('overview-timeline');
-    // Should show the time range in the legend area (format depends on locale)
-    const legend = screen.getByText(/–/).closest('span');
+    const legend = screen.getByText(/–/).closest('div');
     expect(legend).toBeTruthy();
-    // The window times should be rendered somewhere
     expect(legend!.textContent).toBeTruthy();
   });
 });

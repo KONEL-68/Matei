@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ComposedChart, Line, XAxis, YAxis, ReferenceArea, ResponsiveContainer, Tooltip } from 'recharts';
 import { useTheme } from '@/lib/theme';
@@ -68,13 +68,23 @@ function OvTooltip({ active, payload, label }: { active?: boolean; payload?: TPa
   );
 }
 
+const METRICS = [
+  { key: 'cpu', label: 'CPU', color: '#3b82f6', dotClass: 'bg-blue-500' },
+  { key: 'memory', label: 'Memory', color: '#a855f7', dotClass: 'bg-purple-500' },
+  { key: 'waits', label: 'Waits', color: '#f59e0b', dotClass: 'bg-amber-500' },
+  { key: 'disk_io', label: 'Disk I/O', color: '#10b981', dotClass: 'bg-emerald-500' },
+] as const;
+
 export function OverviewTimeline({ instanceId, window, onWindowChange }: OverviewTimelineProps) {
   const { theme } = useTheme();
   const dark = theme === 'dark';
   const [overviewRange, setOverviewRange] = useState<OverviewRange>('24h');
-  const [selStart, setSelStart] = useState<string | null>(null);
-  const [selEnd, setSelEnd] = useState<string | null>(null);
-  const isDragging = useRef(false);
+  const [activeMetrics, setActiveMetrics] = useState<Set<string>>(new Set(['cpu', 'memory', 'waits', 'disk_io']));
+
+  // Drag selection state — using useState so re-renders show the ReferenceArea
+  const [selecting, setSelecting] = useState(false);
+  const [refAreaLeft, setRefAreaLeft] = useState<string | null>(null);
+  const [refAreaRight, setRefAreaRight] = useState<string | null>(null);
 
   const { data: rawData = [] } = useQuery<RawPoint[]>({
     queryKey: ['overview-chart', instanceId, overviewRange],
@@ -96,7 +106,6 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
       if (pt.waits_ms_per_sec != null && pt.waits_ms_per_sec > maxWaits) maxWaits = pt.waits_ms_per_sec;
       if (pt.disk_io_mb_per_sec != null && pt.disk_io_mb_per_sec > maxIo) maxIo = pt.disk_io_mb_per_sec;
     }
-    // Avoid division by zero
     if (maxCpu === 0) maxCpu = 100;
     if (maxMem === 0) maxMem = 1;
     if (maxWaits === 0) maxWaits = 1;
@@ -116,32 +125,32 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
 
   const handleMouseDown = useCallback((e: { activeLabel?: string }) => {
     if (e.activeLabel) {
-      isDragging.current = true;
-      setSelStart(e.activeLabel);
-      setSelEnd(e.activeLabel);
+      setSelecting(true);
+      setRefAreaLeft(e.activeLabel);
+      setRefAreaRight(e.activeLabel);
     }
   }, []);
 
   const handleMouseMove = useCallback((e: { activeLabel?: string }) => {
-    if (isDragging.current && e.activeLabel) {
-      setSelEnd(e.activeLabel);
+    if (selecting && e.activeLabel) {
+      setRefAreaRight(e.activeLabel);
     }
-  }, []);
+  }, [selecting]);
 
   const handleMouseUp = useCallback(() => {
-    if (isDragging.current && selStart && selEnd) {
-      isDragging.current = false;
-      const t1 = new Date(selStart).getTime();
-      const t2 = new Date(selEnd).getTime();
-      const from = t1 < t2 ? selStart : selEnd;
-      const to = t1 < t2 ? selEnd : selStart;
-      // Only apply if selection is meaningful (> 1 point)
+    if (selecting && refAreaLeft && refAreaRight) {
+      const t1 = new Date(refAreaLeft).getTime();
+      const t2 = new Date(refAreaRight).getTime();
+      const from = t1 < t2 ? refAreaLeft : refAreaRight;
+      const to = t1 < t2 ? refAreaRight : refAreaLeft;
       if (from !== to) {
         onWindowChange({ from, to });
       }
     }
-    isDragging.current = false;
-  }, [selStart, selEnd, onWindowChange]);
+    setSelecting(false);
+    setRefAreaLeft(null);
+    setRefAreaRight(null);
+  }, [selecting, refAreaLeft, refAreaRight, onWindowChange]);
 
   const quickSelect = useCallback((minutes: number) => {
     const now = new Date();
@@ -151,19 +160,18 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
 
   const resetWindow = useCallback(() => {
     onWindowChange(null);
-    setSelStart(null);
-    setSelEnd(null);
   }, [onWindowChange]);
 
+  const toggleMetric = useCallback((key: string) => {
+    setActiveMetrics(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
   if (chartData.length === 0) return null;
-
-  // Determine reference area for current window
-  const refX1 = window ? window.from : null;
-  const refX2 = window ? window.to : null;
-
-  // Dragging reference area
-  const dragX1 = isDragging.current && selStart ? selStart : null;
-  const dragX2 = isDragging.current && selEnd ? selEnd : null;
 
   const overviewRanges: OverviewRange[] = ['1h', '6h', '24h', '7d'];
   const quickButtons = [
@@ -220,8 +228,35 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
         </div>
       </div>
 
+      {/* Metric toggles */}
+      <div className="flex items-center gap-3 mb-2" data-testid="metric-toggles">
+        {METRICS.map(m => (
+          <label key={m.key} className="flex items-center gap-1.5 cursor-pointer text-[11px] text-gray-600 dark:text-gray-400 select-none">
+            <input
+              type="checkbox"
+              checked={activeMetrics.has(m.key)}
+              onChange={() => toggleMetric(m.key)}
+              className="sr-only"
+              data-testid={`toggle-${m.key}`}
+            />
+            <span className={`inline-block w-3 h-3 rounded-sm border-2 flex items-center justify-center ${
+              activeMetrics.has(m.key)
+                ? `border-transparent ${m.dotClass}`
+                : 'border-gray-300 dark:border-gray-600'
+            }`}>
+              {activeMetrics.has(m.key) && (
+                <svg className="w-2 h-2 text-white" viewBox="0 0 12 12" fill="none">
+                  <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </span>
+            {m.label}
+          </label>
+        ))}
+      </div>
+
       {/* Chart */}
-      <ResponsiveContainer width="100%" height={80}>
+      <ResponsiveContainer width="100%" height={120}>
         <ComposedChart
           data={chartData}
           onMouseDown={handleMouseDown}
@@ -237,33 +272,27 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
           />
           <YAxis domain={[0, 100]} hide />
           <Tooltip content={<OvTooltip />} />
-          <Line type="monotone" dataKey="cpu" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls />
-          <Line type="monotone" dataKey="memory" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls />
-          <Line type="monotone" dataKey="waits" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls />
-          <Line type="monotone" dataKey="disk_io" stroke="#10b981" strokeWidth={1.5} dot={false} connectNulls />
+          {activeMetrics.has('cpu') && <Line type="monotone" dataKey="cpu" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls />}
+          {activeMetrics.has('memory') && <Line type="monotone" dataKey="memory" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls />}
+          {activeMetrics.has('waits') && <Line type="monotone" dataKey="waits" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls />}
+          {activeMetrics.has('disk_io') && <Line type="monotone" dataKey="disk_io" stroke="#10b981" strokeWidth={1.5} dot={false} connectNulls />}
           {/* Current window highlight */}
-          {refX1 && refX2 && (
-            <ReferenceArea x1={refX1} x2={refX2} fill={dark ? '#3b82f640' : '#3b82f620'} />
+          {window && (
+            <ReferenceArea x1={window.from} x2={window.to} fill={dark ? '#3b82f640' : '#3b82f620'} />
           )}
           {/* Drag selection highlight */}
-          {dragX1 && dragX2 && (
-            <ReferenceArea x1={dragX1} x2={dragX2} fill={dark ? '#f59e0b40' : '#f59e0b30'} />
+          {selecting && refAreaLeft && refAreaRight && (
+            <ReferenceArea x1={refAreaLeft} x2={refAreaRight} fill={dark ? '#f59e0b40' : '#f59e0b30'} />
           )}
         </ComposedChart>
       </ResponsiveContainer>
 
-      {/* Legend */}
-      <div className="flex items-center gap-4 mt-1 text-[10px] text-gray-500 dark:text-gray-400">
-        <span><span className="inline-block w-2 h-0.5 bg-blue-500 mr-1" />CPU</span>
-        <span><span className="inline-block w-2 h-0.5 bg-purple-500 mr-1" />Memory</span>
-        <span><span className="inline-block w-2 h-0.5 bg-amber-500 mr-1" />Waits</span>
-        <span><span className="inline-block w-2 h-0.5 bg-emerald-500 mr-1" />Disk I/O</span>
-        {window && (
-          <span className="ml-auto text-blue-500">
-            {new Date(window.from).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(window.to).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </span>
-        )}
-      </div>
+      {/* Window info */}
+      {window && (
+        <div className="mt-1 text-[10px] text-blue-500 dark:text-blue-400 text-right">
+          {new Date(window.from).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – {new Date(window.to).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </div>
+      )}
     </div>
   );
 }

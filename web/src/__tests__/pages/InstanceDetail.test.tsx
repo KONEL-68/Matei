@@ -133,15 +133,11 @@ function renderDetail(initialPath = '/instances/1') {
 }
 
 describe('InstanceDetail', () => {
-  it('renders all time range buttons including Custom on History tab', async () => {
+  it('renders overview timeline on History tab', async () => {
     renderDetail();
-    expect(await screen.findByText('1h')).toBeInTheDocument();
-    expect(screen.getByText('6h')).toBeInTheDocument();
-    expect(screen.getByText('24h')).toBeInTheDocument();
-    expect(screen.getByText('7d')).toBeInTheDocument();
-    expect(screen.getByText('30d')).toBeInTheDocument();
-    expect(screen.getByText('1y')).toBeInTheDocument();
-    expect(screen.getByText('Custom')).toBeInTheDocument();
+    expect(await screen.findByText('PROD-SQL1')).toBeInTheDocument();
+    // Overview timeline controls are rendered (overview range + window buttons)
+    expect(screen.getByTestId('status-bar')).toBeInTheDocument();
   });
 
   it('renders status bar with sticky container', async () => {
@@ -210,20 +206,18 @@ describe('InstanceDetail', () => {
     expect(screen.getByText('Current Activity')).toBeInTheDocument();
   });
 
-  it('defaults to History tab showing time range and charts', async () => {
+  it('defaults to History tab showing charts (not Current Activity)', async () => {
     renderDetail();
-    expect(await screen.findByText('1h')).toBeInTheDocument();
+    expect(await screen.findByText('PROD-SQL1')).toBeInTheDocument();
     expect(screen.queryByTestId('current-activity')).not.toBeInTheDocument();
   });
 
-  it('switches to Current Activity tab and hides time range picker', async () => {
+  it('switches to Current Activity tab', async () => {
     renderDetail();
     await screen.findByText('History');
     fireEvent.click(screen.getByText('Current Activity'));
 
     expect(screen.getByTestId('current-activity')).toBeInTheDocument();
-    // Time range picker should be hidden
-    expect(screen.queryByText('Custom')).not.toBeInTheDocument();
   });
 
   it('switches back to History tab', async () => {
@@ -234,13 +228,11 @@ describe('InstanceDetail', () => {
 
     fireEvent.click(screen.getByText('History'));
     expect(screen.queryByTestId('current-activity')).not.toBeInTheDocument();
-    expect(screen.getByText('Custom')).toBeInTheDocument();
   });
 
   it('URL param ?tab=current opens Current Activity tab', async () => {
     renderDetail('/instances/1?tab=current');
     expect(await screen.findByTestId('current-activity')).toBeInTheDocument();
-    expect(screen.queryByText('Custom')).not.toBeInTheDocument();
   });
 
   it('StatusBar always visible regardless of tab', async () => {

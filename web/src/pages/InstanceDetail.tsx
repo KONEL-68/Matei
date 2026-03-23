@@ -18,13 +18,7 @@ import { OverviewTimeline, type TimeWindow } from '@/components/OverviewTimeline
 import { AnalysisSection } from '@/components/AnalysisSection';
 import { authFetch } from '@/lib/auth';
 
-type PresetRange = '1h' | '6h' | '24h' | '7d' | '30d' | '1y';
-type TimeRange = PresetRange;
-
-interface CustomRange {
-  from: string;
-  to: string;
-}
+type TimeRange = '1h' | '6h' | '24h' | '7d' | '30d' | '1y';
 
 interface HealthData {
   instance_name: string;
@@ -121,11 +115,7 @@ export function InstanceDetail() {
   const initialTab = (searchParams.get('tab') as Tab) || 'history';
   const initialRange = (searchParams.get('range') as TimeRange) || '1h';
   const [tab, setTab] = useState<Tab>(initialTab);
-  const [range, setRange] = useState<TimeRange>(initialRange);
-  const [customRange, setCustomRange] = useState<CustomRange | null>(null);
-  const [customFrom, setCustomFrom] = useState('');
-  const [customTo, setCustomTo] = useState('');
-  const [showCustomPicker, setShowCustomPicker] = useState(false);
+  const [range] = useState<TimeRange>(initialRange);
   const [sessionAt, setSessionAt] = useState<string | null>(initialAt);
   const [timeWindow, setTimeWindow] = useState<TimeWindow | null>(null);
 
@@ -139,12 +129,10 @@ export function InstanceDetail() {
     });
   }, [setSearchParams]);
 
-  // Build query suffix: window > customRange > range preset
+  // Build query suffix: window from overview timeline, or fallback to range preset
   const rangeParams = timeWindow
     ? `from=${encodeURIComponent(timeWindow.from)}&to=${encodeURIComponent(timeWindow.to)}`
-    : customRange
-      ? `from=${encodeURIComponent(new Date(customRange.from).toISOString())}&to=${encodeURIComponent(new Date(customRange.to).toISOString())}`
-      : `range=${range}`;
+    : `range=${range}`;
 
   // When navigated via alert deep-link, set sessionAt from URL
   useEffect(() => {
@@ -163,16 +151,16 @@ export function InstanceDetail() {
     refetchInterval: 300000,
   });
 
-  const hasFixedWindow = !!(timeWindow || customRange);
+  const hasFixedWindow = !!timeWindow;
 
   const { data: cpuData = [] } = useQuery({
-    queryKey: ['metrics-cpu', id, range, customRange, timeWindow],
+    queryKey: ['metrics-cpu', id, range, timeWindow],
     queryFn: () => fetchJson<Array<Record<string, unknown>>>(`/api/metrics/${id}/cpu?${rangeParams}`),
     refetchInterval: hasFixedWindow ? false : 15000,
   });
 
   const { data: waitsData = [] } = useQuery({
-    queryKey: ['metrics-waits', id, range, customRange, timeWindow],
+    queryKey: ['metrics-waits', id, range, timeWindow],
     queryFn: () => fetchJson<Array<Record<string, unknown>>>(`/api/metrics/${id}/waits?${rangeParams}`),
     refetchInterval: hasFixedWindow ? false : 30000,
   });
@@ -202,12 +190,11 @@ export function InstanceDetail() {
   });
 
   const { data: fileIoData = [] } = useQuery<FileIoRow[]>({
-    queryKey: ['metrics-file-io', id, range, customRange, timeWindow],
+    queryKey: ['metrics-file-io', id, range, timeWindow],
     queryFn: () => fetchJson<FileIoRow[]>(`/api/metrics/${id}/file-io?${rangeParams}`),
     refetchInterval: hasFixedWindow ? false : 30000,
   });
 
-  const ranges: TimeRange[] = ['1h', '6h', '24h', '7d', '30d', '1y'];
   const instance = health?.instance;
 
   return (
@@ -270,67 +257,12 @@ export function InstanceDetail() {
 
       {/* History tab */}
       {tab === 'history' && <>
-      {/* Time range picker */}
-      <div className="mt-4 flex items-center gap-1 flex-wrap">
-        {ranges.map((r) => (
-          <button
-            key={r}
-            onClick={() => { setRange(r); setCustomRange(null); setShowCustomPicker(false); }}
-            className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
-              range === r && !customRange
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
-            }`}
-          >
-            {r}
-          </button>
-        ))}
-        <button
-          onClick={() => setShowCustomPicker((v) => !v)}
-          className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
-            customRange
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700'
-          }`}
-        >
-          Custom
-        </button>
-        {showCustomPicker && (
-          <div className="flex items-center gap-2 ml-2">
-            <input
-              type="datetime-local"
-              value={customFrom}
-              onChange={(e) => setCustomFrom(e.target.value)}
-              className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-            />
-            <span className="text-xs text-gray-500">to</span>
-            <input
-              type="datetime-local"
-              value={customTo}
-              onChange={(e) => setCustomTo(e.target.value)}
-              className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-            />
-            <button
-              onClick={() => {
-                if (customFrom && customTo) {
-                  setCustomRange({ from: customFrom, to: customTo });
-                }
-              }}
-              disabled={!customFrom || !customTo}
-              className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              Apply
-            </button>
-          </div>
-        )}
-      </div>
-
       {/* Overview Timeline with drag selection */}
       <div className="mt-4">
         <OverviewTimeline
           instanceId={id!}
           window={timeWindow}
-          onWindowChange={(w) => { setTimeWindow(w); if (w) { setCustomRange(null); } }}
+          onWindowChange={setTimeWindow}
         />
       </div>
 
