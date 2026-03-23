@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ComposedChart, Line, XAxis, YAxis, ReferenceArea, ResponsiveContainer, Tooltip } from 'recharts';
+import { ComposedChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
 
@@ -25,18 +25,13 @@ interface RawPoint {
   disk_io_mb_per_sec: number | null;
 }
 
-interface NormalizedPoint {
+interface ChartPoint {
   bucket: string;
   ts: number;
   cpu: number | null;
   memory: number | null;
   waits: number | null;
   disk_io: number | null;
-  // Raw values for tooltip display
-  raw_cpu: number | null;
-  raw_memory: number | null;
-  raw_waits: number | null;
-  raw_disk_io: number | null;
 }
 
 function formatTime(ts: string): string {
@@ -51,17 +46,10 @@ interface TPayload {
 }
 
 const LABELS: Record<string, string> = {
-  cpu: 'CPU %',
-  memory: 'Memory GB',
-  waits: 'Waits ms/s',
-  disk_io: 'Disk I/O MB/s',
-};
-
-const RAW_KEYS: Record<string, string> = {
-  cpu: 'raw_cpu',
-  memory: 'raw_memory',
-  waits: 'raw_waits',
-  disk_io: 'raw_disk_io',
+  cpu: 'CPU',
+  memory: 'Memory',
+  waits: 'Waits',
+  disk_io: 'Disk I/O',
 };
 const UNITS: Record<string, string> = {
   cpu: '%',
@@ -72,21 +60,17 @@ const UNITS: Record<string, string> = {
 
 function OvTooltip({ active, payload, label }: { active?: boolean; payload?: TPayload[]; label?: string }) {
   if (!active || !payload?.length) return null;
-  // Access the raw data point from the first payload entry
-  const rawPt = (payload[0] as unknown as { payload?: Record<string, number | null> })?.payload;
   return (
     <div className="rounded border border-gray-700 bg-gray-900 p-2 text-xs shadow-lg">
       <p className="mb-1 text-gray-400">{label ? formatTime(label) : ''}</p>
       {payload.filter(p => p.value != null).map((p) => {
-        const rawKey = RAW_KEYS[p.dataKey];
-        const rawVal = rawPt && rawKey ? rawPt[rawKey] : null;
         const unit = UNITS[p.dataKey] ?? '';
         return (
           <div key={p.dataKey} className="flex items-center gap-2">
             <span style={{ color: p.color }}>&#9632;</span>
             <span className="text-gray-300">{LABELS[p.dataKey] ?? p.dataKey}</span>
             <span className="ml-auto font-mono text-white">
-              {rawVal != null ? `${Number(rawVal).toFixed(1)}${unit}` : '\u2014'}
+              {Number(p.value).toFixed(1)}{unit}
             </span>
           </div>
         );
@@ -102,17 +86,20 @@ const METRICS = [
   { key: 'disk_io', label: 'Disk I/O', color: '#10b981', dotClass: 'bg-emerald-500' },
 ] as const;
 
+// Recharts chart margins — needed to calculate data area offset for drag overlay
+const CHART_MARGIN = { left: 0, right: 0, top: 4, bottom: 0 };
+
 export function OverviewTimeline({ instanceId, window, onWindowChange }: OverviewTimelineProps) {
   const { theme } = useTheme();
   const dark = theme === 'dark';
   const [overviewRange, setOverviewRange] = useState<OverviewRange>('24h');
   const [activeMetrics, setActiveMetrics] = useState<Set<string>>(new Set(['cpu', 'memory', 'waits', 'disk_io']));
 
-  // Drag selection state — ref tracks whether dragging is active (no re-render needed),
-  // useState for the boundary values so the ReferenceArea re-renders
-  const selectingRef = useRef(false);
-  const [refAreaLeft, setRefAreaLeft] = useState<string | null>(null);
-  const [refAreaRight, setRefAreaRight] = useState<string | null>(null);
+  // Native DOM drag selection
+  const chartWrapRef = useRef<HTMLDivElement>(null);
+  const [dragStartX, setDragStartX] = useState<number | null>(null);
+  const [dragCurrentX, setDragCurrentX] = useState<number | null>(null);
+  const isDragging = useRef(false);
 
   const { data: rawData = [] } = useQuery<RawPoint[]>({
     queryKey: ['overview-chart', instanceId, overviewRange],
@@ -124,67 +111,94 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
     refetchInterval: 30_000,
   });
 
-  // Normalize each series to 0-100% of its own max
-  const normalize = useCallback((): NormalizedPoint[] => {
-    if (rawData.length === 0) return [];
-    let maxCpu = 0, maxMem = 0, maxWaits = 0, maxIo = 0;
-    for (const pt of rawData) {
-      if (pt.cpu_pct != null && pt.cpu_pct > maxCpu) maxCpu = pt.cpu_pct;
-      if (pt.memory_gb != null && pt.memory_gb > maxMem) maxMem = pt.memory_gb;
-      if (pt.waits_ms_per_sec != null && pt.waits_ms_per_sec > maxWaits) maxWaits = pt.waits_ms_per_sec;
-      if (pt.disk_io_mb_per_sec != null && pt.disk_io_mb_per_sec > maxIo) maxIo = pt.disk_io_mb_per_sec;
+  // Use raw values directly — CPU on left axis (0-100), others on right axis (auto)
+  const chartData: ChartPoint[] = rawData.map(pt => ({
+    bucket: pt.bucket,
+    ts: new Date(pt.bucket).getTime(),
+    cpu: pt.cpu_pct,
+    memory: pt.memory_gb,
+    waits: pt.waits_ms_per_sec,
+    disk_io: pt.disk_io_mb_per_sec,
+  }));
+
+  // Convert pixel X position to a timestamp from chart data
+  const pixelToTimestamp = useCallback((px: number): string | null => {
+    if (!chartWrapRef.current || chartData.length === 0) return null;
+    const rect = chartWrapRef.current.getBoundingClientRect();
+    // Recharts reserves ~60px for Y axis on left side. Estimate chart area.
+    const chartLeft = 5; // minimal left margin since Y axes are hidden
+    const chartRight = rect.width - 5;
+    const chartWidth = chartRight - chartLeft;
+    const pct = Math.max(0, Math.min(1, (px - chartLeft) / chartWidth));
+    const idx = Math.round(pct * (chartData.length - 1));
+    return chartData[Math.max(0, Math.min(chartData.length - 1, idx))].bucket;
+  }, [chartData]);
+
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    const rect = chartWrapRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = e.clientX - rect.left;
+    isDragging.current = true;
+    setDragStartX(x);
+    setDragCurrentX(x);
+  }, []);
+
+  const handleDragMove = useCallback((e: React.MouseEvent) => {
+    if (!isDragging.current) return;
+    const rect = chartWrapRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = e.clientX - rect.left;
+    setDragCurrentX(x);
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    if (!isDragging.current || dragStartX == null || dragCurrentX == null) {
+      isDragging.current = false;
+      setDragStartX(null);
+      setDragCurrentX(null);
+      return;
     }
-    if (maxCpu === 0) maxCpu = 100;
-    if (maxMem === 0) maxMem = 1;
-    if (maxWaits === 0) maxWaits = 1;
-    if (maxIo === 0) maxIo = 1;
+    isDragging.current = false;
 
-    return rawData.map(pt => ({
-      bucket: pt.bucket,
-      ts: new Date(pt.bucket).getTime(),
-      cpu: pt.cpu_pct != null ? (pt.cpu_pct / maxCpu) * 100 : null,
-      memory: pt.memory_gb != null ? (pt.memory_gb / maxMem) * 100 : null,
-      waits: pt.waits_ms_per_sec != null ? (pt.waits_ms_per_sec / maxWaits) * 100 : null,
-      disk_io: pt.disk_io_mb_per_sec != null ? (pt.disk_io_mb_per_sec / maxIo) * 100 : null,
-      raw_cpu: pt.cpu_pct,
-      raw_memory: pt.memory_gb,
-      raw_waits: pt.waits_ms_per_sec,
-      raw_disk_io: pt.disk_io_mb_per_sec,
-    }));
-  }, [rawData]);
+    const left = Math.min(dragStartX, dragCurrentX);
+    const right = Math.max(dragStartX, dragCurrentX);
 
-  const chartData = normalize();
-
-  // Not wrapped in useCallback — needs fresh closure over ref + state setters every render
-  // so Recharts always calls the latest version
-  const handleMouseDown = (e: { activeLabel?: string }) => {
-    if (e.activeLabel) {
-      selectingRef.current = true;
-      setRefAreaLeft(e.activeLabel);
-      setRefAreaRight(e.activeLabel);
-    }
-  };
-
-  const handleMouseMove = (e: { activeLabel?: string }) => {
-    if (selectingRef.current && e.activeLabel) {
-      setRefAreaRight(e.activeLabel);
-    }
-  };
-
-  const handleMouseUp = () => {
-    if (selectingRef.current && refAreaLeft && refAreaRight) {
-      const t1 = new Date(refAreaLeft).getTime();
-      const t2 = new Date(refAreaRight).getTime();
-      const from = t1 < t2 ? refAreaLeft : refAreaRight;
-      const to = t1 < t2 ? refAreaRight : refAreaLeft;
-      if (from !== to) {
+    // Only register if drag was at least 10px
+    if (right - left > 10) {
+      const from = pixelToTimestamp(left);
+      const to = pixelToTimestamp(right);
+      if (from && to && from !== to) {
         onWindowChange({ from, to });
       }
     }
-    selectingRef.current = false;
-    setRefAreaLeft(null);
-    setRefAreaRight(null);
-  };
+
+    setDragStartX(null);
+    setDragCurrentX(null);
+  }, [dragStartX, dragCurrentX, pixelToTimestamp, onWindowChange]);
+
+  // Compute window overlay position in pixels
+  const windowOverlay = useCallback((): { left: number; width: number } | null => {
+    if (!window || !chartWrapRef.current || chartData.length === 0) return null;
+    const rect = chartWrapRef.current.getBoundingClientRect();
+    const chartLeft = 5;
+    const chartRight = rect.width - 5;
+    const chartWidth = chartRight - chartLeft;
+
+    const firstTs = chartData[0].ts;
+    const lastTs = chartData[chartData.length - 1].ts;
+    const totalMs = lastTs - firstTs;
+    if (totalMs <= 0) return null;
+
+    const fromTs = new Date(window.from).getTime();
+    const toTs = new Date(window.to).getTime();
+    const pctLeft = Math.max(0, Math.min(1, (fromTs - firstTs) / totalMs));
+    const pctRight = Math.max(0, Math.min(1, (toTs - firstTs) / totalMs));
+
+    return {
+      left: chartLeft + pctLeft * chartWidth,
+      width: (pctRight - pctLeft) * chartWidth,
+    };
+  }, [window, chartData]);
 
   const quickSelect = useCallback((minutes: number) => {
     const now = new Date();
@@ -215,6 +229,15 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
     { label: '3h', minutes: 180 },
     { label: '12h', minutes: 720 },
   ];
+
+  // Drag overlay position
+  const dragOverlay = (dragStartX != null && dragCurrentX != null) ? {
+    left: Math.min(dragStartX, dragCurrentX),
+    width: Math.abs(dragCurrentX - dragStartX),
+  } : null;
+
+  // Window highlight overlay
+  const winOv = windowOverlay();
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900" data-testid="overview-timeline">
@@ -289,37 +312,55 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
         ))}
       </div>
 
-      {/* Chart */}
-      <ResponsiveContainer width="100%" height={150}>
-        <ComposedChart
-          data={chartData}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-        >
-          <XAxis
-            dataKey="bucket"
-            fontSize={10}
-            tick={{ fill: dark ? '#6b7280' : '#9ca3af' }}
-            tickFormatter={formatTime}
-            height={18}
+      {/* Chart with native DOM drag overlay */}
+      <div
+        ref={chartWrapRef}
+        className="relative select-none"
+        onMouseDown={handleDragStart}
+        onMouseMove={handleDragMove}
+        onMouseUp={handleDragEnd}
+        onMouseLeave={handleDragEnd}
+        data-testid="chart-area"
+      >
+        <ResponsiveContainer width="100%" height={150}>
+          <ComposedChart data={chartData} margin={CHART_MARGIN}>
+            <XAxis
+              dataKey="bucket"
+              fontSize={10}
+              tick={{ fill: dark ? '#6b7280' : '#9ca3af' }}
+              tickFormatter={formatTime}
+              height={18}
+            />
+            {/* Left Y axis: CPU % (fixed 0-100) */}
+            <YAxis yAxisId="pct" domain={[0, 100]} hide />
+            {/* Right Y axis: auto-scaled for memory/waits/disk_io */}
+            <YAxis yAxisId="auto" orientation="right" hide />
+            <Tooltip content={<OvTooltip />} />
+            {activeMetrics.has('cpu') && <Line yAxisId="pct" type="monotone" dataKey="cpu" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />}
+            {activeMetrics.has('memory') && <Line yAxisId="auto" type="monotone" dataKey="memory" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />}
+            {activeMetrics.has('waits') && <Line yAxisId="auto" type="monotone" dataKey="waits" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />}
+            {activeMetrics.has('disk_io') && <Line yAxisId="auto" type="monotone" dataKey="disk_io" stroke="#10b981" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />}
+          </ComposedChart>
+        </ResponsiveContainer>
+
+        {/* Window highlight overlay (blue) */}
+        {winOv && winOv.width > 0 && (
+          <div
+            className="absolute top-0 bottom-0 pointer-events-none"
+            style={{ left: winOv.left, width: winOv.width, backgroundColor: dark ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.1)' }}
+            data-testid="window-overlay"
           />
-          <YAxis domain={[0, 100]} hide />
-          <Tooltip content={<OvTooltip />} />
-          {activeMetrics.has('cpu') && <Line type="monotone" dataKey="cpu" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls />}
-          {activeMetrics.has('memory') && <Line type="monotone" dataKey="memory" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls />}
-          {activeMetrics.has('waits') && <Line type="monotone" dataKey="waits" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls />}
-          {activeMetrics.has('disk_io') && <Line type="monotone" dataKey="disk_io" stroke="#10b981" strokeWidth={1.5} dot={false} connectNulls />}
-          {/* Current window highlight */}
-          {window && (
-            <ReferenceArea x1={window.from} x2={window.to} fill={dark ? '#3b82f640' : '#3b82f620'} ifOverflow="extendDomain" />
-          )}
-          {/* Drag selection highlight */}
-          {refAreaLeft && refAreaRight && (
-            <ReferenceArea x1={refAreaLeft} x2={refAreaRight} fill={dark ? '#f59e0b40' : '#f59e0b30'} ifOverflow="extendDomain" />
-          )}
-        </ComposedChart>
-      </ResponsiveContainer>
+        )}
+
+        {/* Drag selection overlay (amber) */}
+        {dragOverlay && dragOverlay.width > 4 && (
+          <div
+            className="absolute top-0 bottom-0 pointer-events-none"
+            style={{ left: dragOverlay.left, width: dragOverlay.width, backgroundColor: dark ? 'rgba(245,158,11,0.25)' : 'rgba(245,158,11,0.2)' }}
+            data-testid="drag-overlay"
+          />
+        )}
+      </div>
 
       {/* Window info */}
       {window && (

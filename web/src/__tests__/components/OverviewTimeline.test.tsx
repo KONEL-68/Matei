@@ -8,15 +8,12 @@ vi.mock('@/lib/theme', () => ({
 }));
 
 vi.mock('recharts', () => ({
-  ComposedChart: ({ children, onMouseDown, onMouseUp }: { children: React.ReactNode; onMouseDown?: (e: unknown) => void; onMouseUp?: () => void }) => (
-    <div data-testid="composed-chart" onMouseDown={() => onMouseDown?.({ activeLabel: '2026-03-22T10:00:00Z' })} onMouseUp={() => onMouseUp?.()}>
-      {children}
-    </div>
+  ComposedChart: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="composed-chart">{children}</div>
   ),
   Line: () => null,
   XAxis: () => null,
   YAxis: () => null,
-  ReferenceArea: () => null,
   ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   Tooltip: () => null,
 }));
