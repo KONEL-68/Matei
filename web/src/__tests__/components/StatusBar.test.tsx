@@ -62,7 +62,7 @@ describe('StatusBar', () => {
     renderWithQuery(<StatusBar instanceId="1" />);
 
     expect(await screen.findByText(/CPU 12%/)).toBeInTheDocument();
-    expect(screen.getByText(/ASYNC_NETWORK_IO/)).toBeInTheDocument();
+    expect(screen.getByText(/Waits 133ms\/s/)).toBeInTheDocument();
     expect(screen.getByText(/Blocked 0/)).toBeInTheDocument();
     expect(screen.getByText(/Pending 2/)).toBeInTheDocument();
     expect(screen.getByText(/Read IO 0.3ms/)).toBeInTheDocument();
@@ -80,6 +80,53 @@ describe('StatusBar', () => {
     const bar = await screen.findByTestId('status-bar');
     const firstChild = bar.children[0];
     expect(firstChild.textContent).toContain('Live');
+  });
+
+  it('shows total wait sum across all wait types', async () => {
+    mockAllEndpoints({
+      waits: [
+        { wait_type: 'CXPACKET', wait_ms_per_sec: 100 },
+        { wait_type: 'ASYNC_NETWORK_IO', wait_ms_per_sec: 200 },
+        { wait_type: 'SOS_SCHEDULER_YIELD', wait_ms_per_sec: 50 },
+      ],
+    });
+    renderWithQuery(<StatusBar instanceId="1" />);
+
+    // Total = 100 + 200 + 50 = 350ms/s
+    expect(await screen.findByText(/Waits 350ms\/s/)).toBeInTheDocument();
+  });
+
+  it('formats total wait as s/s when >= 1000ms', async () => {
+    mockAllEndpoints({
+      waits: [
+        { wait_type: 'CXPACKET', wait_ms_per_sec: 800 },
+        { wait_type: 'ASYNC_NETWORK_IO', wait_ms_per_sec: 700 },
+      ],
+    });
+    renderWithQuery(<StatusBar instanceId="1" />);
+
+    // Total = 1500ms/s → 1.5s/s
+    expect(await screen.findByText(/Waits 1\.5s\/s/)).toBeInTheDocument();
+  });
+
+  it('tooltip shows top 3 wait types with individual values', async () => {
+    mockAllEndpoints({
+      waits: [
+        { wait_type: 'CXPACKET', wait_ms_per_sec: 100 },
+        { wait_type: 'ASYNC_NETWORK_IO', wait_ms_per_sec: 200 },
+        { wait_type: 'SOS_SCHEDULER_YIELD', wait_ms_per_sec: 50 },
+      ],
+    });
+    renderWithQuery(<StatusBar instanceId="1" />);
+
+    // Wait for data to load — total = 350ms/s
+    await screen.findByText(/Waits 350ms\/s/);
+    const waitsSpan = screen.getByTestId('waits-total');
+    const title = waitsSpan.getAttribute('title')!;
+    // Top 3 sorted by value descending
+    expect(title).toContain('ASYNC_NETWORK_IO');
+    expect(title).toContain('CXPACKET');
+    expect(title).toContain('SOS_SCHEDULER_YIELD');
   });
 
   it('shows yellow dot for CPU >= 75', async () => {

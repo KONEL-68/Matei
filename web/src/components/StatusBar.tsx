@@ -131,10 +131,11 @@ export function StatusBar({ instanceId }: StatusBarProps) {
   const latestCpu = cpuData.length > 0 ? cpuData[cpuData.length - 1].sql_cpu_pct : null;
   const cpuSev = sev(latestCpu, 75, 90);
 
-  const topWait = waitsData.length > 0
-    ? waitsData.reduce((a, b) => a.wait_ms_per_sec > b.wait_ms_per_sec ? a : b)
+  const totalWait = waitsData.length > 0
+    ? waitsData.reduce((sum, w) => sum + w.wait_ms_per_sec, 0)
     : null;
-  const topWaitSev = topWait ? sev(topWait.wait_ms_per_sec, 50, 200) : 'gray';
+  const totalWaitSev = sev(totalWait, 100, 500);
+  const topWaits3 = [...waitsData].sort((a, b) => b.wait_ms_per_sec - a.wait_ms_per_sec).slice(0, 3);
 
   const blockedCount = sessionsData.filter((s) => s.blocking_session_id && s.blocking_session_id > 0).length;
   const blockedSev = sev(blockedCount, 1, 5);
@@ -185,9 +186,13 @@ export function StatusBar({ instanceId }: StatusBarProps) {
       <span className={DIV}>
         <Dot severity={cpuSev} />CPU {latestCpu != null ? `${latestCpu}%` : '\u2014'}
       </span>
-      <span className={DIV}>
-        <Dot severity={topWaitSev} />
-        Top Wait: {topWait ? `${topWait.wait_type} ${topWait.wait_ms_per_sec.toFixed(0)}ms/s` : '\u2014'}
+      <span
+        className={DIV}
+        data-testid="waits-total"
+        title={topWaits3.length > 0 ? topWaits3.map(w => `${w.wait_type} ${w.wait_ms_per_sec >= 1000 ? `${(w.wait_ms_per_sec / 1000).toFixed(1)}s/s` : `${w.wait_ms_per_sec.toFixed(0)}ms/s`}`).join('\n') : ''}
+      >
+        <Dot severity={totalWaitSev} />
+        Waits {totalWait != null ? (totalWait >= 1000 ? `${(totalWait / 1000).toFixed(1)}s/s` : `${totalWait.toFixed(0)}ms/s`) : '\u2014'}
       </span>
       <span className={DIV}>
         <Dot severity={blockedSev} />Blocked {blockedCount}
