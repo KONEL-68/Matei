@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Fragment, useState, useEffect, useMemo, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { authFetch } from '@/lib/auth';
 
@@ -369,52 +369,42 @@ export function CurrentActivity({ instanceId }: CurrentActivityProps) {
                     : 'hover:bg-gray-50 dark:hover:bg-gray-800';
 
                 return (
-                  <tr
-                    key={rowKey}
-                    className={`cursor-pointer ${rowBg}`}
-                    onClick={() => toggleRow(rowKey)}
-                    data-testid={`session-row-${s.session_id}`}
-                  >
-                    {!isExpanded ? (
-                      <>
-                        <td className="px-2 py-1.5 font-medium">
-                          {s.session_id}
-                          {isBlocker && <span className="ml-1 text-red-600" title="Head blocker">!</span>}
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${statusBadgeClass(displayStatus)}`}>
-                            {displayStatus}
-                          </span>
-                        </td>
-                        <td className="px-2 py-1.5">
-                          {isBlocked ? (
-                            <span className="font-medium text-red-600">{s.blocking_session_id}</span>
-                          ) : isBlocker ? (
-                            <span className="font-medium text-orange-600">blocker</span>
-                          ) : '-'}
-                        </td>
-                        <td className="max-w-0 overflow-hidden truncate px-2 py-1.5 font-mono" title={s.current_statement ?? ''}>
-                          {s.current_statement || '-'}
-                        </td>
-                        <td className="px-2 py-1.5 text-right">{formatDuration(s.elapsed_time_ms)}</td>
-                        <td className="overflow-hidden truncate px-2 py-1.5">{s.login_name}</td>
-                        <td className="overflow-hidden truncate px-2 py-1.5" title={s.program_name}>{s.program_name || '-'}</td>
-                        <td className="px-2 py-1.5 text-right">{s.logical_reads?.toLocaleString() ?? '-'}</td>
-                        <td className="px-2 py-1.5 text-right">{s.writes?.toLocaleString() ?? '-'}</td>
-                        <td className="overflow-hidden truncate px-2 py-1.5">{s.database_name ?? '-'}</td>
-                      </>
-                    ) : (
-                      <td colSpan={10} className="p-0">
-                        <div className="flex items-center gap-2 px-2 py-1.5">
-                          <span className="font-medium">{s.session_id}</span>
-                          <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${statusBadgeClass(displayStatus)}`}>
-                            {displayStatus}
-                          </span>
-                          <span className="text-gray-400">{formatDuration(s.elapsed_time_ms)}</span>
-                          <span className="text-gray-400">{s.login_name}</span>
-                          <span className="text-gray-400">{s.database_name ?? '-'}</span>
-                        </div>
-                        <div className="border-t border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800/50" data-testid={`session-detail-${s.session_id}`}>
+                  <Fragment key={rowKey}>
+                    <tr
+                      className={`cursor-pointer ${rowBg}`}
+                      onClick={() => toggleRow(rowKey)}
+                      data-testid={`session-row-${s.session_id}`}
+                    >
+                      <td className="px-2 py-1.5 font-medium whitespace-nowrap">
+                        <span className="mr-1 text-gray-400 inline-block w-3">{isExpanded ? '\u25BC' : '\u25B6'}</span>
+                        {s.session_id}
+                        {isBlocker && <span className="ml-1 text-red-600" title="Head blocker">!</span>}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${statusBadgeClass(displayStatus)}`}>
+                          {displayStatus}
+                        </span>
+                      </td>
+                      <td className="px-2 py-1.5">
+                        {isBlocked ? (
+                          <span className="font-medium text-red-600">{s.blocking_session_id}</span>
+                        ) : isBlocker ? (
+                          <span className="font-medium text-orange-600">blocker</span>
+                        ) : '-'}
+                      </td>
+                      <td className="max-w-0 overflow-hidden truncate px-2 py-1.5 font-mono" title={s.current_statement ?? ''}>
+                        {s.current_statement || '-'}
+                      </td>
+                      <td className="px-2 py-1.5 text-right whitespace-nowrap">{formatDuration(s.elapsed_time_ms)}</td>
+                      <td className="overflow-hidden truncate px-2 py-1.5">{s.login_name}</td>
+                      <td className="overflow-hidden truncate px-2 py-1.5" title={s.program_name}>{s.program_name || '-'}</td>
+                      <td className="px-2 py-1.5 text-right">{s.logical_reads?.toLocaleString() ?? '-'}</td>
+                      <td className="px-2 py-1.5 text-right">{s.writes?.toLocaleString() ?? '-'}</td>
+                      <td className="overflow-hidden truncate px-2 py-1.5">{s.database_name ?? '-'}</td>
+                    </tr>
+                    {isExpanded && (
+                      <tr>
+                        <td colSpan={10} className="px-4 py-3 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700" data-testid={`session-detail-${s.session_id}`}>
                           <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs md:grid-cols-4">
                             <div><span className="text-gray-500 dark:text-gray-400">Wait Type:</span> <span className="font-mono">{s.wait_type ?? '-'}</span></div>
                             <div><span className="text-gray-500 dark:text-gray-400">Wait Resource:</span> <span className="font-mono">{s.wait_resource ?? '-'}</span></div>
@@ -428,13 +418,13 @@ export function CurrentActivity({ instanceId }: CurrentActivityProps) {
                           {s.current_statement && (
                             <div className="mt-2">
                               <span className="text-xs text-gray-500 dark:text-gray-400">Full Query:</span>
-                              <pre className="mt-1 max-h-40 overflow-auto rounded bg-gray-900 p-2 text-xs text-gray-100 dark:bg-gray-950">{s.current_statement}</pre>
+                              <pre className="mt-1 max-h-48 overflow-x-auto overflow-y-auto whitespace-pre-wrap break-all rounded bg-gray-900 p-2 text-xs text-gray-100 dark:bg-gray-950">{s.current_statement}</pre>
                             </div>
                           )}
-                        </div>
-                      </td>
+                        </td>
+                      </tr>
                     )}
-                  </tr>
+                  </Fragment>
                 );
               })
             )}
