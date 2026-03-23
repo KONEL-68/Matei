@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { InstanceDetail } from '../../pages/InstanceDetail';
@@ -119,11 +119,11 @@ vi.mock('@/lib/auth', () => ({
   }),
 }));
 
-function renderDetail() {
+function renderDetail(initialPath = '/instances/1') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={['/instances/1']}>
+      <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
           <Route path="/instances/:id" element={<InstanceDetail />} />
         </Routes>
@@ -133,7 +133,7 @@ function renderDetail() {
 }
 
 describe('InstanceDetail', () => {
-  it('renders all time range buttons including Custom', async () => {
+  it('renders all time range buttons including Custom on History tab', async () => {
     renderDetail();
     expect(await screen.findByText('1h')).toBeInTheDocument();
     expect(screen.getByText('6h')).toBeInTheDocument();
@@ -144,9 +144,14 @@ describe('InstanceDetail', () => {
     expect(screen.getByText('Custom')).toBeInTheDocument();
   });
 
-  it('renders status bar', async () => {
+  it('renders status bar with sticky container', async () => {
     renderDetail();
-    expect(await screen.findByTestId('status-bar')).toBeInTheDocument();
+    const stickyContainer = await screen.findByTestId('sticky-statusbar');
+    expect(stickyContainer).toBeInTheDocument();
+    expect(stickyContainer.className).toContain('sticky');
+    expect(stickyContainer.className).toContain('z-10');
+    expect(stickyContainer.className).toContain('bg-gray-950');
+    expect(screen.getByTestId('status-bar')).toBeInTheDocument();
   });
 
   it('renders compact disk card in grid', async () => {
@@ -161,7 +166,7 @@ describe('InstanceDetail', () => {
     expect(screen.getByText('Enterprise')).toBeInTheDocument();
   });
 
-  it('renders collapsible sections in correct order', async () => {
+  it('renders collapsible sections in correct order on History tab', async () => {
     renderDetail();
     expect(await screen.findByText('Wait Stats History')).toBeInTheDocument();
     expect(screen.getByText('Active Sessions')).toBeInTheDocument();
@@ -184,5 +189,58 @@ describe('InstanceDetail', () => {
   it('renders Session Breakdown card', async () => {
     renderDetail();
     expect(await screen.findByText('Session Breakdown')).toBeInTheDocument();
+  });
+
+  // Tab tests
+  it('renders History and Current Activity tabs', async () => {
+    renderDetail();
+    const tabBar = await screen.findByTestId('tab-bar');
+    expect(tabBar).toBeInTheDocument();
+    expect(screen.getByText('History')).toBeInTheDocument();
+    expect(screen.getByText('Current Activity')).toBeInTheDocument();
+  });
+
+  it('defaults to History tab showing time range and charts', async () => {
+    renderDetail();
+    expect(await screen.findByText('1h')).toBeInTheDocument();
+    expect(screen.queryByTestId('current-activity')).not.toBeInTheDocument();
+  });
+
+  it('switches to Current Activity tab and hides time range picker', async () => {
+    renderDetail();
+    await screen.findByText('History');
+    fireEvent.click(screen.getByText('Current Activity'));
+
+    expect(screen.getByTestId('current-activity')).toBeInTheDocument();
+    // Time range picker should be hidden
+    expect(screen.queryByText('Custom')).not.toBeInTheDocument();
+  });
+
+  it('switches back to History tab', async () => {
+    renderDetail();
+    await screen.findByText('History');
+    fireEvent.click(screen.getByText('Current Activity'));
+    expect(screen.getByTestId('current-activity')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('History'));
+    expect(screen.queryByTestId('current-activity')).not.toBeInTheDocument();
+    expect(screen.getByText('Custom')).toBeInTheDocument();
+  });
+
+  it('URL param ?tab=current opens Current Activity tab', async () => {
+    renderDetail('/instances/1?tab=current');
+    expect(await screen.findByTestId('current-activity')).toBeInTheDocument();
+    expect(screen.queryByText('Custom')).not.toBeInTheDocument();
+  });
+
+  it('StatusBar always visible regardless of tab', async () => {
+    renderDetail();
+    await screen.findByTestId('status-bar');
+
+    fireEvent.click(screen.getByText('Current Activity'));
+    expect(screen.getByTestId('status-bar')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('History'));
+    expect(screen.getByTestId('status-bar')).toBeInTheDocument();
   });
 });

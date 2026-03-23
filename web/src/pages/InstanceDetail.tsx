@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { CpuChart } from '@/components/CpuChart';
@@ -13,6 +13,7 @@ import { StatusBar } from '@/components/StatusBar';
 import { TopWaitsTable } from '@/components/TopWaitsTable';
 import { SessionBreakdown } from '@/components/SessionBreakdown';
 import { CollapsibleSection } from '@/components/CollapsibleSection';
+import { CurrentActivity } from '@/components/CurrentActivity';
 import { authFetch } from '@/lib/auth';
 
 type PresetRange = '1h' | '6h' | '24h' | '7d' | '30d' | '1y';
@@ -93,18 +94,47 @@ function diskTextColor(pct: number): string {
   return 'text-gray-600 dark:text-gray-400';
 }
 
+type Tab = 'history' | 'current';
+
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+        active
+          ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+          : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function InstanceDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const initialAt = searchParams.get('at');
+  const initialTab = (searchParams.get('tab') as Tab) || 'history';
   const initialRange = (searchParams.get('range') as TimeRange) || '1h';
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [range, setRange] = useState<TimeRange>(initialRange);
   const [customRange, setCustomRange] = useState<CustomRange | null>(null);
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [showCustomPicker, setShowCustomPicker] = useState(false);
   const [sessionAt, setSessionAt] = useState<string | null>(initialAt);
+
+  const switchTab = useCallback((newTab: Tab) => {
+    setTab(newTab);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (newTab === 'history') next.delete('tab');
+      else next.set('tab', newTab);
+      return next;
+    });
+  }, [setSearchParams]);
 
   // Build query suffix: either ?range=X or ?from=X&to=Y
   const rangeParams = customRange
@@ -218,6 +248,21 @@ export function InstanceDetail() {
         <StatusBar instanceId={id!} />
       </div>
 
+      {/* Tab bar */}
+      <div className="flex border-b border-gray-700 mt-2" data-testid="tab-bar">
+        <TabButton active={tab === 'history'} onClick={() => switchTab('history')}>History</TabButton>
+        <TabButton active={tab === 'current'} onClick={() => switchTab('current')}>Current Activity</TabButton>
+      </div>
+
+      {/* Current Activity tab */}
+      {tab === 'current' && (
+        <div className="mt-4">
+          <CurrentActivity instanceId={id!} />
+        </div>
+      )}
+
+      {/* History tab */}
+      {tab === 'history' && <>
       {/* Time range picker */}
       <div className="mt-4 flex items-center gap-1 flex-wrap">
         {ranges.map((r) => (
@@ -440,6 +485,7 @@ export function InstanceDetail() {
           )}
         </CollapsibleSection>
       </div>
+      </>}
     </div>
   );
 }
