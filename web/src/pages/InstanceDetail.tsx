@@ -14,6 +14,7 @@ import { TopWaitsTable } from '@/components/TopWaitsTable';
 import { SessionBreakdown } from '@/components/SessionBreakdown';
 import { CollapsibleSection } from '@/components/CollapsibleSection';
 import { CurrentActivity } from '@/components/CurrentActivity';
+import { OverviewTimeline, type TimeWindow } from '@/components/OverviewTimeline';
 import { authFetch } from '@/lib/auth';
 
 type PresetRange = '1h' | '6h' | '24h' | '7d' | '30d' | '1y';
@@ -125,6 +126,7 @@ export function InstanceDetail() {
   const [customTo, setCustomTo] = useState('');
   const [showCustomPicker, setShowCustomPicker] = useState(false);
   const [sessionAt, setSessionAt] = useState<string | null>(initialAt);
+  const [timeWindow, setTimeWindow] = useState<TimeWindow | null>(null);
 
   const switchTab = useCallback((newTab: Tab) => {
     setTab(newTab);
@@ -136,10 +138,12 @@ export function InstanceDetail() {
     });
   }, [setSearchParams]);
 
-  // Build query suffix: either ?range=X or ?from=X&to=Y
-  const rangeParams = customRange
-    ? `from=${encodeURIComponent(new Date(customRange.from).toISOString())}&to=${encodeURIComponent(new Date(customRange.to).toISOString())}`
-    : `range=${range}`;
+  // Build query suffix: window > customRange > range preset
+  const rangeParams = timeWindow
+    ? `from=${encodeURIComponent(timeWindow.from)}&to=${encodeURIComponent(timeWindow.to)}`
+    : customRange
+      ? `from=${encodeURIComponent(new Date(customRange.from).toISOString())}&to=${encodeURIComponent(new Date(customRange.to).toISOString())}`
+      : `range=${range}`;
 
   // When navigated via alert deep-link, set sessionAt from URL
   useEffect(() => {
@@ -158,16 +162,18 @@ export function InstanceDetail() {
     refetchInterval: 300000,
   });
 
+  const hasFixedWindow = !!(timeWindow || customRange);
+
   const { data: cpuData = [] } = useQuery({
-    queryKey: ['metrics-cpu', id, range, customRange],
+    queryKey: ['metrics-cpu', id, range, customRange, timeWindow],
     queryFn: () => fetchJson<Array<Record<string, unknown>>>(`/api/metrics/${id}/cpu?${rangeParams}`),
-    refetchInterval: customRange ? false : 15000,
+    refetchInterval: hasFixedWindow ? false : 15000,
   });
 
   const { data: waitsData = [] } = useQuery({
-    queryKey: ['metrics-waits', id, range, customRange],
+    queryKey: ['metrics-waits', id, range, customRange, timeWindow],
     queryFn: () => fetchJson<Array<Record<string, unknown>>>(`/api/metrics/${id}/waits?${rangeParams}`),
-    refetchInterval: customRange ? false : 30000,
+    refetchInterval: hasFixedWindow ? false : 30000,
   });
 
   const sessionsUrl = sessionAt
@@ -195,9 +201,9 @@ export function InstanceDetail() {
   });
 
   const { data: fileIoData = [] } = useQuery<FileIoRow[]>({
-    queryKey: ['metrics-file-io', id, range],
+    queryKey: ['metrics-file-io', id, range, customRange, timeWindow],
     queryFn: () => fetchJson<FileIoRow[]>(`/api/metrics/${id}/file-io?${rangeParams}`),
-    refetchInterval: 30000,
+    refetchInterval: hasFixedWindow ? false : 30000,
   });
 
   const ranges: TimeRange[] = ['1h', '6h', '24h', '7d', '30d', '1y'];
@@ -316,6 +322,15 @@ export function InstanceDetail() {
             </button>
           </div>
         )}
+      </div>
+
+      {/* Overview Timeline with drag selection */}
+      <div className="mt-4">
+        <OverviewTimeline
+          instanceId={id!}
+          window={timeWindow}
+          onWindowChange={(w) => { setTimeWindow(w); if (w) { setCustomRange(null); } }}
+        />
       </div>
 
       {/* 2. CPU Chart (full width, 200px) */}

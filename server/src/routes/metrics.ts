@@ -841,6 +841,111 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
 
     return reply.send(result.rows[0]);
   });
+
+  // GET /api/metrics/:instanceId/overview-chart?range=1h|6h|24h|7d
+  // Returns 4 time-series in one request: cpu, memory, waits, disk_io
+  app.get<{ Params: IdParam; Querystring: RangeQuery }>('/api/metrics/:id/overview-chart', async (req, reply) => {
+    const { id } = req.params;
+    const bucketMinutes = chartBucketMinutes(req.query.range);
+    const tf = resolveTimeFilter(req.query, 'collected_at', 2);
+    const excludedWaitsArray = [...EXCLUDED_WAITS];
+
+    // CPU
+    let cpuRows: Array<{ bucket: string; sql_cpu_pct: number }> = [];
+    try {
+      const r = await pool.query(
+        `SELECT date_trunc('minute', collected_at) -
+                (EXTRACT(minute FROM collected_at)::int % $${2 + tf.params.length}) * INTERVAL '1 minute' AS bucket,
+                AVG(sql_cpu_pct) AS sql_cpu_pct
+         FROM os_cpu
+         WHERE instance_id = $1 AND ${tf.condition}
+         GROUP BY bucket ORDER BY bucket ASC`,
+        [id, ...tf.params, bucketMinutes],
+      );
+      cpuRows = r.rows.map((row: { bucket: string; sql_cpu_pct: number }) => ({
+        bucket: row.bucket,
+        sql_cpu_pct: Number(row.sql_cpu_pct),
+      }));
+    } catch { /* */ }
+
+    // Memory (committed GB)
+    let memRows: Array<{ bucket: string; committed_gb: number }> = [];
+    try {
+      const r = await pool.query(
+        `SELECT date_trunc('minute', collected_at) -
+                (EXTRACT(minute FROM collected_at)::int % $${2 + tf.params.length}) * INTERVAL '1 minute' AS bucket,
+                AVG(sql_committed_mb) / 1024.0 AS committed_gb
+         FROM os_memory
+         WHERE instance_id = $1 AND ${tf.condition}
+         GROUP BY bucket ORDER BY bucket ASC`,
+        [id, ...tf.params, bucketMinutes],
+      );
+      memRows = r.rows.map((row: { bucket: string; committed_gb: number }) => ({
+        bucket: row.bucket,
+        committed_gb: Number(row.committed_gb),
+      }));
+    } catch { /* */ }
+
+    // Total waits ms/s
+    const COLLECTION_INTERVAL_SECONDS = 30;
+    let waitsRows: Array<{ bucket: string; total_wait_ms_per_sec: number }> = [];
+    try {
+      const r = await pool.query(
+        `SELECT date_trunc('minute', collected_at) -
+                (EXTRACT(minute FROM collected_at)::int % $${2 + tf.params.length}) * INTERVAL '1 minute' AS bucket,
+                SUM(wait_time_ms_delta) / ${COLLECTION_INTERVAL_SECONDS}::numeric AS total_wait_ms_per_sec
+         FROM wait_stats_raw
+         WHERE instance_id = $1 AND ${tf.condition}
+           AND wait_type != ALL($${3 + tf.params.length})
+         GROUP BY bucket ORDER BY bucket ASC`,
+        [id, ...tf.params, bucketMinutes, excludedWaitsArray],
+      );
+      waitsRows = r.rows.map((row: { bucket: string; total_wait_ms_per_sec: number }) => ({
+        bucket: row.bucket,
+        total_wait_ms_per_sec: Number(row.total_wait_ms_per_sec),
+      }));
+    } catch { /* */ }
+
+    // Disk I/O MB/s
+    let ioRows: Array<{ bucket: string; disk_io_mb_per_sec: number }> = [];
+    try {
+      const r = await pool.query(
+        `SELECT date_trunc('minute', collected_at) -
+                (EXTRACT(minute FROM collected_at)::int % $${2 + tf.params.length}) * INTERVAL '1 minute' AS bucket,
+                SUM(num_of_bytes_read_delta + num_of_bytes_written_delta) / ${COLLECTION_INTERVAL_SECONDS}::numeric / 1048576.0 AS disk_io_mb_per_sec
+         FROM file_io_stats
+         WHERE instance_id = $1 AND ${tf.condition}
+         GROUP BY bucket ORDER BY bucket ASC`,
+        [id, ...tf.params, bucketMinutes],
+      );
+      ioRows = r.rows.map((row: { bucket: string; disk_io_mb_per_sec: number }) => ({
+        bucket: row.bucket,
+        disk_io_mb_per_sec: Number(row.disk_io_mb_per_sec),
+      }));
+    } catch { /* */ }
+
+    // Merge into a single time-aligned dataset
+    const bucketSet = new Set<string>();
+    for (const r of cpuRows) bucketSet.add(r.bucket);
+    for (const r of memRows) bucketSet.add(r.bucket);
+    for (const r of waitsRows) bucketSet.add(r.bucket);
+    for (const r of ioRows) bucketSet.add(r.bucket);
+
+    const cpuMap = new Map(cpuRows.map(r => [r.bucket, r.sql_cpu_pct]));
+    const memMap = new Map(memRows.map(r => [r.bucket, r.committed_gb]));
+    const waitsMap = new Map(waitsRows.map(r => [r.bucket, r.total_wait_ms_per_sec]));
+    const ioMap = new Map(ioRows.map(r => [r.bucket, r.disk_io_mb_per_sec]));
+
+    const merged = [...bucketSet].sort().map(bucket => ({
+      bucket,
+      cpu_pct: cpuMap.get(bucket) ?? null,
+      memory_gb: memMap.get(bucket) ?? null,
+      waits_ms_per_sec: waitsMap.get(bucket) ?? null,
+      disk_io_mb_per_sec: ioMap.get(bucket) ?? null,
+    }));
+
+    return reply.send(merged);
+  });
 }
 
 // --- Blocking chain tree builder ---
