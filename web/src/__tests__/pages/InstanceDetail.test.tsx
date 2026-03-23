@@ -159,6 +159,16 @@ describe('InstanceDetail', () => {
     expect(await screen.findByText('Disk Space')).toBeInTheDocument();
   });
 
+  it('disk card shows used GB instead of free GB', async () => {
+    renderDetail();
+    // C:\ mock: total_mb=512000, available_mb=200000 → used=(512000-200000)/1024=305 GB of 500 GB
+    expect(await screen.findByText(/305 GB used of 500 GB/)).toBeInTheDocument();
+    // D:\ mock: total_mb=1024000, available_mb=50000 → used=(1024000-50000)/1024=951 GB of 1000 GB
+    expect(screen.getByText(/951 GB used of 1000 GB/)).toBeInTheDocument();
+    // Should NOT show the old free/total format
+    expect(screen.queryByText(/195\/500 GB/)).not.toBeInTheDocument();
+  });
+
   it('renders instance header with name and version', async () => {
     renderDetail();
     expect(await screen.findByText('PROD-SQL1')).toBeInTheDocument();
