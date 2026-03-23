@@ -53,6 +53,10 @@ function isMonitoringSession(s: SessionRow): boolean {
   return s.program_name === MONITOR_APP_NAME;
 }
 
+function hasActiveRequest(s: SessionRow): boolean {
+  return s.request_status != null;
+}
+
 function formatDuration(ms: number | null): string {
   if (ms == null) return '-';
   const totalSec = Math.floor(ms / 1000);
@@ -60,6 +64,12 @@ function formatDuration(ms: number | null): string {
   if (totalSec < 3600) return `${Math.floor(totalSec / 60)}m ${totalSec % 60}s`;
   if (totalSec < 86400) return `${Math.floor(totalSec / 3600)}h ${Math.floor((totalSec % 3600) / 60)}m`;
   return `${Math.floor(totalSec / 86400)}d ${Math.floor((totalSec % 86400) / 3600)}h`;
+}
+
+function formatRate(value: number): string {
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+  return `${Math.round(value)}`;
 }
 
 function statusBadgeClass(status: string): string {
@@ -351,19 +361,21 @@ export function CurrentActivity({ instanceId }: CurrentActivityProps) {
             <col style={{ width: '4%' }} />
             <col style={{ width: '6%' }} />
             <col style={{ width: '6%' }} />
-            <col style={{ width: '30%' }} />
-            <col style={{ width: '8%' }} />
-            <col style={{ width: '10%' }} />
-            <col style={{ width: '12%' }} />
+            <col style={{ width: '6%' }} />
+            <col style={{ width: '26%' }} />
+            <col style={{ width: '7%' }} />
+            <col style={{ width: '9%' }} />
+            <col style={{ width: '11%' }} />
             <col style={{ width: '6%' }} />
             <col style={{ width: '6%' }} />
-            <col style={{ width: '12%' }} />
+            <col style={{ width: '13%' }} />
           </colgroup>
           <thead className="border-b border-gray-200 bg-gray-50 text-xs font-medium uppercase text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">
             <tr>
               <th className="px-2 py-2">SPID</th>
               <th className="px-2 py-2">Status</th>
               <th className="px-2 py-2">Blocking</th>
+              <th className="px-2 py-2 text-right">CPU</th>
               <th className="px-2 py-2">Query</th>
               <th className="px-2 py-2 text-right">Elapsed</th>
               <th className="px-2 py-2">Login</th>
@@ -376,7 +388,7 @@ export function CurrentActivity({ instanceId }: CurrentActivityProps) {
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800 dark:text-gray-300">
             {filteredSessions.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                <td colSpan={11} className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                   No sessions match the current filters
                 </td>
               </tr>
@@ -417,28 +429,33 @@ export function CurrentActivity({ instanceId }: CurrentActivityProps) {
                           <span className="font-medium text-orange-600">blocker</span>
                         ) : '-'}
                       </td>
+                      <td className="px-2 py-1.5 text-right whitespace-nowrap">{hasActiveRequest(s) ? formatDuration(s.cpu_time_ms) : '-'}</td>
                       <td className="max-w-0 overflow-hidden truncate px-2 py-1.5 font-mono" title={s.current_statement ?? ''}>
                         {s.current_statement || '-'}
                       </td>
                       <td className="px-2 py-1.5 text-right whitespace-nowrap">{formatDuration(s.elapsed_time_ms)}</td>
                       <td className="overflow-hidden truncate px-2 py-1.5">{s.login_name}</td>
                       <td className="overflow-hidden truncate px-2 py-1.5" title={s.program_name}>{s.program_name || '-'}</td>
-                      <td className="px-2 py-1.5 text-right">{s.logical_reads?.toLocaleString() ?? '-'}</td>
-                      <td className="px-2 py-1.5 text-right">{s.writes?.toLocaleString() ?? '-'}</td>
+                      <td className="px-2 py-1.5 text-right">{hasActiveRequest(s) ? (s.logical_reads?.toLocaleString() ?? '-') : '-'}</td>
+                      <td className="px-2 py-1.5 text-right">{hasActiveRequest(s) ? (s.writes?.toLocaleString() ?? '-') : '-'}</td>
                       <td className="overflow-hidden truncate px-2 py-1.5">{s.database_name ?? '-'}</td>
                     </tr>
                     {isExpanded && (
                       <tr>
-                        <td colSpan={10} className="px-4 py-3 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700" data-testid={`session-detail-${s.session_id}`}>
+                        <td colSpan={11} className="px-4 py-3 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700" data-testid={`session-detail-${s.session_id}`}>
                           <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs md:grid-cols-4">
+                            <div><span className="text-gray-500 dark:text-gray-400">CPU Time:</span> {hasActiveRequest(s) ? formatDuration(s.cpu_time_ms) : '-'}</div>
+                            <div><span className="text-gray-500 dark:text-gray-400">Avg CPU/s:</span> {hasActiveRequest(s) && s.cpu_time_ms != null && s.elapsed_time_ms != null && s.elapsed_time_ms > 0 ? `${Math.round(s.cpu_time_ms / s.elapsed_time_ms * 100)}%` : '-'}</div>
+                            <div><span className="text-gray-500 dark:text-gray-400">Avg Reads/s:</span> {hasActiveRequest(s) && s.logical_reads != null && s.elapsed_time_ms != null && s.elapsed_time_ms > 0 ? `${formatRate(s.logical_reads / (s.elapsed_time_ms / 1000))} reads/s` : '-'}</div>
+                            <div><span className="text-gray-500 dark:text-gray-400">Memory Grant:</span> {s.granted_memory_kb != null ? `${(s.granted_memory_kb / 1024).toFixed(1)} MB` : '-'}</div>
                             <div><span className="text-gray-500 dark:text-gray-400">Wait Type:</span> <span className="font-mono">{s.wait_type ?? '-'}</span></div>
                             <div><span className="text-gray-500 dark:text-gray-400">Wait Resource:</span> <span className="font-mono">{s.wait_resource ?? '-'}</span></div>
-                            <div><span className="text-gray-500 dark:text-gray-400">CPU Time:</span> {formatDuration(s.cpu_time_ms)}</div>
-                            <div><span className="text-gray-500 dark:text-gray-400">Memory Grant:</span> {s.granted_memory_kb != null ? `${(s.granted_memory_kb / 1024).toFixed(1)} MB` : '-'}</div>
+                            <div><span className="text-gray-500 dark:text-gray-400">Wait Time:</span> {formatDuration(s.wait_time_ms)}</div>
                             <div><span className="text-gray-500 dark:text-gray-400">Open Transactions:</span> {s.open_transaction_count ?? '-'}</div>
                             <div><span className="text-gray-500 dark:text-gray-400">Host:</span> {s.host_name ?? '-'}</div>
                             <div><span className="text-gray-500 dark:text-gray-400">Command:</span> {s.command ?? '-'}</div>
-                            <div><span className="text-gray-500 dark:text-gray-400">Wait Time:</span> {formatDuration(s.wait_time_ms)}</div>
+                            <div><span className="text-gray-500 dark:text-gray-400">Logical Reads:</span> {hasActiveRequest(s) ? (s.logical_reads?.toLocaleString() ?? '-') : '-'}</div>
+                            <div><span className="text-gray-500 dark:text-gray-400">Writes:</span> {hasActiveRequest(s) ? (s.writes?.toLocaleString() ?? '-') : '-'}</div>
                           </div>
                           {s.current_statement && (
                             <div className="mt-2">

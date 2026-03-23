@@ -73,6 +73,15 @@ const baseSessions = [
     cpu_time_ms: 50, logical_reads: 10, writes: 0,
     open_transaction_count: 0, granted_memory_kb: 128, current_statement: 'SELECT @@VERSION',
   },
+  {
+    session_id: 56, request_id: null, blocking_session_id: null,
+    session_status: 'sleeping', request_status: null,
+    login_name: 'app_user', host_name: 'web01', program_name: 'MyApp',
+    database_name: 'AppDB', command: null, wait_type: null,
+    wait_time_ms: null, wait_resource: null, elapsed_time_ms: null,
+    cpu_time_ms: null, logical_reads: 0, writes: 0,
+    open_transaction_count: 1, granted_memory_kb: null, current_statement: null,
+  },
 ];
 
 function mockSessions(sessions = baseSessions) {
@@ -87,14 +96,14 @@ describe('CurrentActivity', () => {
     vi.clearAllMocks();
   });
 
-  it('renders session count excluding WAITFOR sessions', async () => {
+  it('renders session count excluding WAITFOR and monitoring sessions', async () => {
     mockSessions();
     renderWithQuery(<CurrentActivity instanceId="1" />);
     await waitForSessions();
 
     const badge = screen.getByTestId('session-count');
-    // 4 sessions total, 1 WAITFOR -> 3 sessions
-    expect(badge.textContent).toContain('3 sessions');
+    // 6 total: 51, 52, 53 (WAITFOR), 54, 55 (monitor), 56 -> 4 counted
+    expect(badge.textContent).toContain('4 sessions');
   });
 
   it('hides WAITFOR sessions by default', async () => {
@@ -273,7 +282,52 @@ describe('CurrentActivity', () => {
     await waitForSessions();
 
     const badge = screen.getByTestId('session-count');
-    // 5 total: 51, 52, 53 (WAITFOR), 54, 55 (monitor) -> 3 counted
-    expect(badge.textContent).toContain('3 sessions');
+    // 6 total: 51, 52, 53 (WAITFOR), 54, 55 (monitor), 56 -> 4 counted
+    expect(badge.textContent).toContain('4 sessions');
+  });
+
+  it('shows "-" for reads, writes, and CPU on sleeping sessions', async () => {
+    mockSessions();
+    renderWithQuery(<CurrentActivity instanceId="1" />);
+    await waitForSessions();
+
+    // Session 56 is sleeping (no active request)
+    const row = screen.getByTestId('session-row-56');
+    const cells = row.querySelectorAll('td');
+    // Columns: SPID, Status, Blocking, CPU, Query, Elapsed, Login, Program, Reads, Writes, Database
+    // CPU (index 3), Reads (index 8), Writes (index 9) should be "-"
+    expect(cells[3].textContent).toBe('-');
+    expect(cells[8].textContent).toBe('-');
+    expect(cells[9].textContent).toBe('-');
+  });
+
+  it('shows values for reads, writes, and CPU on active sessions', async () => {
+    mockSessions();
+    renderWithQuery(<CurrentActivity instanceId="1" />);
+    await waitForSessions();
+
+    // Session 51 has active request with cpu_time_ms=1200, logical_reads=5000, writes=10
+    const row = screen.getByTestId('session-row-51');
+    const cells = row.querySelectorAll('td');
+    // CPU (index 3) should show formatted duration
+    expect(cells[3].textContent).toBe('1s');
+    // Reads (index 8) should show 5,000
+    expect(cells[8].textContent).toBe('5,000');
+    // Writes (index 9) should show 10
+    expect(cells[9].textContent).toBe('10');
+  });
+
+  it('shows computed metrics in expanded detail', async () => {
+    mockSessions();
+    renderWithQuery(<CurrentActivity instanceId="1" />);
+    await waitForSessions();
+
+    // Session 51: cpu_time_ms=1200, elapsed_time_ms=2500, logical_reads=5000
+    fireEvent.click(screen.getByTestId('session-row-51'));
+    const detail = screen.getByTestId('session-detail-51');
+    // Avg CPU/s: 1200/2500*100 = 48%
+    expect(detail.textContent).toContain('48%');
+    // Avg Reads/s: 5000 / (2500/1000) = 2000 -> "2.0k reads/s"
+    expect(detail.textContent).toContain('2.0k reads/s');
   });
 });
