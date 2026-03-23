@@ -96,6 +96,10 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
     let latestMemory: Record<number, { os_total_memory_mb: number; os_available_memory_mb: number; sql_committed_mb: number; sql_target_mb: number }> = {};
     let latestHealth: Record<number, { version: string; edition: string; uptime_seconds: number }> = {};
     let latestWaits: Record<number, Array<{ wait_type: string; wait_ms_per_sec: number }>> = {};
+    let totalWaits: Record<number, number> = {};
+    let diskIo: Record<number, number> = {};
+    let alertInfo: Record<number, { alert_count: number; first_alert_message: string | null }> = {};
+    let healthySince: Record<number, string | null> = {};
 
     if (instanceIds.length > 0) {
       try {
@@ -156,15 +160,79 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
           [instanceIds, excludedWaitsArray],
         );
         for (const row of waitsResult.rows) {
+          const msPerSec = Number(row.wait_time_ms_delta) / COLLECTION_INTERVAL_SECONDS;
           if (!latestWaits[row.instance_id]) latestWaits[row.instance_id] = [];
           if (latestWaits[row.instance_id].length < 3) {
             latestWaits[row.instance_id].push({
               wait_type: row.wait_type,
-              wait_ms_per_sec: Number(row.wait_time_ms_delta) / COLLECTION_INTERVAL_SECONDS,
+              wait_ms_per_sec: msPerSec,
             });
           }
+          totalWaits[row.instance_id] = (totalWaits[row.instance_id] ?? 0) + msPerSec;
         }
       } catch { /* no wait data yet */ }
+
+      // Disk I/O: sum of bytes read+written per second from latest file_io_stats cycle
+      try {
+        const COLLECTION_INTERVAL_SECONDS = 30;
+        const ioResult = await pool.query(
+          `SELECT f.instance_id,
+                  SUM(f.num_of_bytes_read_delta + f.num_of_bytes_written_delta) / $2::numeric / 1048576.0 AS disk_io_mb_per_sec
+           FROM file_io_stats f
+           INNER JOIN (
+             SELECT instance_id, MAX(collected_at) AS max_at
+             FROM file_io_stats
+             WHERE instance_id = ANY($1) AND collected_at > NOW() - INTERVAL '5 minutes'
+             GROUP BY instance_id
+           ) latest ON f.instance_id = latest.instance_id AND f.collected_at = latest.max_at
+           GROUP BY f.instance_id`,
+          [instanceIds, COLLECTION_INTERVAL_SECONDS],
+        );
+        for (const row of ioResult.rows) {
+          diskIo[row.instance_id] = Number(row.disk_io_mb_per_sec);
+        }
+      } catch { /* no file_io data yet */ }
+
+      // Alerts: count + first message for unacknowledged alerts
+      try {
+        const alertResult = await pool.query(
+          `SELECT instance_id,
+                  COUNT(*)::int AS alert_count,
+                  (array_agg(message ORDER BY created_at DESC))[1] AS first_alert_message
+           FROM alerts
+           WHERE instance_id = ANY($1) AND acknowledged = false
+           GROUP BY instance_id`,
+          [instanceIds],
+        );
+        for (const row of alertResult.rows) {
+          alertInfo[row.instance_id] = {
+            alert_count: row.alert_count,
+            first_alert_message: row.first_alert_message,
+          };
+        }
+      } catch { /* no alerts data yet */ }
+
+      // Healthy since: last time an alert was created (if no active alerts, use last_seen)
+      try {
+        const healthySinceResult = await pool.query(
+          `SELECT instance_id, MAX(created_at) AS last_alert_at
+           FROM alerts
+           WHERE instance_id = ANY($1)
+           GROUP BY instance_id`,
+          [instanceIds],
+        );
+        const lastAlertMap: Record<number, string> = {};
+        for (const row of healthySinceResult.rows) {
+          lastAlertMap[row.instance_id] = row.last_alert_at;
+        }
+        for (const id of instanceIds) {
+          const hasActiveAlerts = alertInfo[id]?.alert_count > 0;
+          if (!hasActiveAlerts) {
+            // Healthy since = last alert resolution or last_seen if no alerts ever
+            healthySince[id] = lastAlertMap[id] ?? null;
+          }
+        }
+      } catch { /* no alerts data */ }
     }
 
     const instanceData = instances.map((inst: { id: number; name: string; host: string; port: number; status: string; last_seen: string | null; is_enabled: boolean; group_id: number | null; group_name: string | null }) => ({
@@ -180,6 +248,11 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
       memory: latestMemory[inst.id] ?? null,
       health: latestHealth[inst.id] ?? null,
       top_waits: latestWaits[inst.id] ?? [],
+      total_wait_ms_per_sec: totalWaits[inst.id] ?? null,
+      disk_io_mb_per_sec: diskIo[inst.id] ?? null,
+      alert_count: alertInfo[inst.id]?.alert_count ?? 0,
+      first_alert_message: alertInfo[inst.id]?.first_alert_message ?? null,
+      healthy_since: healthySince[inst.id] ?? inst.last_seen,
     }));
 
     return reply.send({

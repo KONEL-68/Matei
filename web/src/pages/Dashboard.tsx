@@ -1,22 +1,7 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { authFetch } from '@/lib/auth';
-
-interface OverviewInstance {
-  id: number;
-  name: string;
-  host: string;
-  port: number;
-  status: string;
-  last_seen: string | null;
-  group_id: number | null;
-  group_name: string | null;
-  cpu: { sql_cpu_pct: number; other_process_cpu_pct: number; system_idle_pct: number } | null;
-  memory: { os_total_memory_mb: number; os_available_memory_mb: number; sql_committed_mb: number; sql_target_mb: number } | null;
-  health: { version: string; edition: string; uptime_seconds: number } | null;
-  top_waits: Array<{ wait_type: string; wait_ms_per_sec: number }>;
-}
+import { InstanceCard, type OverviewInstance } from '@/components/InstanceCard';
 
 interface OverviewData {
   total: number;
@@ -56,103 +41,33 @@ function StatCard({ label, value, color }: { label: string; value: number; color
   );
 }
 
-function statusDot(status: string) {
-  const colors: Record<string, string> = {
-    online: 'bg-green-500',
-    unreachable: 'bg-red-500',
-    unknown: 'bg-gray-400',
-  };
-  return <span className={`inline-block h-2.5 w-2.5 rounded-full ${colors[status] ?? colors.unknown}`} />;
-}
-
-function InstanceCard({ inst, navigate, deadlockCount }: { inst: OverviewInstance; navigate: (path: string) => void; deadlockCount?: number }) {
+function MiniHealthBar({ instances }: { instances: OverviewInstance[] }) {
+  const total = instances.length;
+  if (total === 0) return null;
+  const healthy = instances.filter(i => i.status === 'online' && i.alert_count === 0).length;
+  const pct = Math.round((healthy / total) * 100);
   return (
-    <div
-      onClick={() => navigate(`/instances/${inst.id}`)}
-      className="cursor-pointer rounded-lg border border-gray-200 bg-white p-4 transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-900 dark:hover:border-gray-600"
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {statusDot(inst.status)}
-          <span className="font-semibold text-gray-900 dark:text-gray-100">{inst.name}</span>
-          {deadlockCount != null && deadlockCount > 0 && (
-            <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-100 px-1.5 text-xs font-medium text-red-700 dark:bg-red-900 dark:text-red-300">
-              {deadlockCount} DL
-            </span>
-          )}
-        </div>
-        {inst.health && (
-          <span className="text-xs text-gray-500 dark:text-gray-400">{inst.health.version}</span>
-        )}
+    <div className="flex items-center gap-1.5 ml-2">
+      <div className="h-1.5 w-16 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+        <div
+          className="h-full rounded-full bg-emerald-500 transition-all"
+          style={{ width: `${pct}%` }}
+        />
       </div>
-
-      {/* CPU */}
-      <div className="mt-3">
-        <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-          <span>SQL CPU</span>
-          <span className="font-medium text-gray-900 dark:text-gray-100">
-            {inst.cpu ? `${inst.cpu.sql_cpu_pct}%` : '-'}
-          </span>
-        </div>
-        <div className="mt-1 h-2 w-full rounded-full bg-gray-100 dark:bg-gray-800">
-          <div
-            className="h-2 rounded-full bg-blue-500 transition-all"
-            style={{ width: `${inst.cpu?.sql_cpu_pct ?? 0}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Memory */}
-      <div className="mt-2">
-        <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-          <span>Memory</span>
-          <span className="font-medium text-gray-900 dark:text-gray-100">
-            {inst.memory
-              ? `${inst.memory.sql_committed_mb} / ${inst.memory.sql_target_mb} MB`
-              : '-'}
-          </span>
-        </div>
-        <div className="mt-1 h-2 w-full rounded-full bg-gray-100 dark:bg-gray-800">
-          <div
-            className="h-2 rounded-full bg-purple-500 transition-all"
-            style={{
-              width: inst.memory && inst.memory.sql_target_mb > 0
-                ? `${Math.min(100, (inst.memory.sql_committed_mb / inst.memory.sql_target_mb) * 100)}%`
-                : '0%',
-            }}
-          />
-        </div>
-      </div>
-
-      {/* Top waits */}
-      {inst.top_waits.length > 0 && (
-        <div className="mt-3 border-t border-gray-100 pt-2 dark:border-gray-800">
-          <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Top Waits</span>
-          <div className="mt-1 space-y-0.5">
-            {inst.top_waits.map((w) => (
-              <div key={w.wait_type} className="flex items-center justify-between text-xs">
-                <span className="font-mono text-gray-600 dark:text-gray-400 truncate max-w-[160px]">{w.wait_type}</span>
-                <span className="text-gray-500 dark:text-gray-400">{w.wait_ms_per_sec.toFixed(1)} ms/sec</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <span className="text-[10px] text-gray-400 dark:text-gray-500">{pct}%</span>
     </div>
   );
 }
 
-function GroupSection({ title, instances, navigate, collapsed, onToggle, deadlockCounts }: {
+function GroupSection({ title, instances, collapsed, onToggle, onRefresh }: {
   title: string;
   instances: OverviewInstance[];
-  navigate: (path: string) => void;
   collapsed: boolean;
   onToggle: () => void;
-  deadlockCounts: Record<number, number>;
+  onRefresh: () => void;
 }) {
   return (
-    <div className="mt-6">
+    <div className="mt-6" data-testid={`group-${title}`}>
       <button onClick={onToggle} className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100">
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -164,11 +79,12 @@ function GroupSection({ title, instances, navigate, collapsed, onToggle, deadloc
         </svg>
         {title}
         <span className="text-xs font-normal text-gray-400 dark:text-gray-500">({instances.length})</span>
+        <MiniHealthBar instances={instances} />
       </button>
       {!collapsed && (
-        <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {instances.map((inst) => (
-            <InstanceCard key={inst.id} inst={inst} navigate={navigate} deadlockCount={deadlockCounts[inst.id]} />
+            <InstanceCard key={inst.id} inst={inst} onRefresh={onRefresh} />
           ))}
         </div>
       )}
@@ -176,8 +92,31 @@ function GroupSection({ title, instances, navigate, collapsed, onToggle, deadloc
   );
 }
 
+function LoadingSkeleton() {
+  return (
+    <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="animate-pulse rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900 h-36">
+          <div className="p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="h-2.5 w-2.5 rounded-full bg-gray-200 dark:bg-gray-700" />
+              <div className="h-3 w-24 rounded bg-gray-200 dark:bg-gray-700" />
+            </div>
+            <div className="h-2 w-32 rounded bg-gray-100 dark:bg-gray-800" />
+            <div className="grid grid-cols-3 gap-2 pt-1">
+              <div className="h-6 rounded bg-gray-100 dark:bg-gray-800" />
+              <div className="h-6 rounded bg-gray-100 dark:bg-gray-800" />
+              <div className="h-6 rounded bg-gray-100 dark:bg-gray-800" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Dashboard() {
-  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   const { data, isLoading, isError } = useQuery<OverviewData>({
@@ -186,21 +125,13 @@ export function Dashboard() {
     refetchInterval: 15000,
   });
 
-  const { data: deadlockCounts = {} } = useQuery<Record<number, number>>({
-    queryKey: ['deadlock-counts'],
-    queryFn: async () => {
-      const res = await authFetch('/api/deadlocks/counts');
-      if (!res.ok) return {};
-      return res.json();
-    },
-    refetchInterval: 30_000,
-  });
+  const onRefresh = () => queryClient.invalidateQueries({ queryKey: ['metrics-overview'] });
 
   if (isLoading) {
     return (
       <div>
         <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Dashboard</h2>
-        <div className="mt-6 text-gray-500 dark:text-gray-400">Loading...</div>
+        <LoadingSkeleton />
       </div>
     );
   }
@@ -231,6 +162,29 @@ export function Dashboard() {
     );
   }
 
+  // Group instances
+  const hasGroups = data.instances.some((i) => i.group_name);
+  const groups = new Map<string, OverviewInstance[]>();
+  const ungrouped: OverviewInstance[] = [];
+  for (const inst of data.instances) {
+    if (inst.group_name) {
+      const arr = groups.get(inst.group_name) ?? [];
+      arr.push(inst);
+      groups.set(inst.group_name, arr);
+    } else {
+      ungrouped.push(inst);
+    }
+  }
+
+  const toggleGroup = (name: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
   return (
     <div>
       <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Dashboard</h2>
@@ -244,67 +198,35 @@ export function Dashboard() {
       </div>
 
       {/* Instance grid — grouped */}
-      {(() => {
-        const hasGroups = data.instances.some((i) => i.group_name);
-        if (!hasGroups) {
-          // No groups defined — flat grid
-          return (
-            <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {data.instances.map((inst) => (
-                <InstanceCard key={inst.id} inst={inst} navigate={navigate} deadlockCount={deadlockCounts[inst.id]} />
-              ))}
-            </div>
-          );
-        }
-
-        // Group instances
-        const groups = new Map<string, OverviewInstance[]>();
-        const ungrouped: OverviewInstance[] = [];
-        for (const inst of data.instances) {
-          if (inst.group_name) {
-            const arr = groups.get(inst.group_name) ?? [];
-            arr.push(inst);
-            groups.set(inst.group_name, arr);
-          } else {
-            ungrouped.push(inst);
-          }
-        }
-
-        const toggleGroup = (name: string) => {
-          setCollapsedGroups((prev) => {
-            const next = new Set(prev);
-            if (next.has(name)) next.delete(name);
-            else next.add(name);
-            return next;
-          });
-        };
-
-        return (
-          <>
-            {[...groups.entries()].map(([name, instances]) => (
-              <GroupSection
-                key={name}
-                title={name}
-                instances={instances}
-                navigate={navigate}
-                collapsed={collapsedGroups.has(name)}
-                onToggle={() => toggleGroup(name)}
-                deadlockCounts={deadlockCounts}
-              />
-            ))}
-            {ungrouped.length > 0 && (
-              <GroupSection
-                title="Ungrouped"
-                instances={ungrouped}
-                navigate={navigate}
-                collapsed={collapsedGroups.has('Ungrouped')}
-                onToggle={() => toggleGroup('Ungrouped')}
-                deadlockCounts={deadlockCounts}
-              />
-            )}
-          </>
-        );
-      })()}
+      {!hasGroups ? (
+        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {data.instances.map((inst) => (
+            <InstanceCard key={inst.id} inst={inst} onRefresh={onRefresh} />
+          ))}
+        </div>
+      ) : (
+        <>
+          {[...groups.entries()].map(([name, instances]) => (
+            <GroupSection
+              key={name}
+              title={name}
+              instances={instances}
+              collapsed={collapsedGroups.has(name)}
+              onToggle={() => toggleGroup(name)}
+              onRefresh={onRefresh}
+            />
+          ))}
+          {ungrouped.length > 0 && (
+            <GroupSection
+              title="Ungrouped"
+              instances={ungrouped}
+              collapsed={collapsedGroups.has('Ungrouped')}
+              onToggle={() => toggleGroup('Ungrouped')}
+              onRefresh={onRefresh}
+            />
+          )}
+        </>
+      )}
     </div>
   );
 }
