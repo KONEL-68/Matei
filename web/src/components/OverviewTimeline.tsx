@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ComposedChart, Line, XAxis, YAxis, ReferenceArea, ResponsiveContainer, Tooltip } from 'recharts';
 import { useTheme } from '@/lib/theme';
@@ -81,8 +81,9 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
   const [overviewRange, setOverviewRange] = useState<OverviewRange>('24h');
   const [activeMetrics, setActiveMetrics] = useState<Set<string>>(new Set(['cpu', 'memory', 'waits', 'disk_io']));
 
-  // Drag selection state — using useState so re-renders show the ReferenceArea
-  const [selecting, setSelecting] = useState(false);
+  // Drag selection state — ref tracks whether dragging is active (no re-render needed),
+  // useState for the boundary values so the ReferenceArea re-renders
+  const selectingRef = useRef(false);
   const [refAreaLeft, setRefAreaLeft] = useState<string | null>(null);
   const [refAreaRight, setRefAreaRight] = useState<string | null>(null);
 
@@ -123,22 +124,24 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
 
   const chartData = normalize();
 
-  const handleMouseDown = useCallback((e: { activeLabel?: string }) => {
+  // Not wrapped in useCallback — needs fresh closure over ref + state setters every render
+  // so Recharts always calls the latest version
+  const handleMouseDown = (e: { activeLabel?: string }) => {
     if (e.activeLabel) {
-      setSelecting(true);
+      selectingRef.current = true;
       setRefAreaLeft(e.activeLabel);
       setRefAreaRight(e.activeLabel);
     }
-  }, []);
+  };
 
-  const handleMouseMove = useCallback((e: { activeLabel?: string }) => {
-    if (selecting && e.activeLabel) {
+  const handleMouseMove = (e: { activeLabel?: string }) => {
+    if (selectingRef.current && e.activeLabel) {
       setRefAreaRight(e.activeLabel);
     }
-  }, [selecting]);
+  };
 
-  const handleMouseUp = useCallback(() => {
-    if (selecting && refAreaLeft && refAreaRight) {
+  const handleMouseUp = () => {
+    if (selectingRef.current && refAreaLeft && refAreaRight) {
       const t1 = new Date(refAreaLeft).getTime();
       const t2 = new Date(refAreaRight).getTime();
       const from = t1 < t2 ? refAreaLeft : refAreaRight;
@@ -147,10 +150,10 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
         onWindowChange({ from, to });
       }
     }
-    setSelecting(false);
+    selectingRef.current = false;
     setRefAreaLeft(null);
     setRefAreaRight(null);
-  }, [selecting, refAreaLeft, refAreaRight, onWindowChange]);
+  };
 
   const quickSelect = useCallback((minutes: number) => {
     const now = new Date();
@@ -256,7 +259,7 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
       </div>
 
       {/* Chart */}
-      <ResponsiveContainer width="100%" height={120}>
+      <ResponsiveContainer width="100%" height={150}>
         <ComposedChart
           data={chartData}
           onMouseDown={handleMouseDown}
@@ -278,11 +281,11 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
           {activeMetrics.has('disk_io') && <Line type="monotone" dataKey="disk_io" stroke="#10b981" strokeWidth={1.5} dot={false} connectNulls />}
           {/* Current window highlight */}
           {window && (
-            <ReferenceArea x1={window.from} x2={window.to} fill={dark ? '#3b82f640' : '#3b82f620'} />
+            <ReferenceArea x1={window.from} x2={window.to} fill={dark ? '#3b82f640' : '#3b82f620'} ifOverflow="extendDomain" />
           )}
           {/* Drag selection highlight */}
-          {selecting && refAreaLeft && refAreaRight && (
-            <ReferenceArea x1={refAreaLeft} x2={refAreaRight} fill={dark ? '#f59e0b40' : '#f59e0b30'} />
+          {refAreaLeft && refAreaRight && (
+            <ReferenceArea x1={refAreaLeft} x2={refAreaRight} fill={dark ? '#f59e0b40' : '#f59e0b30'} ifOverflow="extendDomain" />
           )}
         </ComposedChart>
       </ResponsiveContainer>
