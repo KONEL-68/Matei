@@ -1,6 +1,6 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ComposedChart, Line, XAxis, YAxis, ReferenceArea, ResponsiveContainer, Tooltip } from 'recharts';
+import { ComposedChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
 
@@ -39,18 +39,6 @@ function formatTime(ts: string): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-interface TPayload {
-  dataKey: string;
-  value: number;
-  color: string;
-}
-
-const LABELS: Record<string, string> = {
-  cpu: 'CPU',
-  memory: 'Memory',
-  waits: 'Waits',
-  disk_io: 'Disk I/O',
-};
 const UNITS: Record<string, string> = {
   cpu: '%',
   memory: ' GB',
@@ -58,25 +46,29 @@ const UNITS: Record<string, string> = {
   disk_io: ' MB/s',
 };
 
-function OvTooltip({ active, payload, label }: { active?: boolean; payload?: TPayload[]; label?: string }) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="rounded border border-gray-700 bg-gray-900 p-2 text-xs shadow-lg">
-      <p className="mb-1 text-gray-400">{label ? formatTime(label) : ''}</p>
-      {payload.filter(p => p.value != null).map((p) => {
-        const unit = UNITS[p.dataKey] ?? '';
-        return (
-          <div key={p.dataKey} className="flex items-center gap-2">
-            <span style={{ color: p.color }}>&#9632;</span>
-            <span className="text-gray-300">{LABELS[p.dataKey] ?? p.dataKey}</span>
-            <span className="ml-auto font-mono text-white">
-              {Number(p.value).toFixed(1)}{unit}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
+const TOOLTIP_METRICS = [
+  { key: 'cpu', label: 'CPU', color: '#3b82f6' },
+  { key: 'memory', label: 'Memory', color: '#a855f7' },
+  { key: 'waits', label: 'Waits', color: '#f59e0b' },
+  { key: 'disk_io', label: 'Disk I/O', color: '#10b981' },
+];
+
+/** Fill forward nulls in chartData so every bucket carries the last known value per metric. */
+function fillForward(data: ChartPoint[]): ChartPoint[] {
+  if (data.length === 0) return data;
+  const keys: (keyof ChartPoint)[] = ['cpu', 'memory', 'waits', 'disk_io'];
+  const last: Record<string, number | null> = { cpu: null, memory: null, waits: null, disk_io: null };
+  return data.map(pt => {
+    const filled = { ...pt };
+    for (const k of keys) {
+      if (filled[k] != null) {
+        last[k] = filled[k] as number;
+      } else {
+        (filled as any)[k] = last[k]; // eslint-disable-line @typescript-eslint/no-explicit-any
+      }
+    }
+    return filled;
+  });
 }
 
 const METRICS = [
@@ -86,8 +78,22 @@ const METRICS = [
   { key: 'disk_io', label: 'Disk I/O', color: '#10b981', dotClass: 'bg-emerald-500' },
 ] as const;
 
-// Recharts chart margins — needed to calculate data area offset for drag overlay
 const CHART_MARGIN = { left: 0, right: 0, top: 4, bottom: 0 };
+const CHART_PADDING_LEFT = 5;
+const CHART_PADDING_RIGHT = 5;
+const HANDLE_ZONE = 8;
+const XAXIS_HEIGHT = 18;
+
+type DragMode = 'create' | 'move' | 'resize-left' | 'resize-right';
+
+interface DragState {
+  mode: DragMode;
+  startClientX: number;
+  startFromTs: number;
+  startToTs: number;
+  startLocalX: number;
+  currentLocalX: number;
+}
 
 export function OverviewTimeline({ instanceId, window, onWindowChange }: OverviewTimelineProps) {
   const { theme } = useTheme();
@@ -95,11 +101,13 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
   const [overviewRange, setOverviewRange] = useState<OverviewRange>('24h');
   const [activeMetrics, setActiveMetrics] = useState<Set<string>>(new Set(['cpu', 'memory', 'waits', 'disk_io']));
 
-  // Native DOM drag selection
   const chartWrapRef = useRef<HTMLDivElement>(null);
-  const [dragStartX, setDragStartX] = useState<number | null>(null);
-  const [dragCurrentX, setDragCurrentX] = useState<number | null>(null);
-  const isDragging = useRef(false);
+  const [drag, setDrag] = useState<DragState | null>(null);
+
+  const windowRef = useRef(window);
+  windowRef.current = window;
+  const onWindowChangeRef = useRef(onWindowChange);
+  onWindowChangeRef.current = onWindowChange;
 
   const { data: rawData = [] } = useQuery<RawPoint[]>({
     queryKey: ['overview-chart', instanceId, overviewRange],
@@ -111,83 +119,213 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
     refetchInterval: 30_000,
   });
 
-  // Use raw values directly — CPU on left axis (0-100), others on right axis (auto)
-  const chartData: ChartPoint[] = rawData.map(pt => ({
+  const chartData: ChartPoint[] = fillForward(rawData.map(pt => ({
     bucket: pt.bucket,
     ts: new Date(pt.bucket).getTime(),
     cpu: pt.cpu_pct,
     memory: pt.memory_gb,
     waits: pt.waits_ms_per_sec,
     disk_io: pt.disk_io_mb_per_sec,
-  }));
+  })));
 
-  // Convert pixel X position to a timestamp from chart data
-  const pixelToTimestamp = useCallback((px: number): string | null => {
-    if (!chartWrapRef.current || chartData.length === 0) return null;
-    const rect = chartWrapRef.current.getBoundingClientRect();
-    // Recharts reserves ~60px for Y axis on left side. Estimate chart area.
-    const chartLeft = 5; // minimal left margin since Y axes are hidden
-    const chartRight = rect.width - 5;
-    const chartWidth = chartRight - chartLeft;
-    const pct = Math.max(0, Math.min(1, (px - chartLeft) / chartWidth));
-    const idx = Math.round(pct * (chartData.length - 1));
-    return chartData[Math.max(0, Math.min(chartData.length - 1, idx))].bucket;
-  }, [chartData]);
+  const chartDataRef = useRef(chartData);
+  chartDataRef.current = chartData;
 
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    const rect = chartWrapRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const x = e.clientX - rect.left;
-    isDragging.current = true;
-    setDragStartX(x);
-    setDragCurrentX(x);
+  const minTs = chartData.length > 0 ? chartData[0].ts : 0;
+  const maxTs = chartData.length > 0 ? chartData[chartData.length - 1].ts : 0;
+
+  const getPlotBounds = useCallback(() => {
+    const el = chartWrapRef.current;
+    if (!el) return { plotLeft: 0, plotRight: 0, plotWidth: 1 };
+    const rect = el.getBoundingClientRect();
+    const plotLeft = CHART_PADDING_LEFT;
+    const plotRight = rect.width - CHART_PADDING_RIGHT;
+    const plotWidth = Math.max(1, plotRight - plotLeft);
+    return { plotLeft, plotRight, plotWidth };
   }, []);
 
-  const handleDragMove = useCallback((e: React.MouseEvent) => {
-    if (!isDragging.current) return;
-    const rect = chartWrapRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const x = e.clientX - rect.left;
-    setDragCurrentX(x);
+  const tsToPixel = useCallback((ts: number): number => {
+    const { plotLeft, plotWidth } = getPlotBounds();
+    if (maxTs === minTs) return plotLeft;
+    const pct = Math.max(0, Math.min(1, (ts - minTs) / (maxTs - minTs)));
+    return plotLeft + pct * plotWidth;
+  }, [getPlotBounds, minTs, maxTs]);
+
+  const windowFromTs = window ? new Date(window.from).getTime() : null;
+  const windowToTs = window ? new Date(window.to).getTime() : null;
+  const winLeftPx = windowFromTs != null ? tsToPixel(windowFromTs) : null;
+  const winRightPx = windowToTs != null ? tsToPixel(windowToTs) : null;
+
+  const emitWindow = useCallback((fromTs: number, toTs: number) => {
+    const data = chartDataRef.current;
+    if (data.length === 0) return;
+    const mn = data[0].ts;
+    const mx = data[data.length - 1].ts;
+    const clampedFrom = Math.max(mn, Math.min(mx, fromTs));
+    const clampedTo = Math.max(mn, Math.min(mx, toTs));
+    const actualFrom = Math.min(clampedFrom, clampedTo);
+    const actualTo = Math.max(clampedFrom, clampedTo);
+    if (actualTo - actualFrom < 1000) return;
+    onWindowChangeRef.current({
+      from: new Date(actualFrom).toISOString(),
+      to: new Date(actualTo).toISOString(),
+    });
   }, []);
 
-  const handleDragEnd = useCallback(() => {
-    if (!isDragging.current || dragStartX == null || dragCurrentX == null) {
-      isDragging.current = false;
-      setDragStartX(null);
-      setDragCurrentX(null);
-      return;
-    }
-    isDragging.current = false;
+  // Document-level mousemove/mouseup during drag
+  const dragRef = useRef(drag);
+  dragRef.current = drag;
 
-    const left = Math.min(dragStartX, dragCurrentX);
-    const right = Math.max(dragStartX, dragCurrentX);
+  useEffect(() => {
+    if (!drag) return;
 
-    // Only register if drag was at least 10px
-    if (right - left > 10) {
-      const from = pixelToTimestamp(left);
-      const to = pixelToTimestamp(right);
-      if (from && to && from !== to) {
-        onWindowChange({ from, to });
+    const dragCursor = drag.mode === 'move' ? 'grabbing' : drag.mode === 'create' ? 'crosshair' : 'ew-resize';
+    document.body.style.cursor = dragCursor;
+    document.body.style.userSelect = 'none';
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      const el = chartWrapRef.current;
+      if (!el) return;
+
+      if (d.mode === 'create') {
+        const rect = el.getBoundingClientRect();
+        const localX = e.clientX - rect.left;
+        setDrag(prev => prev ? { ...prev, currentLocalX: localX } : null);
+        return;
+      }
+
+      const { plotWidth } = getPlotBounds();
+      const data = chartDataRef.current;
+      if (data.length === 0) return;
+      const mn = data[0].ts;
+      const mx = data[data.length - 1].ts;
+      const deltaX = e.clientX - d.startClientX;
+      const deltaPxToTs = (deltaX / plotWidth) * (mx - mn);
+
+      if (d.mode === 'move') {
+        emitWindow(d.startFromTs + deltaPxToTs, d.startToTs + deltaPxToTs);
+      } else if (d.mode === 'resize-left') {
+        emitWindow(d.startFromTs + deltaPxToTs, d.startToTs);
+      } else if (d.mode === 'resize-right') {
+        emitWindow(d.startFromTs, d.startToTs + deltaPxToTs);
+      }
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      const d = dragRef.current;
+      if (!d) { setDrag(null); return; }
+
+      if (d.mode === 'create') {
+        const el = chartWrapRef.current;
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          const finalLocalX = e.clientX - rect.left;
+          const left = Math.min(d.startLocalX, finalLocalX);
+          const right = Math.max(d.startLocalX, finalLocalX);
+          if (right - left > 10) {
+            const { plotLeft, plotWidth } = getPlotBounds();
+            const data = chartDataRef.current;
+            if (data.length > 0) {
+              const mn = data[0].ts;
+              const mx = data[data.length - 1].ts;
+              const pctL = Math.max(0, Math.min(1, (left - plotLeft) / plotWidth));
+              const pctR = Math.max(0, Math.min(1, (right - plotLeft) / plotWidth));
+              emitWindow(mn + pctL * (mx - mn), mn + pctR * (mx - mn));
+            }
+          }
+        }
+      }
+      setDrag(null);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [drag, getPlotBounds, emitWindow]);
+
+  // mouseDown on wrapper — events bubble up from Recharts SVG
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (chartDataRef.current.length === 0) return;
+    const el = chartWrapRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const localX = e.clientX - rect.left;
+    const localY = e.clientY - rect.top;
+
+    if (localY > rect.height - XAXIS_HEIGHT) return;
+
+    const win = windowRef.current;
+    if (win) {
+      const fromTs = new Date(win.from).getTime();
+      const toTs = new Date(win.to).getTime();
+      const leftPx = tsToPixel(fromTs);
+      const rightPx = tsToPixel(toTs);
+      const nearLeft = Math.abs(localX - leftPx) <= HANDLE_ZONE;
+      const nearRight = Math.abs(localX - rightPx) <= HANDLE_ZONE;
+      const inside = localX > leftPx + HANDLE_ZONE && localX < rightPx - HANDLE_ZONE;
+
+      if (nearLeft) {
+        setDrag({ mode: 'resize-left', startClientX: e.clientX, startFromTs: fromTs, startToTs: toTs, startLocalX: localX, currentLocalX: localX });
+        e.preventDefault();
+        return;
+      }
+      if (nearRight) {
+        setDrag({ mode: 'resize-right', startClientX: e.clientX, startFromTs: fromTs, startToTs: toTs, startLocalX: localX, currentLocalX: localX });
+        e.preventDefault();
+        return;
+      }
+      if (inside) {
+        setDrag({ mode: 'move', startClientX: e.clientX, startFromTs: fromTs, startToTs: toTs, startLocalX: localX, currentLocalX: localX });
+        e.preventDefault();
+        return;
       }
     }
 
-    setDragStartX(null);
-    setDragCurrentX(null);
-  }, [dragStartX, dragCurrentX, pixelToTimestamp, onWindowChange]);
+    setDrag({ mode: 'create', startClientX: e.clientX, startFromTs: 0, startToTs: 0, startLocalX: localX, currentLocalX: localX });
+    e.preventDefault();
+  }, [tsToPixel]);
 
-  // Find the closest bucket timestamp to a given ISO timestamp
-  const closestBucket = useCallback((iso: string): string | null => {
-    if (chartData.length === 0) return null;
-    const target = new Date(iso).getTime();
-    let best = chartData[0];
-    let bestDiff = Math.abs(best.ts - target);
-    for (const pt of chartData) {
-      const diff = Math.abs(pt.ts - target);
-      if (diff < bestDiff) { best = pt; bestDiff = diff; }
+  // Cursor: track hover position and compute cursor style
+  const [hoverCursor, setHoverCursor] = useState<string>('crosshair');
+
+  const handleMouseMoveForCursor = useCallback((e: React.MouseEvent) => {
+    if (drag) return;
+    const el = chartWrapRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const localX = e.clientX - rect.left;
+    const localY = e.clientY - rect.top;
+
+    if (localY > rect.height - XAXIS_HEIGHT) {
+      setHoverCursor('default');
+      return;
     }
-    return best.bucket;
-  }, [chartData]);
+
+    const win = windowRef.current;
+    if (win) {
+      const fromTs = new Date(win.from).getTime();
+      const toTs = new Date(win.to).getTime();
+      const leftPx = tsToPixel(fromTs);
+      const rightPx = tsToPixel(toTs);
+
+      if (Math.abs(localX - leftPx) <= HANDLE_ZONE || Math.abs(localX - rightPx) <= HANDLE_ZONE) {
+        setHoverCursor('ew-resize');
+        return;
+      }
+      if (localX > leftPx + HANDLE_ZONE && localX < rightPx - HANDLE_ZONE) {
+        setHoverCursor('grab');
+        return;
+      }
+    }
+    setHoverCursor('crosshair');
+  }, [drag, tsToPixel]);
 
   const quickSelect = useCallback((minutes: number) => {
     const now = new Date();
@@ -219,15 +357,15 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
     { label: '12h', minutes: 720 },
   ];
 
-  // Drag overlay — only visible while mouse button is held
-  const dragOv = (dragStartX != null && dragCurrentX != null) ? {
-    left: Math.min(dragStartX, dragCurrentX),
-    width: Math.abs(dragCurrentX - dragStartX),
-  } : null;
+  const createDragOv = drag && drag.mode === 'create' ? (() => {
+    const left = Math.min(drag.startLocalX, drag.currentLocalX);
+    const width = Math.abs(drag.currentLocalX - drag.startLocalX);
+    return width > 4 ? { left, width } : null;
+  })() : null;
 
-  // Map window timestamps to closest chart bucket values for ReferenceArea
-  const winRefX1 = window ? closestBucket(window.from) : null;
-  const winRefX2 = window ? closestBucket(window.to) : null;
+  const activeCursor = drag
+    ? (drag.mode === 'move' ? 'grabbing' : drag.mode === 'create' ? 'crosshair' : 'ew-resize')
+    : hoverCursor;
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900" data-testid="overview-timeline">
@@ -302,15 +440,16 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
         ))}
       </div>
 
-      {/* Chart with native DOM drag overlay */}
+      {/* Chart — mouseDown on wrapper captures drag, Recharts handles tooltip natively */}
+      {/* CSS forces cursor inheritance on all Recharts SVG children */}
+      <style>{`[data-testid="chart-area"] * { cursor: inherit !important; }`}</style>
       <div
         ref={chartWrapRef}
         className="relative select-none"
-        onMouseDown={handleDragStart}
-        onMouseMove={handleDragMove}
-        onMouseUp={handleDragEnd}
-        onMouseLeave={handleDragEnd}
+        style={{ cursor: activeCursor }}
         data-testid="chart-area"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMoveForCursor}
       >
         <ResponsiveContainer width="100%" height={150}>
           <ComposedChart data={chartData} margin={CHART_MARGIN}>
@@ -319,43 +458,117 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
               fontSize={10}
               tick={{ fill: dark ? '#6b7280' : '#9ca3af' }}
               tickFormatter={formatTime}
-              height={18}
+              height={XAXIS_HEIGHT}
             />
-            {/* Left Y axis: CPU % (fixed 0-100) */}
             <YAxis yAxisId="pct" domain={[0, 100]} hide />
-            {/* Right Y axis: auto-scaled for memory/waits/disk_io */}
             <YAxis yAxisId="auto" orientation="right" hide />
-            <Tooltip content={<OvTooltip />} />
+            <Tooltip
+              wrapperStyle={{ zIndex: 20 }}
+              content={({ active, payload, label }: { active?: boolean; payload?: any[]; label?: string }) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+                if (!active || !payload?.length) return null;
+                const pt = payload[0]?.payload as ChartPoint | undefined;
+                if (!pt) return null;
+                return (
+                  <div className="rounded border border-gray-700 bg-gray-900 p-2 text-xs shadow-lg">
+                    <p className="mb-1 text-gray-400">{label ? formatTime(label) : ''}</p>
+                    {TOOLTIP_METRICS.map(({ key, label: lbl, color }) => {
+                      const val = pt[key as keyof ChartPoint] as number | null;
+                      const unit = UNITS[key] ?? '';
+                      return (
+                        <div key={key} className="flex items-center gap-2">
+                          <span style={{ color }}>&#9632;</span>
+                          <span className="text-gray-300">{lbl}</span>
+                          <span className="ml-auto font-mono text-white pl-3">
+                            {val != null ? `${Number(val).toFixed(1)}${unit}` : '—'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }}
+            />
             {activeMetrics.has('cpu') && <Line yAxisId="pct" type="monotone" dataKey="cpu" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />}
             {activeMetrics.has('memory') && <Line yAxisId="auto" type="monotone" dataKey="memory" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />}
             {activeMetrics.has('waits') && <Line yAxisId="auto" type="monotone" dataKey="waits" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />}
             {activeMetrics.has('disk_io') && <Line yAxisId="auto" type="monotone" dataKey="disk_io" stroke="#10b981" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />}
-            {/* Selected window indicator — Recharts ReferenceArea at correct time coordinates */}
-            {winRefX1 && winRefX2 && (
-              <ReferenceArea
-                x1={winRefX1}
-                x2={winRefX2}
-                fill="rgba(59,130,246,0.15)"
-                stroke="rgba(59,130,246,0.5)"
-                strokeWidth={1}
-                ifOverflow="extendDomain"
-              />
-            )}
           </ComposedChart>
         </ResponsiveContainer>
 
-        {/* Drag overlay — only visible while mouse button is held */}
-        {dragOv && dragOv.width > 4 && (
-          <div
-            className="absolute top-0 bottom-0 pointer-events-none"
-            style={{
-              left: dragOv.left,
-              width: dragOv.width,
-              backgroundColor: dark ? 'rgba(245,158,11,0.25)' : 'rgba(245,158,11,0.2)',
-            }}
-            data-testid="drag-overlay"
-          />
-        )}
+        {/* Visual-only overlay for selection highlight + drag preview (pointerEvents: none) */}
+        <div
+          style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 10 }}
+          data-testid="selection-overlay"
+        >
+          {winLeftPx != null && winRightPx != null && (
+            <>
+              {/* Left dimmed area */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  bottom: XAXIS_HEIGHT,
+                  left: 0,
+                  width: Math.max(0, winLeftPx),
+                  background: dark ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.1)',
+                }}
+                data-testid="dim-left"
+              />
+              {/* Right dimmed area */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  bottom: XAXIS_HEIGHT,
+                  right: 0,
+                  left: winRightPx,
+                  background: dark ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.1)',
+                }}
+                data-testid="dim-right"
+              />
+              {/* Left edge line */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  bottom: XAXIS_HEIGHT,
+                  left: winLeftPx - 1,
+                  width: 2,
+                  background: '#3b82f6',
+                }}
+                data-testid="window-highlight"
+              />
+              {/* Right edge line */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  bottom: XAXIS_HEIGHT,
+                  left: winRightPx - 1,
+                  width: 2,
+                  background: '#3b82f6',
+                }}
+              />
+            </>
+          )}
+
+          {/* Create-drag preview */}
+          {createDragOv && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                bottom: XAXIS_HEIGHT,
+                left: createDragOv.left,
+                width: createDragOv.width,
+                background: dark ? 'rgba(59,130,246,0.25)' : 'rgba(59,130,246,0.15)',
+                borderLeft: '2px solid #3b82f6',
+                borderRight: '2px solid #3b82f6',
+              }}
+              data-testid="drag-overlay"
+            />
+          )}
+        </div>
       </div>
 
       {/* Window info */}

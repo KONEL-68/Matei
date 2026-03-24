@@ -33,7 +33,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   /src/migrations/     — SQL files (###_description.sql, e.g. 001_initial.sql) + run.ts executor
 /web                 — React frontend (Vite)
   /src/pages/          — Dashboard, Instances, InstanceDetail, QueryExplorer, Alerts, Login, Settings
-  /src/components/     — StatusBar, CpuChart, MemoryChart, MemoryBreakdown, SessionBreakdown, SessionsTable, CurrentActivity, WaitsTable, TopWaitsTable, WaitsChart, DeadlocksTable, BlockingTree, FileIoChart, DiskChart, CollapsibleSection, InstanceForm, Layout
+  /src/components/     — StatusBar, CpuChart, MemoryChart, MemoryBreakdown, SessionBreakdown, SessionsTable, CurrentActivity, WaitsTable, TopWaitsTable, WaitsChart, DeadlocksTable, BlockingTree, FileIoChart, DiskChart, CollapsibleSection, InstanceForm, InstanceCard, AnalysisSection, OverviewTimeline, Layout
   /src/components/settings/ — GroupsSettings, AlertsSettings, RetentionSettings, UsersSettings, AboutSettings
 /docker              — Docker Compose stack + nginx config
 /sql                 — DMV query library (one .sql file per metric category)
@@ -84,11 +84,12 @@ docker compose -f docker/docker-compose.yml up --build       # all services on p
 ## Git workflow
 - **Commit after each logical block of work** (one feature = one commit). Do NOT squash an entire session into a single commit.
 - Use descriptive commit messages: `Add blocking chain visualization` not `Session 11 changes`.
-- **After all work is done, rebuild Docker containers** so the user can see UI changes immediately:
+- **Update CHANGELOG.md** with every commit — add entries under `## [Unreleased]` in the appropriate section (Added/Changed/Fixed/Removed). Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
+- **Rebuild Docker containers after each commit** so the user can see changes immediately:
   ```bash
   docker compose -f docker/docker-compose.yml up -d --build
   ```
-  This is the last step of every session. Do not skip it.
+  Do not skip this step.
 
 ## Collector design
 - Worker pool: 40 concurrent workers
