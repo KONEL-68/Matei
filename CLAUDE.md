@@ -192,6 +192,6 @@ Default cycle interval: 30s (COLLECTOR_INTERVAL_MS). Some metrics skip cycles:
    after any code changes. Hot reload only works in local dev mode (npm run dev).
 2. **os_cpu ring_buffer deprecation** — `dm_os_ring_buffers` is deprecated in SQL Server 2025.
    Plan migration to `dm_os_ring_buffer_entries` when adding SQL 2025 support.
-3. **Session Breakdown intermittent empty state** — sometimes shows no data even when active sessions exist (MATEI-29).
+
 3. **Overview Timeline drag-selection** — needs RedGate-style draggable range selector with edge handles and move-window (MATEI-29 area, in progress session 23).
 4. **Session Breakdown intermittent empty state** — sometimes shows no data even when active sessions exist (MATEI-29).
