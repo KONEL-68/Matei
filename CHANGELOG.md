@@ -6,7 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Added
+### Added (Sessions 20-23)
+- Sticky StatusBar (z-10, bg-gray-950, border-b border-gray-800)
+- History / Current Activity tabs with URL state (?tab=)
+- Current Activity: status/blocking/elapsed/login/db filters, show system sessions toggle, WAITFOR excluded, expandable rows
+- Table column widths: table-fixed with colgroup widths
+- Elapsed time formatting: Xs / Xm Ys / Xh Ym / Xd Yh
+- appName = 'Matei Monitor' in mssql connection config
+- Reads/Writes: use dm_exec_requests instead of dm_exec_sessions
+- Disk Space card: show used GB instead of free GB
+- StatusBar: total wait ms/s with top-3 tooltip on hover
+- Fleet Dashboard redesign: RedGate-style InstanceCard with 3 KPIs (Waits/CPU/Disk IO), alert status bar, group headers with health bar
+- Overview Timeline with drag-selection window (4 metrics: CPU/Memory/Waits/Disk IO)
+- Overview range selector (1h/6h/24h/7d) + window quick-select (15m/30m/1h/3h/12h)
+- Analysis section with 3 tabs: Top Queries (Avg/Totals/Impact toggle, search, expand), Top Waits (Zoom/Full Range), Top Procedures (live from dm_exec_procedure_stats)
+- Metric toggle checkboxes on overview timeline
+- CPU axis fixed to 0-100 domain
+
+### Added (Sessions 1-19)
 - Fleet dashboard with instance health cards, CPU/memory bars, top waits, deadlock badges
 - Dashboard: collapsible instance groups with grouped/ungrouped sections
 - Instance management (add/edit/delete/test connection) with group assignment
@@ -45,7 +62,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - User management: create/delete users, change password (Settings > Users)
 - Settings page with tabs: Groups, Alerts (webhook config), Retention, Users, About
 - Auto-migration on backend startup (pending migrations applied automatically)
-- 236+ tests (backend + frontend)
+- 305+ tests (180 backend + 125 frontend)
 
 ### Fixed
 - Dark mode text colors on all pages (Instances table, forms, badges, empty states)

@@ -33,7 +33,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   /src/migrations/     — SQL files (###_description.sql, e.g. 001_initial.sql) + run.ts executor
 /web                 — React frontend (Vite)
   /src/pages/          — Dashboard, Instances, InstanceDetail, QueryExplorer, Alerts, Login, Settings
-  /src/components/     — StatusBar, CpuChart, MemoryChart, MemoryBreakdown, SessionBreakdown, SessionsTable, CurrentActivity, WaitsTable, TopWaitsTable, WaitsChart, DeadlocksTable, BlockingTree, FileIoChart, DiskChart, CollapsibleSection, InstanceForm, Layout
+  /src/components/     — StatusBar, CpuChart, MemoryChart, MemoryBreakdown, SessionBreakdown, SessionsTable, CurrentActivity, WaitsTable, TopWaitsTable, WaitsChart, DeadlocksTable, BlockingTree, FileIoChart, DiskChart, CollapsibleSection, InstanceForm, InstanceCard, OverviewTimeline, AnalysisSection, Layout
   /src/components/settings/ — GroupsSettings, AlertsSettings, RetentionSettings, UsersSettings, AboutSettings
 /docker              — Docker Compose stack + nginx config
 /sql                 — DMV query library (one .sql file per metric category)
@@ -191,3 +191,5 @@ Default cycle interval: 30s (COLLECTOR_INTERVAL_MS). Some metrics skip cycles:
    after any code changes. Hot reload only works in local dev mode (npm run dev).
 2. **os_cpu ring_buffer deprecation** — `dm_os_ring_buffers` is deprecated in SQL Server 2025.
    Plan migration to `dm_os_ring_buffer_entries` when adding SQL 2025 support.
+3. **Overview Timeline drag-selection** — needs RedGate-style draggable range selector with edge handles and move-window (MATEI-29 area, in progress session 23).
+4. **Session Breakdown intermittent empty state** — sometimes shows no data even when active sessions exist (MATEI-29).
