@@ -21,7 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - SessionBreakdown: "No session data" shown when all sessions are WAITFOR/diagnostics — now shows zero counts instead
-- Disk Space: increased lookback from 10 to 15 minutes to handle collection timing jitter
+- Disk Space: increased lookback from 10 to 30 minutes to handle delayed disk collection cycles
 - OverviewTimeline: overview-chart API Memory deficit logic corrected (deficit = Target - Committed, not the reverse)
 
 ### Previously added

@@ -599,7 +599,7 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
               volume_mount_point, logical_volume_name, file_system_type,
               total_mb, available_mb, used_mb, used_pct, collected_at
        FROM os_disk
-       WHERE instance_id = $1 AND collected_at > NOW() - INTERVAL '15 minutes'
+       WHERE instance_id = $1 AND collected_at > NOW() - INTERVAL '30 minutes'
        ORDER BY volume_mount_point, collected_at DESC`,
       [id],
     );
