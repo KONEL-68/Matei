@@ -7,24 +7,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-- OverviewTimeline: RedGate SQL Monitor-style persistent draggable range selector with dim-outside overlay, blue edge lines, drag handles (ew-resize), center grab to move, click+drag to create new selection
-- OverviewTimeline: default 1h window on page load, cursor changes (crosshair/grab/ew-resize) via CSS inheritance, document-level drag listeners
-- OverviewTimeline: fill-forward null values so tooltip shows all 4 metrics consistently
-- 4 detail metric charts in 2x2 grid below overview: CPU Utilization (SQL CPU + Other CPU), SQL Memory (Committed + Target + Deficit dotted line), Wait Stats (stacked bars with clickable legend toggle), Throughput (Read + Write MB/s)
-- Overview chart API: disk I/O read/write split (disk_read_mb_per_sec, disk_write_mb_per_sec)
-
-### Changed
-- OverviewTimeline tooltip: reads from full data point object instead of Recharts payload (fixes missing metrics), z-index layering so tooltip renders above selection overlay
-- Memory detail chart: shows SQL Committed + SQL Target instead of OS total, auto-scaled Y-axis, deficit only shown when Target > Committed
-- Removed duplicate CPU Utilization chart (now in 2x2 grid)
-- Removed duplicate Wait Stats History section (now in 2x2 grid)
-
-### Fixed
-- SessionBreakdown: "No session data" shown when all sessions are WAITFOR/diagnostics — now shows zero counts instead
-- Disk Space: increased lookback from 10 to 30 minutes to handle delayed disk collection cycles
-- OverviewTimeline: overview-chart API Memory deficit logic corrected (deficit = Target - Committed, not the reverse)
-
-### Previously added
 - Fleet dashboard with instance health cards, CPU/memory bars, top waits, deadlock badges
 - Dashboard: collapsible instance groups with grouped/ungrouped sections
 - Instance management (add/edit/delete/test connection) with group assignment
@@ -63,7 +45,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - User management: create/delete users, change password (Settings > Users)
 - Settings page with tabs: Groups, Alerts (webhook config), Retention, Users, About
 - Auto-migration on backend startup (pending migrations applied automatically)
-- 236+ tests (backend + frontend)
+- 305+ tests (180 backend + 125 frontend)
 
 ### Fixed
 - Dark mode text colors on all pages (Instances table, forms, badges, empty states)
