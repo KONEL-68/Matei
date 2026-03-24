@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx vitest:*)",
+      "Bash(docker compose:*)",
+      "Bash(npx tsc:*)",
+      "Bash(find /e/Github/_mine/matei/server/src/migrations -type f -name *.ts -o -name *.sql)",
+      "Bash(find /e/Github/_mine/matei -maxdepth 3 -name tsconfig*.json -o -name vitest.config.* -o -name .env.example)",
+      "Bash(find /e/Github/_mine/matei -maxdepth 3 -name Dockerfile*)",
+      "Bash(find /e/Github/_mine/matei -maxdepth 2 -name vite.config.* -o -name vitest.config.*)",
+      "Bash(find /e/Github/_mine/matei -maxdepth 2 -name .prettier* -o -name .eslint* -o -name prettier* -o -name eslint*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git reset:*)",
+      "Bash(find E:Github_minemateiserversrccollectorcollectors -type f -name *.ts)",
+      "Bash(cat /e/Github/_mine/matei/sql/*.sql)",
+      "Bash(npm run:*)",
+      "Bash(docker exec:*)"
+    ]
+  }
+}
