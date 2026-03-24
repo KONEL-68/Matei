@@ -15,6 +15,7 @@ import { SessionBreakdown } from '@/components/SessionBreakdown';
 import { CollapsibleSection } from '@/components/CollapsibleSection';
 import { CurrentActivity } from '@/components/CurrentActivity';
 import { OverviewTimeline, type TimeWindow } from '@/components/OverviewTimeline';
+import { OverviewMetricCharts } from '@/components/OverviewMetricCharts';
 import { AnalysisSection } from '@/components/AnalysisSection';
 import { authFetch } from '@/lib/auth';
 
@@ -117,7 +118,13 @@ export function InstanceDetail() {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [range] = useState<TimeRange>(initialRange);
   const [sessionAt, setSessionAt] = useState<string | null>(initialAt);
-  const [timeWindow, setTimeWindow] = useState<TimeWindow | null>(null);
+  const [timeWindow, setTimeWindow] = useState<TimeWindow | null>(() => {
+    const now = new Date();
+    return {
+      from: new Date(now.getTime() - 60 * 60_000).toISOString(),
+      to: now.toISOString(),
+    };
+  });
 
   const switchTab = useCallback((newTab: Tab) => {
     setTab(newTab);
@@ -266,10 +273,11 @@ export function InstanceDetail() {
         />
       </div>
 
-      {/* 2. CPU Chart (full width, 200px) */}
+      {/* 2. Metric detail charts (2x2 grid) */}
       <div className="mt-4">
-        <CpuChart data={cpuData as never[]} height={200} />
+        <OverviewMetricCharts instanceId={id!} window={timeWindow} />
       </div>
+
 
       {/* 3. Top Waits | Memory Breakdown | Disk Space | Session Breakdown */}
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-4 items-stretch">
@@ -313,14 +321,7 @@ export function InstanceDetail() {
         <SessionBreakdown data={sessionsData as Array<{ request_status: string | null; session_status: string; wait_type: string | null }>} />
       </div>
 
-      {/* 5. Wait Stats History (collapsible, default open) */}
-      <div className="mt-4">
-        <CollapsibleSection title="Wait Stats History" defaultOpen>
-          <WaitsChart instanceId={id!} range={range} />
-        </CollapsibleSection>
-      </div>
-
-      {/* 6. Active Sessions (full width) */}
+      {/* 5. Active Sessions (full width) */}
       <div className="mt-4">
         <CollapsibleSection title="Active Sessions" badge={sessionsData.length} defaultOpen>
           {sessionTimestamps.length >= 1 && (
