@@ -599,7 +599,7 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
               volume_mount_point, logical_volume_name, file_system_type,
               total_mb, available_mb, used_mb, used_pct, collected_at
        FROM os_disk
-       WHERE instance_id = $1 AND collected_at > NOW() - INTERVAL '10 minutes'
+       WHERE instance_id = $1 AND collected_at > NOW() - INTERVAL '15 minutes'
        ORDER BY volume_mount_point, collected_at DESC`,
       [id],
     );
@@ -906,21 +906,25 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
       }));
     } catch { /* */ }
 
-    // Disk I/O MB/s
-    let ioRows: Array<{ bucket: string; disk_io_mb_per_sec: number }> = [];
+    // Disk I/O MB/s (read + write split)
+    let ioRows: Array<{ bucket: string; disk_io_mb_per_sec: number; disk_read_mb_per_sec: number; disk_write_mb_per_sec: number }> = [];
     try {
       const r = await pool.query(
         `SELECT date_trunc('minute', collected_at) -
                 (EXTRACT(minute FROM collected_at)::int % $${2 + tf.params.length}) * INTERVAL '1 minute' AS bucket,
-                SUM(num_of_bytes_read_delta + num_of_bytes_written_delta) / ${COLLECTION_INTERVAL_SECONDS}::numeric / 1048576.0 AS disk_io_mb_per_sec
+                SUM(num_of_bytes_read_delta + num_of_bytes_written_delta) / ${COLLECTION_INTERVAL_SECONDS}::numeric / 1048576.0 AS disk_io_mb_per_sec,
+                SUM(num_of_bytes_read_delta) / ${COLLECTION_INTERVAL_SECONDS}::numeric / 1048576.0 AS disk_read_mb_per_sec,
+                SUM(num_of_bytes_written_delta) / ${COLLECTION_INTERVAL_SECONDS}::numeric / 1048576.0 AS disk_write_mb_per_sec
          FROM file_io_stats
          WHERE instance_id = $1 AND ${tf.condition}
          GROUP BY bucket ORDER BY bucket ASC`,
         [id, ...tf.params, bucketMinutes],
       );
-      ioRows = r.rows.map((row: { bucket: string; disk_io_mb_per_sec: number }) => ({
+      ioRows = r.rows.map((row: { bucket: string; disk_io_mb_per_sec: number; disk_read_mb_per_sec: number; disk_write_mb_per_sec: number }) => ({
         bucket: row.bucket,
         disk_io_mb_per_sec: Number(row.disk_io_mb_per_sec),
+        disk_read_mb_per_sec: Number(row.disk_read_mb_per_sec),
+        disk_write_mb_per_sec: Number(row.disk_write_mb_per_sec),
       }));
     } catch { /* */ }
 
@@ -934,15 +938,20 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
     const cpuMap = new Map(cpuRows.map(r => [r.bucket, r.sql_cpu_pct]));
     const memMap = new Map(memRows.map(r => [r.bucket, r.committed_gb]));
     const waitsMap = new Map(waitsRows.map(r => [r.bucket, r.total_wait_ms_per_sec]));
-    const ioMap = new Map(ioRows.map(r => [r.bucket, r.disk_io_mb_per_sec]));
+    const ioMap = new Map(ioRows.map(r => [r.bucket, r]));
 
-    const merged = [...bucketSet].sort().map(bucket => ({
-      bucket,
-      cpu_pct: cpuMap.get(bucket) ?? null,
-      memory_gb: memMap.get(bucket) ?? null,
-      waits_ms_per_sec: waitsMap.get(bucket) ?? null,
-      disk_io_mb_per_sec: ioMap.get(bucket) ?? null,
-    }));
+    const merged = [...bucketSet].sort().map(bucket => {
+      const io = ioMap.get(bucket);
+      return {
+        bucket,
+        cpu_pct: cpuMap.get(bucket) ?? null,
+        memory_gb: memMap.get(bucket) ?? null,
+        waits_ms_per_sec: waitsMap.get(bucket) ?? null,
+        disk_io_mb_per_sec: io?.disk_io_mb_per_sec ?? null,
+        disk_read_mb_per_sec: io?.disk_read_mb_per_sec ?? null,
+        disk_write_mb_per_sec: io?.disk_write_mb_per_sec ?? null,
+      };
+    });
 
     return reply.send(merged);
   });
