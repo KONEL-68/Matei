@@ -321,6 +321,9 @@ export function InstanceDetail() {
         <SessionBreakdown data={sessionsData as Array<{ request_status: string | null; session_status: string; wait_type: string | null }>} />
       </div>
 
+      {/* Analysis section (Top Queries / Tracked Queries / Top Procedures) */}
+      <AnalysisSection instanceId={id!} range={range} timeWindow={timeWindow} />
+
       {/* 5. Active Sessions (full width) */}
       <div className="mt-4">
         <CollapsibleSection title="Active Sessions" badge={sessionsData.length} defaultOpen>
@@ -435,8 +438,6 @@ export function InstanceDetail() {
         </CollapsibleSection>
       </div>
 
-      {/* Analysis section */}
-      <AnalysisSection instanceId={id!} range={range} timeWindow={timeWindow} />
       </>}
     </div>
   );

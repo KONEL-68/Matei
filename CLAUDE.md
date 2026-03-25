@@ -107,7 +107,8 @@ docker compose -f docker/docker-compose.yml up --build       # all services on p
 - Exclude benign system waits (list in /sql/excluded_waits.json)
 - CPU from ring buffers: dm_os_ring_buffers WHERE ring_buffer_type = 'RING_BUFFER_SCHEDULER_MONITOR'
 - Active sessions: only is_user_process = 1 unless explicitly viewing system
-- NEVER call dm_exec_query_plan() in collector hot path — only on-demand in API
+- Query plans: estimated plans collected via dm_exec_query_plan in collector (top 10 by CPU, every 2nd cycle), actual plans via dm_exec_query_statistics_xml(session_id) for running queries. Both persisted to query_plans table, deduplicated by MD5 hash.
+- dm_exec_query_statistics_xml takes session_id (NOT plan_handle) — this is critical for actual plan collection
 - All timestamps in UTC
 - file_io_stats is also cumulative (delta computation same pattern as wait_stats)
 
@@ -125,6 +126,7 @@ Default cycle interval: 30s (COLLECTOR_INTERVAL_MS). Some metrics skip cycles:
 | query_stats | 60s (every 2nd cycle) | delta |
 | deadlocks | 60s (every 2nd cycle) | snapshot (event-based) |
 | os_disk | 5min (every 10th cycle) | snapshot |
+| query_plans | 60s (every 2nd cycle) | snapshot (estimated + actual) |
 | os_host_info | on connect | snapshot |
 
 ## Data retention

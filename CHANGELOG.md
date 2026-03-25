@@ -51,15 +51,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Overview range selector (1h/6h/24h/7d) + window quick-select (15m/30m/1h/3h/12h)
 - Overview Timeline: ReferenceArea for selected window indicator, actual values in tooltip
 - OverviewMetricCharts: per-metric detail charts below overview
-- Analysis section with 3 tabs: Top Queries (Avg/Totals/Impact toggle, search, expand), Top Waits (Zoom/Full Range), Top Procedures (live from dm_exec_procedure_stats)
 - Metric toggle checkboxes on overview timeline
+- Analysis section: RedGate Monitor-style tabs (Top Queries, Tracked Queries, Top Procedures) with sortable columns
+- Top Queries: Totals/Avg/Impact modes, search, row numbers, expandable detail panel with SQL statement, time-series charts (CPU/Duration/Reads + Executions/min), per-query wait types, memory grants, estimated/actual execution plans
+- Tracked Queries: persist queries for monitoring via bookmark icon, full CRUD with untrack support
+- Top Procedures: search filter, row limit selector, row numbers, Database column, Last Execution timestamp
+- Query detail panel: "View estimated plan" and "View actual plan" buttons with XML display
+- Query plan persistence: plans collected every 60s during collector cycle and cached in PostgreSQL (deduplicated by MD5 hash), available even after plan cache eviction
+- Actual execution plan collection via dm_exec_query_statistics_xml (requires TF 7412 or SQL Server 2019+)
+- Per-query wait types from dm_exec_session_wait_stats with wait descriptions
+- Memory grant tracking: last_grant_kb and last_used_grant_kb persisted from dm_exec_query_stats
+- Copy query text button in query detail panel
+- Migration 012: tracked_queries table
+- Migration 013: query_plans table for persisted execution plans
+- Migration 014: memory grant columns on query_stats_raw
 - 305+ tests (180 backend + 125 frontend)
 
 ### Changed
+- Analysis section: default query mode changed from Avg to Totals, moved above Active Sessions
+- Top Queries/Procedures columns renamed to match RedGate style (Execution count, Duration ms, CPU time ms, Logical reads/writes)
 - Reads/Writes: use dm_exec_requests instead of dm_exec_sessions
 - Elapsed time formatting: Xs / Xm Ys / Xh Ym / Xd Yh
 - appName = 'Matei Monitor' in mssql connection config
 - Table column widths: table-fixed with colgroup widths
+
+### Removed
+- Top Waits tab from Analysis section (redundant with Top Waits table in 4-column grid)
 
 ### Fixed
 - Dark mode text colors on all pages (Instances table, forms, badges, empty states)

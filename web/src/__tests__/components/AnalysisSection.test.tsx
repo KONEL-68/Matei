@@ -30,6 +30,8 @@ const mockQueries = [
     total_reads: 50000,
     total_writes: 5000,
     sample_count: 10,
+    last_grant_kb: 1024,
+    last_used_grant_kb: 512,
   },
   {
     query_hash: '0xDEF',
@@ -49,12 +51,9 @@ const mockQueries = [
     total_reads: 50000,
     total_writes: 12500,
     sample_count: 5,
+    last_grant_kb: null,
+    last_used_grant_kb: null,
   },
-];
-
-const mockWaits = [
-  { wait_type: 'CXPACKET', waiting_tasks_count: 5000, wait_time_ms: 120000, max_wait_time_ms: 500, signal_wait_time_ms: 1000, wait_ms_per_sec: 33.3 },
-  { wait_type: 'LCK_M_X', waiting_tasks_count: 100, wait_time_ms: 50000, max_wait_time_ms: 2000, signal_wait_time_ms: 200, wait_ms_per_sec: 13.9 },
 ];
 
 const mockProcedures = [
@@ -63,11 +62,14 @@ const mockProcedures = [
 
 function renderAnalysis() {
   mockAuthFetch.mockImplementation(async (url: string) => {
-    if (url.includes('/waits')) {
-      return { ok: true, json: async () => mockWaits } as Response;
+    if (url.includes('/tracked')) {
+      return { ok: true, json: async () => [] } as Response;
     }
     if (url.includes('/procedures')) {
       return { ok: true, json: async () => mockProcedures } as Response;
+    }
+    if (url.includes('/waits')) {
+      return { ok: true, json: async () => ({ session_waits: [], current_requests: [] }) } as Response;
     }
     if (url.includes('/api/queries/')) {
       return { ok: true, json: async () => mockQueries } as Response;
@@ -88,19 +90,18 @@ function renderAnalysis() {
 describe('AnalysisSection', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
-  it('renders all 4 tabs', async () => {
+  it('renders all 3 tabs', async () => {
     renderAnalysis();
     expect(await screen.findByText('Top Queries')).toBeInTheDocument();
     expect(screen.getByText('Tracked Queries')).toBeInTheDocument();
-    expect(screen.getByText('Top Waits')).toBeInTheDocument();
     expect(screen.getByText('Top Procedures')).toBeInTheDocument();
   });
 
-  it('defaults to Top Queries tab with toggle buttons', async () => {
+  it('defaults to Top Queries tab with Totals mode active', async () => {
     renderAnalysis();
     expect(await screen.findByTestId('top-queries-tab')).toBeInTheDocument();
-    expect(screen.getByText('Avg per execution')).toBeInTheDocument();
     expect(screen.getByText('Totals')).toBeInTheDocument();
+    expect(screen.getByText('Avg per execution')).toBeInTheDocument();
     expect(screen.getByText('Impact')).toBeInTheDocument();
   });
 
@@ -110,48 +111,27 @@ describe('AnalysisSection', () => {
     expect(screen.getByText(/UPDATE orders/)).toBeInTheDocument();
   });
 
-  it('Top Queries: toggle switches to Totals mode', async () => {
+  it('Top Queries: toggle switches to Avg mode and changes headers', async () => {
     renderAnalysis();
     await screen.findByText(/SELECT \* FROM users/);
-    fireEvent.click(screen.getByText('Totals'));
-    // Column headers should not say "Avg"
-    expect(screen.getByText('Duration')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Avg per execution'));
+    expect(screen.getByText('Avg Duration (ms)')).toBeInTheDocument();
+    expect(screen.getByText('Avg CPU time (ms)')).toBeInTheDocument();
   });
 
   it('Top Queries: impact mode shows impact dots', async () => {
     renderAnalysis();
     await screen.findByText(/SELECT \* FROM users/);
     fireEvent.click(screen.getByText('Impact'));
-    // Impact dots should be rendered (colored circles)
     const dots = document.querySelectorAll('.rounded-full');
     expect(dots.length).toBeGreaterThan(0);
-  });
-
-  it('switches to Top Waits tab', async () => {
-    renderAnalysis();
-    await screen.findByTestId('top-queries-tab');
-    fireEvent.click(screen.getByText('Top Waits'));
-    expect(await screen.findByTestId('top-waits-tab')).toBeInTheDocument();
-    expect(await screen.findByText('CXPACKET')).toBeInTheDocument();
-    expect(screen.getByText('LCK_M_X')).toBeInTheDocument();
-  });
-
-  it('Top Waits: toggle switches between Zoom and Full Range', async () => {
-    renderAnalysis();
-    fireEvent.click(screen.getByText('Top Waits'));
-    await screen.findByTestId('top-waits-tab');
-    expect(screen.getByText('Zoom Range')).toBeInTheDocument();
-    expect(screen.getByText('Full Range')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Full Range'));
-    // Should re-fetch (query key changes)
-    expect(mockAuthFetch).toHaveBeenCalled();
   });
 
   it('switches to Tracked Queries tab with empty state', async () => {
     renderAnalysis();
     fireEvent.click(screen.getByText('Tracked Queries'));
     expect(await screen.findByTestId('tracked-queries-tab')).toBeInTheDocument();
-    expect(screen.getByText(/No tracked queries yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No tracked queries yet/)).toBeInTheDocument();
   });
 
   it('switches to Top Procedures tab and shows data', async () => {
@@ -159,5 +139,40 @@ describe('AnalysisSection', () => {
     fireEvent.click(screen.getByText('Top Procedures'));
     expect(await screen.findByTestId('top-procedures-tab')).toBeInTheDocument();
     expect(await screen.findByText('dbo.GetUser')).toBeInTheDocument();
+  });
+
+  it('Top Procedures: shows error state on fetch failure', async () => {
+    mockAuthFetch.mockImplementation(async (url: string) => {
+      if (url.includes('/tracked')) {
+        return { ok: true, json: async () => [] } as Response;
+      }
+      if (url.includes('/procedures')) {
+        throw new Error('Connection failed');
+      }
+      if (url.includes('/api/queries/')) {
+        return { ok: true, json: async () => mockQueries } as Response;
+      }
+      return { ok: true, json: async () => [] } as Response;
+    });
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <AnalysisSection instanceId="1" range="1h" timeWindow={null} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByText('Top Procedures'));
+    expect(await screen.findByText(/Failed to load procedures/)).toBeInTheDocument();
+  });
+
+  it('Top Queries: default column headers show Totals labels', async () => {
+    renderAnalysis();
+    await screen.findByText(/SELECT \* FROM users/);
+    expect(screen.getByText('Duration (ms)')).toBeInTheDocument();
+    expect(screen.getByText('CPU time (ms)')).toBeInTheDocument();
+    expect(screen.getByText('Logical reads')).toBeInTheDocument();
   });
 });

@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import sql from 'mssql';
 import type pg from 'pg';
 import { buildConnectionConfig, type InstanceRecord } from '../lib/mssql.js';
@@ -36,6 +37,105 @@ export interface InstanceResult {
   osHostInfo: OsHostInfoRow[];
   deadlocks: DeadlockRow[];
   perfCounters: PerfCounterResult[] | null;
+}
+
+// Track which instances support dm_exec_query_statistics_xml (avoid repeated errors)
+const actualPlanSupported = new Map<number, boolean>();
+
+/**
+ * Collect estimated + actual query plans during collection cycle and persist to PostgreSQL.
+ * Runs after main collectors, uses the same open SQL connection.
+ * Non-fatal — failures are logged but don't affect the main collection.
+ */
+async function collectAndPersistPlans(
+  sqlPool: sql.ConnectionPool,
+  pgPool: pg.Pool,
+  instanceId: number,
+  queryStats: QueryStatsDelta[],
+  log: CollectorLog,
+): Promise<void> {
+  // Get top 10 query hashes by CPU to collect plans for (limit scope)
+  const topHashes = [...queryStats]
+    .sort((a, b) => b.cpu_ms_per_sec - a.cpu_ms_per_sec)
+    .slice(0, 10)
+    .map(q => q.query_hash);
+
+  if (topHashes.length === 0) return;
+
+  const hashList = topHashes.map(h => `'${h.replace(/'/g, "''")}'`).join(',');
+
+  // 1. Estimated plans (from plan cache — always available)
+  try {
+    const result = await sqlPool.request().query(`
+      ;WITH ranked AS (
+        SELECT
+          CONVERT(VARCHAR(100), qs.query_hash, 1) AS query_hash,
+          qp.query_plan,
+          ROW_NUMBER() OVER (PARTITION BY qs.query_hash ORDER BY qs.last_execution_time DESC) AS rn
+        FROM sys.dm_exec_query_stats qs
+        CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) qp
+        WHERE CONVERT(VARCHAR(100), qs.query_hash, 1) IN (${hashList})
+          AND qp.query_plan IS NOT NULL
+      )
+      SELECT query_hash, query_plan FROM ranked WHERE rn = 1
+    `);
+
+    for (const row of result.recordset) {
+      if (!row.query_plan) continue;
+      const planHash = crypto.createHash('md5').update(row.query_plan).digest('hex');
+      await pgPool.query(
+        `INSERT INTO query_plans (instance_id, query_hash, plan_hash, plan_type, plan_xml)
+         VALUES ($1, $2, $3, 'estimated', $4)
+         ON CONFLICT (instance_id, query_hash, plan_hash, plan_type) DO UPDATE SET collected_at = NOW()`,
+        [instanceId, row.query_hash, planHash, row.query_plan],
+      );
+    }
+    log.info(`[instance=${instanceId}] Collected ${result.recordset.length} estimated plans`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.warn(`[instance=${instanceId}] Estimated plan collection failed: ${msg}`);
+  }
+
+  // 2. Actual plans — scan ALL currently executing requests for any query with a live actual plan
+  //    dm_exec_query_statistics_xml only works for currently running queries (TF 7412 / SQL 2019+)
+  if (actualPlanSupported.get(instanceId) === false) return;
+
+  try {
+    const result = await sqlPool.request().query(`
+      SELECT
+        CONVERT(VARCHAR(100), r.query_hash, 1) AS query_hash,
+        CAST(qsx.query_plan AS NVARCHAR(MAX)) AS query_plan
+      FROM sys.dm_exec_requests r
+      CROSS APPLY sys.dm_exec_query_statistics_xml(r.session_id) qsx
+      WHERE r.session_id <> @@SPID
+        AND r.query_hash <> 0x0000000000000000
+        AND qsx.query_plan IS NOT NULL
+    `);
+
+    actualPlanSupported.set(instanceId, true);
+
+    if (result.recordset.length > 0) {
+      for (const row of result.recordset) {
+        if (!row.query_plan) continue;
+        const planHash = crypto.createHash('md5').update(row.query_plan).digest('hex');
+        await pgPool.query(
+          `INSERT INTO query_plans (instance_id, query_hash, plan_hash, plan_type, plan_xml)
+           VALUES ($1, $2, $3, 'actual', $4)
+           ON CONFLICT (instance_id, query_hash, plan_hash, plan_type) DO UPDATE SET collected_at = NOW()`,
+          [instanceId, row.query_hash, planHash, row.query_plan],
+        );
+      }
+      log.info(`[instance=${instanceId}] Captured ${result.recordset.length} actual plans from running queries`);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('query_statistics_xml') || msg.includes('Invalid object')) {
+      actualPlanSupported.set(instanceId, false);
+      log.info(`[instance=${instanceId}] Actual plans not supported (dm_exec_query_statistics_xml unavailable)`);
+    } else {
+      log.warn(`[instance=${instanceId}] Actual plan collection failed: ${msg}`);
+    }
+  }
 }
 
 // Track cycle count for os_disk (runs every 10th cycle)
@@ -86,6 +186,7 @@ async function collectFromInstance(
   isDiskCycle: boolean,
   isQueryStatsCycle: boolean,
   log: CollectorLog,
+  pgPool: pg.Pool,
 ): Promise<InstanceResult> {
   const empty: InstanceResult = {
     instanceId: instance.id,
@@ -151,6 +252,16 @@ async function collectFromInstance(
 
     log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} deadlocks=${deadlocks.length} perf=${perfCounters?.length ?? 'first-run'}${needsHostInfo ? ` hostinfo=${osHostInfo.length}` : ''}`);
 
+    // Collect query plans (estimated + actual) on query stats cycles — non-blocking
+    if (isQueryStatsCycle && queryStats && queryStats.length > 0 && pgPool) {
+      try {
+        await collectAndPersistPlans(pool, pgPool, instance.id, queryStats, log);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.warn(`[instance=${instance.id}] Plan collection failed (non-fatal): ${msg}`);
+      }
+    }
+
     return {
       instanceId: instance.id,
       success: true,
@@ -199,7 +310,7 @@ export async function collectAll(
   const results = await runWithConcurrency(
     instances,
     concurrency,
-    (inst) => collectFromInstance(inst, encryptionKey, isDiskCycle, isQueryStatsCycle, log),
+    (inst) => collectFromInstance(inst, encryptionKey, isDiskCycle, isQueryStatsCycle, log, pgPool),
   );
 
   // Update statuses FIRST — even if batch inserts fail, we want status to reflect reality
@@ -513,14 +624,14 @@ async function batchInsertQueryStats(pgPool: pg.Pool, results: InstanceResult[])
     if (!r.queryStats) continue;
     for (const row of r.queryStats) {
       placeholders.push(
-        `($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`,
+        `($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`,
       );
       values.push(
         r.instanceId, row.query_hash, row.statement_text, row.database_name,
         row.execution_count_delta, row.cpu_ms_per_sec, row.elapsed_ms_per_sec,
         row.reads_per_sec, row.writes_per_sec, row.rows_per_sec,
         row.avg_cpu_ms, row.avg_elapsed_ms, row.avg_reads, row.avg_writes,
-        new Date(),
+        new Date(), row.last_grant_kb, row.last_used_grant_kb,
       );
     }
   }
@@ -532,7 +643,8 @@ async function batchInsertQueryStats(pgPool: pg.Pool, results: InstanceResult[])
       instance_id, query_hash, statement_text, database_name,
       execution_count_delta, cpu_ms_per_sec, elapsed_ms_per_sec,
       reads_per_sec, writes_per_sec, rows_per_sec,
-      avg_cpu_ms, avg_elapsed_ms, avg_reads, avg_writes, collected_at
+      avg_cpu_ms, avg_elapsed_ms, avg_reads, avg_writes, collected_at,
+      last_grant_kb, last_used_grant_kb
     ) VALUES ${placeholders.join(', ')}`,
     values,
   );

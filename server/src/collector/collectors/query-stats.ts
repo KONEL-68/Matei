@@ -15,6 +15,8 @@ export interface QueryStatsSnapshot {
   last_execution_time: Date;
   database_name: string | null;
   statement_text: string | null;
+  last_grant_kb: number | null;
+  last_used_grant_kb: number | null;
   collected_at_utc: Date;
 }
 
@@ -32,6 +34,8 @@ export interface QueryStatsDelta {
   avg_elapsed_ms: number;
   avg_reads: number;
   avg_writes: number;
+  last_grant_kb: number | null;
+  last_used_grant_kb: number | null;
 }
 
 interface PreviousState {
@@ -67,6 +71,8 @@ SELECT TOP 50
             ELSE qs.statement_end_offset
         END - qs.statement_start_offset) / 2 + 1
     ) AS statement_text,
+    qs.last_grant_kb,
+    qs.last_used_grant_kb,
     GETUTCDATE() AS collected_at_utc
 FROM sys.dm_exec_query_stats qs
 CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
@@ -119,6 +125,8 @@ export function computeQueryStatsDelta(
       avg_elapsed_ms: elapsedMsDelta / execDelta,
       avg_reads: readsDelta / execDelta,
       avg_writes: writesDelta / execDelta,
+      last_grant_kb: curr.last_grant_kb,
+      last_used_grant_kb: curr.last_used_grant_kb,
     });
   }
 

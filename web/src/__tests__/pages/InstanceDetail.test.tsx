@@ -174,7 +174,7 @@ describe('InstanceDetail', () => {
 
   it('renders collapsible sections in correct order on History tab', async () => {
     renderDetail();
-    expect(await screen.findByText('Wait Stats History')).toBeInTheDocument();
+    expect(await screen.findByTestId('analysis-section')).toBeInTheDocument();
     expect(screen.getByText('Active Sessions')).toBeInTheDocument();
     expect(screen.getByText('Deadlocks')).toBeInTheDocument();
     expect(screen.getByText('File I/O')).toBeInTheDocument();

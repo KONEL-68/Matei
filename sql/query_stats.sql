@@ -30,6 +30,8 @@ SELECT TOP 50
             ELSE qs.statement_end_offset
         END - qs.statement_start_offset) / 2 + 1
     )                               AS statement_text,
+    qs.last_grant_kb,
+    qs.last_used_grant_kb,
     GETUTCDATE()                    AS collected_at_utc
 FROM sys.dm_exec_query_stats qs
 CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st

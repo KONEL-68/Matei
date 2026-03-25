@@ -21,6 +21,8 @@ function makeSnapshot(overrides: Partial<QueryStatsSnapshot> & { query_hash: str
     last_execution_time: new Date('2026-03-20T10:00:00Z'),
     database_name: 'testdb',
     statement_text: 'SELECT 1',
+    last_grant_kb: null,
+    last_used_grant_kb: null,
     collected_at_utc: new Date('2026-03-20T10:00:00Z'),
     ...overrides,
   };
