@@ -25,6 +25,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```
 /server              — Fastify API + collector scheduler + background jobs
   /src/index.ts        — Entry point: Fastify setup, route registration, scheduler start
+  /src/config.ts       — AppConfig definition and environment variable loading
   /src/collector/      — scheduler.ts → worker-pool.ts → collectors/*.ts
   /src/routes/         — auth.ts, instances.ts, metrics.ts, alerts.ts, queries.ts, groups.ts, deadlocks.ts, settings.ts, users.ts
   /src/alerts/         — engine.ts (threshold eval), webhook.ts (Slack/Telegram)
@@ -36,8 +37,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   /src/components/     — StatusBar, CpuChart, MemoryChart, MemoryBreakdown, SessionBreakdown, SessionsTable, CurrentActivity, WaitsTable, TopWaitsTable, WaitsChart, DeadlocksTable, BlockingTree, FileIoChart, DiskChart, CollapsibleSection, InstanceForm, InstanceCard, AnalysisSection, OverviewTimeline, OverviewMetricCharts, Layout
   /src/components/settings/ — GroupsSettings, AlertsSettings, RetentionSettings, UsersSettings, AboutSettings
 /docker              — Docker Compose stack + nginx config
-/sql                 — DMV query library (one .sql file per metric category)
-/docs                — architecture decisions, metric specs
+/sql                 — DMV query library (one .sql file per metric category), includes scheduler_stats.sql, procedure_stats.sql
+/docs                — DECISIONS.md (architecture decisions), METRICS.md (metric specs)
 ```
 
 ## Build & development commands
@@ -107,7 +108,7 @@ docker compose -f docker/docker-compose.yml up --build       # all services on p
 - Exclude benign system waits (list in /sql/excluded_waits.json)
 - CPU from ring buffers: dm_os_ring_buffers WHERE ring_buffer_type = 'RING_BUFFER_SCHEDULER_MONITOR'
 - Active sessions: only is_user_process = 1 unless explicitly viewing system
-- Query plans: estimated plans collected via dm_exec_query_plan in collector (top 10 by CPU, every 2nd cycle), actual plans via dm_exec_query_statistics_xml(session_id) for running queries. Both persisted to query_plans table, deduplicated by MD5 hash.
+- Query plans: estimated plans collected via dm_exec_query_plan in collector (top 10 by CPU, every 2nd cycle), actual plans via dm_exec_query_statistics_xml(session_id) for running queries. Both persisted to query_plans table, deduplicated by MD5 hash. Collection logic is inline in worker-pool.ts (not a separate collector file).
 - dm_exec_query_statistics_xml takes session_id (NOT plan_handle) — this is critical for actual plan collection
 - All timestamps in UTC
 - file_io_stats is also cumulative (delta computation same pattern as wait_stats)
@@ -116,13 +117,13 @@ docker compose -f docker/docker-compose.yml up --build       # all services on p
 Default cycle interval: 30s (COLLECTOR_INTERVAL_MS). Some metrics skip cycles:
 | Metric | Frequency | Type |
 |--------|-----------|------|
-| active_sessions | 15s | snapshot |
+| active_sessions | 30s (every cycle) | snapshot |
 | wait_stats | 30s (every cycle) | delta |
 | os_cpu | 30s (every cycle) | snapshot |
 | os_memory | 30s (every cycle) | snapshot |
 | file_io_stats | 30s (every cycle) | delta |
 | perf_counters | 30s (every cycle) | delta (rate) + snapshot (instantaneous), includes dm_os_schedulers Pending Tasks (via scheduler_stats.sql) |
-| instance_health | 60s (every 2nd cycle) | snapshot |
+| instance_health | 30s (every cycle) | snapshot |
 | query_stats | 60s (every 2nd cycle) | delta |
 | deadlocks | 60s (every 2nd cycle) | snapshot (event-based) |
 | os_disk | 5min (every 10th cycle) | snapshot |
@@ -154,8 +155,9 @@ Default cycle interval: 30s (COLLECTOR_INTERVAL_MS). Some metrics skip cycles:
 ## Alert thresholds (server/src/alerts/engine.ts)
 | Metric | Warning | Critical |
 |--------|---------|----------|
-| CPU | ≥75% (3 cycles) | ≥90% (3 cycles) |
-| Memory | — | <512 MB available |
+| CPU | >75% (3 cycles) | >90% (3 cycles) |
+| Memory (available) | — | <512 MB available |
+| Memory (SQL low) | sql_memory_low_notification active | — |
 | Disk | >90% used | >95% used |
 | File I/O latency | >20ms | >50ms |
 | Blocking | >60s | >300s |
@@ -195,5 +197,3 @@ Default cycle interval: 30s (COLLECTOR_INTERVAL_MS). Some metrics skip cycles:
 2. **os_cpu ring_buffer deprecation** — `dm_os_ring_buffers` is deprecated in SQL Server 2025.
    Plan migration to `dm_os_ring_buffer_entries` when adding SQL 2025 support.
 
-3. **Overview Timeline drag-selection** — needs RedGate-style draggable range selector with edge handles and move-window (MATEI-29 area, in progress session 23).
-4. **Session Breakdown intermittent empty state** — sometimes shows no data even when active sessions exist (MATEI-29).
