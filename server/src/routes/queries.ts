@@ -188,6 +188,76 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
     }
   });
 
+  // GET /api/queries/:instanceId/procedure-stats — aggregated procedure stats from PostgreSQL
+  app.get<{ Params: IdParam; Querystring: QueryListQuery }>('/api/queries/:id/procedure-stats', async (req, reply) => {
+    const { id } = req.params;
+    const limit = Math.min(parseInt(req.query.limit ?? '50', 10) || 50, 200);
+
+    let timeCondition: string;
+    const params: (string | number)[] = [id];
+
+    if (req.query.from && req.query.to) {
+      timeCondition = `collected_at >= $2 AND collected_at <= $3`;
+      params.push(req.query.from, req.query.to);
+    } else {
+      const interval = rangeToInterval(req.query.range);
+      timeCondition = `collected_at > NOW() - $2::interval`;
+      params.push(interval);
+    }
+
+    const limitIdx = params.length + 1;
+    params.push(limit);
+
+    const orderBy = sortColumn(req.query.sort);
+
+    const result = await pool.query(
+      `SELECT
+         database_name,
+         procedure_name,
+         SUM(execution_count_delta) AS execution_count,
+         AVG(cpu_ms_per_sec) AS cpu_ms_per_sec,
+         AVG(elapsed_ms_per_sec) AS elapsed_ms_per_sec,
+         AVG(reads_per_sec) AS reads_per_sec,
+         AVG(writes_per_sec) AS writes_per_sec,
+         AVG(avg_cpu_ms) AS avg_cpu_ms,
+         AVG(avg_elapsed_ms) AS avg_elapsed_ms,
+         AVG(avg_reads) AS avg_reads,
+         AVG(avg_writes) AS avg_writes,
+         SUM(execution_count_delta * COALESCE(avg_cpu_ms, 0)) AS total_cpu_ms,
+         SUM(execution_count_delta * COALESCE(avg_elapsed_ms, 0)) AS total_elapsed_ms,
+         SUM(execution_count_delta * COALESCE(avg_reads, 0)) AS total_reads,
+         SUM(execution_count_delta * COALESCE(avg_writes, 0)) AS total_writes,
+         COUNT(*) AS sample_count
+       FROM procedure_stats_raw
+       WHERE instance_id = $1 AND ${timeCondition}
+       GROUP BY database_name, procedure_name
+       ORDER BY ${orderBy} DESC
+       LIMIT $${limitIdx}`,
+      params,
+    );
+
+    const rows = result.rows.map((row) => ({
+      database_name: row.database_name,
+      procedure_name: row.procedure_name,
+      execution_count: Number(row.execution_count),
+      cpu_ms_per_sec: Number(row.cpu_ms_per_sec),
+      elapsed_ms_per_sec: Number(row.elapsed_ms_per_sec),
+      reads_per_sec: Number(row.reads_per_sec),
+      writes_per_sec: Number(row.writes_per_sec),
+      avg_cpu_ms: Number(row.avg_cpu_ms),
+      avg_elapsed_ms: Number(row.avg_elapsed_ms),
+      avg_reads: Number(row.avg_reads),
+      avg_writes: Number(row.avg_writes),
+      total_cpu_ms: Number(row.total_cpu_ms),
+      total_elapsed_ms: Number(row.total_elapsed_ms),
+      total_reads: Number(row.total_reads),
+      total_writes: Number(row.total_writes),
+      sample_count: Number(row.sample_count),
+    }));
+
+    return reply.send(rows);
+  });
+
   // GET /api/queries/:instanceId/procedure-statements?db=MyDb&proc=dbo.MyProc
   // Live query to get top statements within a specific stored procedure
   app.get<{ Params: IdParam; Querystring: { db?: string; proc?: string } }>('/api/queries/:id/procedure-statements', async (req, reply) => {

@@ -54,7 +54,7 @@ interface ProcedureRow {
   avg_cpu_ms: number;
   avg_elapsed_ms: number;
   avg_reads: number;
-  last_execution_time: string;
+  sample_count: number;
 }
 
 interface ProcedureStatement {
@@ -827,22 +827,25 @@ function ProcedureDetailPanel({ instanceId, procedure }: { instanceId: string; p
 }
 
 // --- Top Procedures Tab ---
-function TopProceduresTab({ instanceId }: { instanceId: string }) {
+function TopProceduresTab({ instanceId, range, timeWindow }: { instanceId: string; range: string; timeWindow: TimeWindow | null }) {
   const [search, setSearch] = useState('');
   const [limit, setLimit] = useState(25);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const { sortCol, sortDir, toggle, compare } = useSort<ProcedureRow>('total_cpu_ms');
 
+  const params = timeWindow
+    ? `from=${encodeURIComponent(timeWindow.from)}&to=${encodeURIComponent(timeWindow.to)}&limit=${limit}`
+    : `range=${range}&limit=${limit}`;
+
   const { data: procs = [], isLoading, error } = useQuery<ProcedureRow[]>({
-    queryKey: ['analysis-procedures', instanceId, limit],
+    queryKey: ['analysis-procedures', instanceId, range, timeWindow?.from, timeWindow?.to, limit],
     queryFn: async () => {
-      const res = await authFetch(`/api/queries/${instanceId}/procedures?limit=${limit}`);
+      const res = await authFetch(`/api/queries/${instanceId}/procedure-stats?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (!Array.isArray(data)) return [];
       return data;
     },
-    refetchInterval: 60_000,
   });
 
   const filtered = useMemo(() => {
@@ -884,7 +887,7 @@ function TopProceduresTab({ instanceId }: { instanceId: string }) {
                 <SortTh column="avg_reads" current={sortCol} dir={sortDir} onSort={toggle} className="text-right">Avg Reads</SortTh>
                 <SortTh column="total_cpu_ms" current={sortCol} dir={sortDir} onSort={toggle} className="text-right">Total CPU (ms)</SortTh>
                 <SortTh column="total_elapsed_ms" current={sortCol} dir={sortDir} onSort={toggle} className="text-right">Total Duration (ms)</SortTh>
-                <SortTh column="last_execution_time" current={sortCol} dir={sortDir} onSort={toggle} className="text-right">Last Execution</SortTh>
+                <SortTh column="sample_count" current={sortCol} dir={sortDir} onSort={toggle} className="text-right">Samples</SortTh>
               </tr>
             </thead>
             <tbody>
@@ -909,7 +912,7 @@ function TopProceduresTab({ instanceId }: { instanceId: string }) {
                       <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{formatNum(p.total_cpu_ms, 0)}</td>
                       <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{formatNum(p.total_elapsed_ms, 0)}</td>
                       <td className="py-1.5 text-right text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                        {p.last_execution_time ? new Date(p.last_execution_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
+                        {p.sample_count != null ? formatNum(p.sample_count, 0) : '-'}
                       </td>
                     </tr>
                     {isExpanded && (
@@ -960,7 +963,7 @@ export function AnalysisSection({ instanceId, range, timeWindow }: AnalysisSecti
         <div className="rounded-b-lg border border-t-0 border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
           {tab === 'top-queries' && <TopQueriesTab instanceId={instanceId} range={range} timeWindow={timeWindow} onTrack={trackQuery} />}
           {tab === 'tracked-queries' && <TrackedQueriesTab instanceId={instanceId} range={range} timeWindow={timeWindow} />}
-          {tab === 'top-procedures' && <TopProceduresTab instanceId={instanceId} />}
+          {tab === 'top-procedures' && <TopProceduresTab instanceId={instanceId} range={range} timeWindow={timeWindow} />}
         </div>
       </div>
     </CollapsibleSection>

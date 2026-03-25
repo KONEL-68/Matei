@@ -57,7 +57,7 @@ const mockQueries = [
 ];
 
 const mockProcedures = [
-  { database_name: 'MyDB', procedure_name: 'dbo.GetUser', execution_count: 10000, total_cpu_ms: 5000, total_elapsed_ms: 12000, total_reads: 500000, total_writes: 1000, avg_cpu_ms: 0.5, avg_elapsed_ms: 1.2, avg_reads: 50, last_execution_time: '2026-03-22T10:00:00Z' },
+  { database_name: 'MyDB', procedure_name: 'dbo.GetUser', execution_count: 10000, total_cpu_ms: 5000, total_elapsed_ms: 12000, total_reads: 500000, total_writes: 1000, avg_cpu_ms: 0.5, avg_elapsed_ms: 1.2, avg_reads: 50, sample_count: 12 },
 ];
 
 function renderAnalysis() {
@@ -65,7 +65,7 @@ function renderAnalysis() {
     if (url.includes('/tracked')) {
       return { ok: true, json: async () => [] } as Response;
     }
-    if (url.includes('/procedures')) {
+    if (url.includes('/procedure-stats')) {
       return { ok: true, json: async () => mockProcedures } as Response;
     }
     if (url.includes('/waits')) {
@@ -146,7 +146,7 @@ describe('AnalysisSection', () => {
       if (url.includes('/tracked')) {
         return { ok: true, json: async () => [] } as Response;
       }
-      if (url.includes('/procedures')) {
+      if (url.includes('/procedure-stats')) {
         throw new Error('Connection failed');
       }
       if (url.includes('/api/queries/')) {

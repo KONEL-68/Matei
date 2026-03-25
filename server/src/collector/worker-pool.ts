@@ -10,6 +10,7 @@ import { collectOsMemory, type OsMemoryRow } from './collectors/os-memory.js';
 import { collectOsDisk, type OsDiskRow } from './collectors/os-disk.js';
 import { collectFileIoStats, type FileIoDelta } from './collectors/file-io-stats.js';
 import { collectQueryStats, type QueryStatsDelta } from './collectors/query-stats.js';
+import { collectProcedureStats, type ProcedureStatsDelta } from './collectors/procedure-stats.js';
 import { collectOsHostInfo, type OsHostInfoRow } from './collectors/os-host-info.js';
 import { collectDeadlocks, type DeadlockRow } from './collectors/deadlocks.js';
 import { collectPerfCounters, type PerfCounterResult } from './collectors/perf-counters.js';
@@ -35,6 +36,7 @@ export interface InstanceResult {
   osDisk: OsDiskRow[];
   fileIoStats: FileIoDelta[] | null;
   queryStats: QueryStatsDelta[] | null;
+  procedureStats: ProcedureStatsDelta[] | null;
   osHostInfo: OsHostInfoRow[];
   serverConfig: ServerConfigRow[];
   deadlocks: DeadlockRow[];
@@ -201,6 +203,7 @@ async function collectFromInstance(
     osDisk: [],
     fileIoStats: null,
     queryStats: null,
+    procedureStats: null,
     osHostInfo: [],
     serverConfig: [],
     deadlocks: [],
@@ -231,6 +234,7 @@ async function collectFromInstance(
       Promise<FileIoDelta[] | null>,
       Promise<OsDiskRow[]>,
       Promise<QueryStatsDelta[] | null>,
+      Promise<ProcedureStatsDelta[] | null>,
       Promise<OsHostInfoRow[]>,
       Promise<ServerConfigRow[]>,
       Promise<DeadlockRow[]>,
@@ -243,19 +247,20 @@ async function collectFromInstance(
       collectFileIoStats(pool.request(), instance.id, startTime),
       isDiskCycle ? collectOsDisk(pool.request()) : Promise.resolve([]),
       isQueryStatsCycle ? collectQueryStats(pool.request(), instance.id, startTime) : Promise.resolve(null),
+      isQueryStatsCycle ? collectProcedureStats(pool.request(), instance.id, startTime) : Promise.resolve(null),
       needsHostInfo ? collectOsHostInfo(pool.request()) : Promise.resolve([]),
       needsHostInfo ? collectServerConfig(pool.request()) : Promise.resolve([]),
       isQueryStatsCycle ? collectDeadlocks(pool.request(), instance.id) : Promise.resolve([]),
       collectPerfCounters(pool.request(), instance.id, startTime),
     ];
 
-    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, osHostInfo, serverConfig, deadlocks, perfCounters] = await Promise.all(collectorsPromise);
+    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, procedureStats, osHostInfo, serverConfig, deadlocks, perfCounters] = await Promise.all(collectorsPromise);
 
     if (needsHostInfo && osHostInfo.length > 0) {
       hostInfoCollected.add(instance.id);
     }
 
-    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} deadlocks=${deadlocks.length} perf=${perfCounters?.length ?? 'first-run'}${needsHostInfo ? ` hostinfo=${osHostInfo.length} serverconfig=${serverConfig.length}` : ''}`);
+    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} procs=${procedureStats?.length ?? 'skip'} deadlocks=${deadlocks.length} perf=${perfCounters?.length ?? 'first-run'}${needsHostInfo ? ` hostinfo=${osHostInfo.length} serverconfig=${serverConfig.length}` : ''}`);
 
     // Collect query plans (estimated + actual) on query stats cycles — non-blocking
     if (isQueryStatsCycle && queryStats && queryStats.length > 0 && pgPool) {
@@ -278,6 +283,7 @@ async function collectFromInstance(
       osDisk,
       fileIoStats,
       queryStats,
+      procedureStats,
       osHostInfo,
       serverConfig,
       deadlocks,
@@ -332,6 +338,7 @@ export async function collectAll(
     ['os_disk', () => batchInsertOsDisk(pgPool, results)],
     ['file_io_stats', () => batchInsertFileIoStats(pgPool, results)],
     ['query_stats', () => batchInsertQueryStats(pgPool, results)],
+    ['procedure_stats', () => batchInsertProcedureStats(pgPool, results)],
     ['os_host_info', () => batchInsertOsHostInfo(pgPool, results)],
     ['server_config', () => batchInsertServerConfig(pgPool, results)],
     ['deadlocks', () => batchInsertDeadlocks(pgPool, results)],
@@ -652,6 +659,40 @@ async function batchInsertQueryStats(pgPool: pg.Pool, results: InstanceResult[])
       reads_per_sec, writes_per_sec, rows_per_sec,
       avg_cpu_ms, avg_elapsed_ms, avg_reads, avg_writes, collected_at,
       last_grant_kb, last_used_grant_kb
+    ) VALUES ${placeholders.join(', ')}`,
+    values,
+  );
+}
+
+async function batchInsertProcedureStats(pgPool: pg.Pool, results: InstanceResult[]): Promise<void> {
+  const values: unknown[] = [];
+  const placeholders: string[] = [];
+  let idx = 1;
+
+  for (const r of results) {
+    if (!r.procedureStats) continue;
+    for (const row of r.procedureStats) {
+      placeholders.push(
+        `($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`,
+      );
+      values.push(
+        r.instanceId, row.database_name, row.procedure_name,
+        row.execution_count_delta, row.cpu_ms_per_sec, row.elapsed_ms_per_sec,
+        row.reads_per_sec, row.writes_per_sec,
+        row.avg_cpu_ms, row.avg_elapsed_ms, row.avg_reads, row.avg_writes,
+        new Date(),
+      );
+    }
+  }
+
+  if (placeholders.length === 0) return;
+
+  await pgPool.query(
+    `INSERT INTO procedure_stats_raw (
+      instance_id, database_name, procedure_name,
+      execution_count_delta, cpu_ms_per_sec, elapsed_ms_per_sec,
+      reads_per_sec, writes_per_sec,
+      avg_cpu_ms, avg_elapsed_ms, avg_reads, avg_writes, collected_at
     ) VALUES ${placeholders.join(', ')}`,
     values,
   );
