@@ -153,8 +153,17 @@ function useSort<T>(defaultCol: string, defaultDir: SortDir = 'desc') {
   const compare = useCallback((a: T, b: T) => {
     const av = (a as Record<string, unknown>)[sortCol];
     const bv = (b as Record<string, unknown>)[sortCol];
-    const an = typeof av === 'number' ? av : typeof av === 'string' ? av.toLowerCase() : 0;
-    const bn = typeof bv === 'number' ? bv : typeof bv === 'string' ? bv.toLowerCase() : 0;
+    // Parse numeric strings (SQL Server bigint comes as string via tedious)
+    const toNum = (v: unknown): number | string => {
+      if (typeof v === 'number') return v;
+      if (typeof v === 'string') {
+        const n = Number(v);
+        return isNaN(n) ? v.toLowerCase() : n;
+      }
+      return 0;
+    };
+    const an = toNum(av);
+    const bn = toNum(bv);
     if (an < bn) return sortDir === 'asc' ? -1 : 1;
     if (an > bn) return sortDir === 'asc' ? 1 : -1;
     return 0;
