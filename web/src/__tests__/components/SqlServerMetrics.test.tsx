@@ -82,18 +82,18 @@ describe('SqlServerMetrics', () => {
     expect(screen.getByTestId('sql-server-metrics')).toBeInTheDocument();
   });
 
-  it('renders all 5 collapsible section titles', () => {
+  it('renders single collapsible section with subsection headers', () => {
     renderComponent();
-    expect(screen.getByText('SQL Server Metrics: General')).toBeInTheDocument();
-    expect(screen.getByText('SQL Server Metrics: Latches and Locks')).toBeInTheDocument();
-    expect(screen.getByText('SQL Server Metrics: Buffer Cache')).toBeInTheDocument();
-    expect(screen.getByText('SQL Server Metrics: Server Properties')).toBeInTheDocument();
-    expect(screen.getByText('SQL Server Metrics: Server Configuration Options')).toBeInTheDocument();
+    expect(screen.getByText('SQL Server Metrics')).toBeInTheDocument();
+    expect(screen.getByText('General')).toBeInTheDocument();
+    expect(screen.getByText('Latches and Locks')).toBeInTheDocument();
+    expect(screen.getByText('Buffer Cache')).toBeInTheDocument();
+    expect(screen.getByText('Server Properties')).toBeInTheDocument();
+    expect(screen.getByText('Server Configuration Options')).toBeInTheDocument();
   });
 
-  it('General section is open by default and shows chart titles', async () => {
+  it('shows chart titles since section is open by default', async () => {
     renderComponent();
-    // General is defaultOpen, so chart titles should be visible
     expect(await screen.findByText('Batch Requests/sec')).toBeInTheDocument();
     expect(screen.getByText('SQL Compilations/sec')).toBeInTheDocument();
     expect(screen.getByText('User Connections')).toBeInTheDocument();
@@ -101,18 +101,12 @@ describe('SqlServerMetrics', () => {
 
   it('Server Properties shows version and edition from health prop', async () => {
     renderComponent();
-    // Click to open Server Properties section
-    const btn = screen.getByText('SQL Server Metrics: Server Properties');
-    btn.click();
     expect(await screen.findByText('Microsoft SQL Server 2022')).toBeInTheDocument();
     expect(screen.getByText('Enterprise Edition')).toBeInTheDocument();
   });
 
   it('Server Configuration Options shows config values after loading', async () => {
     renderComponent();
-    // Click to open Server Configuration Options section
-    const btn = screen.getByText('SQL Server Metrics: Server Configuration Options');
-    btn.click();
     expect(await screen.findByText('SQL_Latin1_General_CP1_CI_AS')).toBeInTheDocument();
     expect(screen.getByText('16,384')).toBeInTheDocument();
     expect(screen.getByText('50')).toBeInTheDocument();
@@ -129,9 +123,6 @@ describe('SqlServerMetrics', () => {
   it('handles missing health gracefully', async () => {
     const { health: _, ...propsWithoutHealth } = defaultProps;
     renderComponent(propsWithoutHealth as typeof defaultProps);
-    // Open Server Properties section
-    const btn = screen.getByText('SQL Server Metrics: Server Properties');
-    btn.click();
     // Should show N/A for missing health fields
     const naValues = await screen.findAllByText('N/A');
     expect(naValues.length).toBeGreaterThanOrEqual(2);
@@ -155,8 +146,6 @@ describe('SqlServerMetrics', () => {
       </QueryClientProvider>,
     );
 
-    const btn = screen.getByText('SQL Server Metrics: Server Configuration Options');
-    btn.click();
-    expect(await screen.findByText('No configuration data available')).toBeInTheDocument();
+    expect(await screen.findByText('No data available')).toBeInTheDocument();
   });
 });

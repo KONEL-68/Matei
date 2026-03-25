@@ -292,49 +292,64 @@ export function SqlServerMetrics({ instanceId, range, health }: SqlServerMetrics
   const series = useMemo(() => perfData?.series ?? [], [perfData]);
 
   return (
-    <div className="mt-4 space-y-4" data-testid="sql-server-metrics">
-      <CollapsibleSection title="SQL Server Metrics: General" defaultOpen>
-        <ChartGrid charts={GENERAL_CHARTS} series={series} dark={dark} />
-      </CollapsibleSection>
-
-      <CollapsibleSection title="SQL Server Metrics: Latches and Locks">
-        <ChartGrid charts={LATCH_LOCK_CHARTS} series={series} dark={dark} />
-      </CollapsibleSection>
-
-      <CollapsibleSection title="SQL Server Metrics: Buffer Cache">
-        <ChartGrid charts={BUFFER_CHARTS} series={series} dark={dark} />
-      </CollapsibleSection>
-
-      <CollapsibleSection title="SQL Server Metrics: Server Properties">
-        <div className="max-w-md">
-          <KvRow label="Version" value={health?.version as string | undefined} />
-          <KvRow label="Edition" value={health?.edition as string | undefined} />
+    <CollapsibleSection title="SQL Server Metrics" defaultOpen>
+      <div className="space-y-6" data-testid="sql-server-metrics">
+        {/* General */}
+        <div>
+          <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">General</h3>
+          <ChartGrid charts={GENERAL_CHARTS} series={series} dark={dark} />
         </div>
-      </CollapsibleSection>
 
-      <CollapsibleSection title="SQL Server Metrics: Server Configuration Options">
-        {configLoading ? (
-          <div className="flex items-center gap-2 py-4 text-sm text-gray-500 dark:text-gray-400">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-500" />
-            Loading configuration...
+        {/* Latches and Locks */}
+        <div>
+          <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Latches and Locks</h3>
+          <ChartGrid charts={LATCH_LOCK_CHARTS} series={series} dark={dark} />
+        </div>
+
+        {/* Buffer Cache */}
+        <div>
+          <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Buffer Cache</h3>
+          <ChartGrid charts={BUFFER_CHARTS} series={series} dark={dark} />
+        </div>
+
+        {/* Server Properties + Configuration side by side */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Server Properties</h3>
+            <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
+              <KvRow label="Version" value={health?.version as string | undefined} />
+              <KvRow label="Edition" value={health?.edition as string | undefined} />
+            </div>
           </div>
-        ) : configError || !serverConfig ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            {configError ? 'Failed to load server configuration' : 'No configuration data available'}
-          </p>
-        ) : (
-          <div className="max-w-md">
-            <KvRow label="Collation" value={serverConfig.server_collation} />
-            <BoolRow label="xp_cmdshell" value={serverConfig.xp_cmdshell} />
-            <BoolRow label="CLR" value={serverConfig.clr_enabled} />
-            <BoolRow label="External scripts" value={serverConfig.external_scripts_enabled} />
-            <BoolRow label="Remote access" value={serverConfig.remote_access} />
-            <KvRow label="Max degree of parallelism" value={serverConfig.max_degree_of_parallelism} />
-            <KvRow label="Max server memory (MB)" value={serverConfig.max_server_memory_mb != null ? serverConfig.max_server_memory_mb.toLocaleString() : null} />
-            <KvRow label="Cost threshold for parallelism" value={serverConfig.cost_threshold_for_parallelism} />
+
+          <div>
+            <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Server Configuration Options</h3>
+            <div className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
+              {configLoading ? (
+                <div className="flex items-center gap-2 py-4 text-sm text-gray-500 dark:text-gray-400">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-500" />
+                  Loading...
+                </div>
+              ) : configError || !serverConfig ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {configError ? 'Failed to load' : 'No data available'}
+                </p>
+              ) : (
+                <>
+                  <KvRow label="Collation" value={serverConfig.server_collation} />
+                  <BoolRow label="xp_cmdshell" value={serverConfig.xp_cmdshell} />
+                  <BoolRow label="CLR" value={serverConfig.clr_enabled} />
+                  <BoolRow label="External scripts" value={serverConfig.external_scripts_enabled} />
+                  <BoolRow label="Remote access" value={serverConfig.remote_access} />
+                  <KvRow label="Max degree of parallelism" value={serverConfig.max_degree_of_parallelism} />
+                  <KvRow label="Max server memory (MB)" value={serverConfig.max_server_memory_mb != null ? serverConfig.max_server_memory_mb.toLocaleString() : null} />
+                  <KvRow label="Cost threshold for parallelism" value={serverConfig.cost_threshold_for_parallelism} />
+                </>
+              )}
+            </div>
           </div>
-        )}
-      </CollapsibleSection>
-    </div>
+        </div>
+      </div>
+    </CollapsibleSection>
   );
 }
