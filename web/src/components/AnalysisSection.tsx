@@ -786,7 +786,7 @@ function ProcedureDetailPanel({ instanceId, procedure }: { instanceId: string; p
 // --- Top Procedures Tab ---
 function TopProceduresTab({ instanceId }: { instanceId: string }) {
   const [search, setSearch] = useState('');
-  const [limit, setLimit] = useState(50);
+  const [limit, setLimit] = useState(25);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const { sortCol, sortDir, toggle, compare } = useSort<ProcedureRow>('total_cpu_ms');
 

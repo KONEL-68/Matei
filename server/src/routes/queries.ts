@@ -209,8 +209,12 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
       const connConfig = buildConnectionConfig(instance, config.encryptionKey);
       sqlPool = await new sql.ConnectionPool(connConfig).connect();
 
+      // Build 3-part name for OBJECT_ID so it resolves in the correct database context
+      // procName is already schema-qualified (e.g. "dbo.MyProc"), so we prepend dbName
+      const qualifiedName = `${dbName}.${procName}`;
+
       const result = await sqlPool.request()
-        .input('procName', sql.NVarChar, procName)
+        .input('qualifiedName', sql.NVarChar, qualifiedName)
         .input('dbName', sql.NVarChar, dbName)
         .query(`
           SELECT TOP 20
@@ -234,7 +238,7 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
               qs.last_grant_kb
           FROM sys.dm_exec_query_stats qs
           CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) qt
-          WHERE qt.objectid = OBJECT_ID(@procName, 'P')
+          WHERE qt.objectid = OBJECT_ID(@qualifiedName)
             AND qt.dbid = DB_ID(@dbName)
           ORDER BY qs.total_worker_time DESC
         `);

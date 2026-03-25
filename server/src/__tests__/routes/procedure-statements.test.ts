@@ -135,7 +135,8 @@ describe('GET /api/queries/:id/procedure-statements', () => {
     expect(body[0].physical_reads).toBe(3200);
 
     // Verify parameterized inputs were used (not string concatenation)
-    expect(mockRequest.input).toHaveBeenCalledWith('procName', 'NVarChar', 'dbo.MyProc');
+    // qualifiedName is 3-part: "DbName.schema.ProcName" for cross-database OBJECT_ID resolution
+    expect(mockRequest.input).toHaveBeenCalledWith('qualifiedName', 'NVarChar', 'MyDb.dbo.MyProc');
     expect(mockRequest.input).toHaveBeenCalledWith('dbName', 'NVarChar', 'MyDb');
   });
 

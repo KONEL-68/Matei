@@ -3,8 +3,9 @@
 -- Aggregation: snapshot (cumulative since plan cache entry)
 -- Units: counts, milliseconds, page reads/writes, KB (memory grants)
 -- UI: expandable detail view in Top Procedures tab
--- Validation: SELECT OBJECT_ID(@procName, 'P') — should return non-NULL
--- Parameters: @procName (schema.name, e.g. 'dbo.MyProc'), @dbName (database name)
+-- Validation: SELECT OBJECT_ID(@qualifiedName) — should return non-NULL
+-- Parameters: @qualifiedName (3-part: 'DbName.dbo.MyProc'), @dbName (database name)
+-- Note: OBJECT_ID needs 3-part name to resolve across databases (connection may be in master)
 
 SELECT TOP 20
     SUBSTRING(qt.text, (qs.statement_start_offset/2) + 1,
@@ -27,6 +28,6 @@ SELECT TOP 20
     qs.last_grant_kb
 FROM sys.dm_exec_query_stats qs
 CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) qt
-WHERE qt.objectid = OBJECT_ID(@procName, 'P')
+WHERE qt.objectid = OBJECT_ID(@qualifiedName)
   AND qt.dbid = DB_ID(@dbName)
 ORDER BY qs.total_worker_time DESC;
