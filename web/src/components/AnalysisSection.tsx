@@ -255,14 +255,8 @@ function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack, onUnt
     },
   });
 
-  const { data: waitsData } = useQuery<QueryWaitsData>({
-    queryKey: ['query-waits', instanceId, query.query_hash],
-    queryFn: async () => {
-      const res = await authFetch(`/api/queries/${instanceId}/${encodeURIComponent(query.query_hash)}/waits`);
-      if (!res.ok) return { session_waits: [], current_requests: [] };
-      return res.json();
-    },
-  });
+  // Per-query wait stats are available in actual execution plans (cached in query_plans table)
+  // or via Current Activity for running queries. No live SQL Server call on History tab.
 
   const chartData = useMemo(() => timeSeries.map(p => ({
     time: new Date(p.collected_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -384,45 +378,13 @@ function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack, onUnt
         </div>
       )}
 
-      {/* Wait types table */}
-      {waitsData && (waitsData.session_waits.length > 0 || waitsData.current_requests.some(r => r.wait_type || r.last_wait_type)) && (
-        <div>
-          <div className="text-[10px] font-medium uppercase text-gray-500 dark:text-gray-400 mb-1">Wait types for this query</div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="text-[10px] font-medium uppercase text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
-                <tr>
-                  <th className="py-1.5 pr-3">Wait type</th>
-                  <th className="py-1.5 pr-3">Wait description</th>
-                  <th className="py-1.5 pr-2 text-right">Wait time (ms)</th>
-                  <th className="py-1.5 pr-2 text-right">Login name</th>
-                  <th className="py-1.5 text-right">Program name</th>
-                </tr>
-              </thead>
-              <tbody>
-                {waitsData.session_waits.map(w => (
-                  <tr key={w.wait_type} className="border-b border-gray-100 dark:border-gray-800">
-                    <td className="py-1.5 pr-3 font-mono font-medium text-gray-900 dark:text-gray-100">{w.wait_type}</td>
-                    <td className="py-1.5 pr-3 text-gray-600 dark:text-gray-400 max-w-[300px]">{getWaitDescription(w.wait_type)}</td>
-                    <td className="py-1.5 pr-2 text-right font-medium text-gray-900 dark:text-gray-100">{formatNum(w.wait_time_ms, 0)}</td>
-                    <td className="py-1.5 pr-2 text-right text-gray-500 dark:text-gray-400">{w.login_name}</td>
-                    <td className="py-1.5 text-right text-gray-500 dark:text-gray-400 max-w-[200px] truncate">{w.program_name}</td>
-                  </tr>
-                ))}
-                {waitsData.session_waits.length === 0 && waitsData.current_requests.map((r, i) => (
-                  <tr key={i} className="border-b border-gray-100 dark:border-gray-800">
-                    <td className="py-1.5 pr-3 font-mono font-medium text-gray-900 dark:text-gray-100">{r.wait_type || r.last_wait_type}</td>
-                    <td className="py-1.5 pr-3 text-gray-600 dark:text-gray-400 max-w-[300px]">{getWaitDescription(r.wait_type || r.last_wait_type)}</td>
-                    <td className="py-1.5 pr-2 text-right font-medium text-gray-900 dark:text-gray-100">{r.wait_time_ms ? formatNum(r.wait_time_ms, 0) : '-'}</td>
-                    <td className="py-1.5 pr-2 text-right text-gray-500 dark:text-gray-400">{r.login_name}</td>
-                    <td className="py-1.5 text-right text-gray-500 dark:text-gray-400 max-w-[200px] truncate">{r.program_name}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {/* Wait types — available in actual execution plans stored in PostgreSQL */}
+      <div>
+        <div className="text-[10px] font-medium uppercase text-gray-500 dark:text-gray-400 mb-1">Wait types for this query</div>
+        <div className="text-xs text-gray-500 dark:text-gray-400 py-3 text-center border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-800/30">
+          View wait statistics in the actual execution plan for this query.
         </div>
-      )}
+      </div>
 
       {/* Memory grant */}
       <div className="grid grid-cols-2 gap-3">
