@@ -414,6 +414,13 @@ function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack, onUnt
             {planSource === 'live' && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">live</span>
             )}
+            <button
+              onClick={() => { navigator.clipboard.writeText(planXml); }}
+              className="text-[10px] text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300 ml-auto"
+              title="Copy plan XML to clipboard"
+            >
+              Copy plan XML
+            </button>
           </div>
           <pre className="max-h-48 overflow-auto rounded bg-gray-100 dark:bg-gray-900 p-3 text-xs font-mono text-gray-700 dark:text-gray-400 whitespace-pre-wrap break-all border border-gray-200 dark:border-gray-700">
             {planXml}
@@ -432,7 +439,7 @@ function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack, onUnt
           const waits = parseWaitStats(planXml);
           if (waits.length === 0) return (
             <div className="text-xs text-gray-500 dark:text-gray-400 py-3 text-center border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-800/30">
-              No wait statistics in this execution plan
+              No wait statistics recorded for this query execution. Waits appear when a query encounters resource contention.
             </div>
           );
           return (
