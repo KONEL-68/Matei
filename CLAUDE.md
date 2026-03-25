@@ -30,14 +30,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   /src/routes/         — auth.ts, instances.ts, metrics.ts, alerts.ts, queries.ts, groups.ts, deadlocks.ts, settings.ts, users.ts
   /src/alerts/         — engine.ts (threshold eval), webhook.ts (Slack/Telegram)
   /src/jobs/           — aggregator.ts (5min/hourly rollups), partition-manager.ts
-  /src/lib/            — crypto.ts (AES-256-GCM), mssql.ts (connection pool), auth.ts
+  /src/lib/            — crypto.ts (AES-256-GCM), mssql.ts (connection pool + shared pool cache for API routes), auth.ts
   /src/migrations/     — SQL files (###_description.sql, e.g. 001_initial.sql) + run.ts executor
 /web                 — React frontend (Vite)
   /src/pages/          — Dashboard, Instances, InstanceDetail, QueryExplorer, Alerts, Login, Settings
   /src/components/     — StatusBar, CpuChart, MemoryChart, MemoryBreakdown, SessionBreakdown, SessionsTable, CurrentActivity, WaitsTable, TopWaitsTable, WaitsChart, DeadlocksTable, BlockingTree, FileIoChart, DiskChart, CollapsibleSection, InstanceForm, InstanceCard, AnalysisSection, OverviewTimeline, OverviewMetricCharts, SqlServerMetrics, Layout
   /src/components/settings/ — GroupsSettings, AlertsSettings, RetentionSettings, UsersSettings, AboutSettings
 /docker              — Docker Compose stack + nginx config
-/sql                 — DMV query library (one .sql file per metric category), includes scheduler_stats.sql, procedure_stats.sql, server_config.sql
+/sql                 — DMV query library (one .sql file per metric category), includes scheduler_stats.sql, procedure_stats.sql, procedure_statements.sql, server_config.sql
 /docs                — DECISIONS.md (architecture decisions), METRICS.md (metric specs)
 ```
 

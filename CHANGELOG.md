@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - Query detail panel: parse and display WaitStats from actual execution plan XML with wait type, description, time, and count
 - parseWaitStats utility: extracts Wait elements from SQL Server actual plan XML, handles namespaces and deduplication
+- Copy plan XML button in query detail panel (copies full execution plan to clipboard)
 - SQL Server Metrics section: Redgate SQL Monitor-inspired collapsible section on Instance Detail with subsections (General, Latches & Locks, Buffer Cache, Server Properties, Server Configuration Options)
 - Perf counter charts: Batch Requests/sec, SQL Compilations/sec, Page Splits/sec, Full Scans/sec, User Connections, Avg Latch Wait, Lock Timeouts/sec, Lock Waits/sec, Page Life Expectancy, plus ratio charts
 - Server config collector: collects sys.configurations + SERVERPROPERTY on first connect, stored in PostgreSQL
@@ -25,7 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GET /api/queries/:id/procedure-statements-history: PostgreSQL-backed procedure statements with time range
 - Shared SQL Server connection pool cache for API routes (5-minute idle timeout, auto-reconnect)
 - Specialized Claude Code agents: matei-backend-dev, matei-frontend-dev, sql-server-dba
-- 23 missing test files for full codebase coverage (488 total tests across 81 files)
+- Full test coverage: 495 tests across 81 files (299 backend + 196 frontend)
 - Agent memory system with persistent rules (always write tests, always update docs)
 - Fleet dashboard with instance health cards, CPU/memory bars, top waits, deadlock badges
 - Dashboard: collapsible instance groups with grouped/ungrouped sections
@@ -101,3 +102,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - perf_counters_raw: DOUBLE PRECISION for rate counter decimal values
 - Disk Space card: show used GB instead of free GB
 - Overview Timeline drag overlay positioning and tooltip values
+- Procedure statements batch insert failing due to NULL procedure_name from cross-database OBJECT_NAME
