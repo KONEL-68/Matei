@@ -768,7 +768,7 @@ function ProcedureDetailPanel({ instanceId, procedure }: { instanceId: string; p
           <table className="w-full text-left text-xs">
             <thead className="text-[10px] font-medium uppercase text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
               <tr>
-                <SortTh column="statement_start_offset" current={stmtSortCol} dir={stmtSortDir} onSort={stmtToggle} className="pr-1 w-6">#</SortTh>
+                <SortTh column="statement_start_offset" current={stmtSortCol} dir={stmtSortDir} onSort={stmtToggle} className="pr-1 w-10">Seq</SortTh>
                 <th className="py-1.5 pr-3">Query text</th>
                 <SortTh column="execution_count" current={stmtSortCol} dir={stmtSortDir} onSort={stmtToggle} className="text-right pr-2">Executions</SortTh>
                 <SortTh column="total_cpu_ms" current={stmtSortCol} dir={stmtSortDir} onSort={stmtToggle} className="text-right pr-2">CPU (ms)</SortTh>
