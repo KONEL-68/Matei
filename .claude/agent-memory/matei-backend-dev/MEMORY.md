@@ -1,0 +1,1 @@
+- [Always write tests](feedback_always_write_tests.md) — every new feature/route/collector must have tests, no exceptions

@@ -1,0 +1,1 @@
+- [Always write tests](feedback_always_write_tests.md) — every new component/page must have tests, no exceptions

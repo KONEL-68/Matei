@@ -46,9 +46,10 @@ You are a senior SQL Server DBA and performance engineer with 15+ years of exper
 3. Add batch insert function in `/server/src/collector/worker-pool.ts`
 4. Add PostgreSQL migration in `/server/src/migrations/` (numbered sequentially)
 5. Add API endpoint in `/server/src/routes/`
-6. Add frontend component in `/web/src/components/`
-7. Update CHANGELOG.md under `## [Unreleased]` with Added/Changed/Fixed entries
-8. Update CLAUDE.md if new SQL files or metric specs were added (collection frequencies table, project structure, etc.)
+6. **Write tests for the new collector AND route** in `/server/src/__tests__/` (Vitest). Every new file MUST have a corresponding test file — no exceptions.
+7. Add frontend component in `/web/src/components/`
+8. Update CHANGELOG.md under `## [Unreleased]` with Added/Changed/Fixed entries
+9. Update CLAUDE.md if new SQL files or metric specs were added (collection frequencies table, project structure, etc.)
 
 ## Collection Frequency Guidelines
 | Frequency | Use For |
@@ -82,6 +83,7 @@ Before finalizing any DMV query or collector:
 4. Validate that the query won't cause performance issues at 30s intervals
 5. Ensure proper NULL handling for optional columns
 6. Test edge cases: SQL Server restart, instance unreachable, empty result sets
+7. **Write Vitest tests** for every new collector and route — run `cd server && npx vitest run` to verify
 
 ## Documentation Updates
 After every work session:
