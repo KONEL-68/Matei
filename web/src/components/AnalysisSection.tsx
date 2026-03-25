@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, Fragment } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { authFetch } from '@/lib/auth';
+import { CollapsibleSection } from '@/components/CollapsibleSection';
 import type { TimeWindow } from '@/components/OverviewTimeline';
 
 type AnalysisTab = 'top-queries' | 'tracked-queries' | 'top-procedures';
@@ -805,20 +806,20 @@ export function AnalysisSection({ instanceId, range, timeWindow }: AnalysisSecti
   }
 
   return (
-    <div className="mt-4" data-testid="analysis-section">
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Analysis</h3>
+    <CollapsibleSection title="Analysis" defaultOpen>
+      <div data-testid="analysis-section">
+        <div className="flex items-center gap-0.5 border-b border-gray-200 dark:border-gray-700">
+          <TabBtn active={tab === 'top-queries'} onClick={() => setTab('top-queries')}>Top Queries</TabBtn>
+          <TabBtn active={tab === 'tracked-queries'} onClick={() => setTab('tracked-queries')}>Tracked Queries</TabBtn>
+          <TabBtn active={tab === 'top-procedures'} onClick={() => setTab('top-procedures')}>Top Procedures</TabBtn>
+        </div>
 
-      <div className="flex items-center gap-0.5 border-b border-gray-200 dark:border-gray-700">
-        <TabBtn active={tab === 'top-queries'} onClick={() => setTab('top-queries')}>Top Queries</TabBtn>
-        <TabBtn active={tab === 'tracked-queries'} onClick={() => setTab('tracked-queries')}>Tracked Queries</TabBtn>
-        <TabBtn active={tab === 'top-procedures'} onClick={() => setTab('top-procedures')}>Top Procedures</TabBtn>
+        <div className="rounded-b-lg border border-t-0 border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+          {tab === 'top-queries' && <TopQueriesTab instanceId={instanceId} range={range} timeWindow={timeWindow} onTrack={trackQuery} />}
+          {tab === 'tracked-queries' && <TrackedQueriesTab instanceId={instanceId} range={range} timeWindow={timeWindow} />}
+          {tab === 'top-procedures' && <TopProceduresTab instanceId={instanceId} />}
+        </div>
       </div>
-
-      <div className="rounded-b-lg border border-t-0 border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-        {tab === 'top-queries' && <TopQueriesTab instanceId={instanceId} range={range} timeWindow={timeWindow} onTrack={trackQuery} />}
-        {tab === 'tracked-queries' && <TrackedQueriesTab instanceId={instanceId} range={range} timeWindow={timeWindow} />}
-        {tab === 'top-procedures' && <TopProceduresTab instanceId={instanceId} />}
-      </div>
-    </div>
+    </CollapsibleSection>
   );
 }

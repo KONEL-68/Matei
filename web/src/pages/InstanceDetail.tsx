@@ -323,15 +323,19 @@ export function InstanceDetail() {
       </div>
 
       {/* Analysis section (Top Queries / Tracked Queries / Top Procedures) */}
-      <AnalysisSection instanceId={id!} range={range} timeWindow={timeWindow} />
+      <div className="mt-4">
+        <AnalysisSection instanceId={id!} range={range} timeWindow={timeWindow} />
+      </div>
 
       {/* SQL Server Metrics (perf counters + server config) */}
       {timeWindow && (
+        <div className="mt-6">
         <SqlServerMetrics
           instanceId={id!}
           range={{ from: timeWindow.from, to: timeWindow.to }}
           health={health ? { version: health.version, edition: health.edition } : undefined}
         />
+        </div>
       )}
 
       {/* 5. Active Sessions (full width) */}

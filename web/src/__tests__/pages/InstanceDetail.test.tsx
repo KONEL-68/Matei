@@ -168,8 +168,8 @@ describe('InstanceDetail', () => {
   it('renders instance header with name and version', async () => {
     renderDetail();
     expect(await screen.findByText('PROD-SQL1')).toBeInTheDocument();
-    expect(screen.getByText('16.0.4135.4')).toBeInTheDocument();
-    expect(screen.getByText('Enterprise')).toBeInTheDocument();
+    expect(screen.getAllByText('16.0.4135.4').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Enterprise').length).toBeGreaterThanOrEqual(1);
   });
 
   it('renders collapsible sections in correct order on History tab', async () => {
