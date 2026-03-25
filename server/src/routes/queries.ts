@@ -144,8 +144,8 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
 
       const result = await sqlPool.request().query(`
         SELECT TOP ${limit}
-            DB_NAME(database_id) AS database_name,
-            OBJECT_SCHEMA_NAME(object_id, database_id) + '.' + OBJECT_NAME(object_id, database_id) AS procedure_name,
+            ISNULL(DB_NAME(database_id), '?') AS database_name,
+            ISNULL(OBJECT_SCHEMA_NAME(object_id, database_id), 'dbo') + '.' + OBJECT_NAME(object_id, database_id) AS procedure_name,
             execution_count,
             total_worker_time / 1000 AS total_cpu_ms,
             total_elapsed_time / 1000 AS total_elapsed_ms,

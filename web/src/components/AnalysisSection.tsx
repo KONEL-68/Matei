@@ -105,10 +105,12 @@ function ImpactDot({ score }: { score: number }) {
   return <span className="inline-block w-2.5 h-2.5 rounded-full bg-gray-300 dark:bg-gray-600" title={`Impact: ${score.toFixed(0)}`} />;
 }
 
-function formatNum(v: number, decimals = 1): string {
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(decimals)}M`;
-  if (v >= 1_000) return `${(v / 1_000).toFixed(decimals)}k`;
-  return v.toFixed(decimals);
+function formatNum(v: number | null | undefined, decimals = 1): string {
+  const n = Number(v ?? 0);
+  if (!isFinite(n)) return '0';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(decimals)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(decimals)}k`;
+  return n.toFixed(decimals);
 }
 
 function SortArrow({ dir }: { dir: SortDir }) {
@@ -769,9 +771,9 @@ function TopProceduresTab({ instanceId }: { instanceId: string }) {
                   </td>
                   <td className="py-1.5 pr-2 text-right text-gray-500 dark:text-gray-400">{p.database_name}</td>
                   <td className="py-1.5 pr-2 text-right font-medium text-gray-900 dark:text-gray-100">{formatNum(p.execution_count, 0)}</td>
-                  <td className="py-1.5 pr-2 text-right font-medium text-gray-900 dark:text-gray-100">{Number(p.avg_cpu_ms).toFixed(1)}</td>
-                  <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{Number(p.avg_elapsed_ms).toFixed(1)}</td>
-                  <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{formatNum(Number(p.avg_reads))}</td>
+                  <td className="py-1.5 pr-2 text-right font-medium text-gray-900 dark:text-gray-100">{formatNum(p.avg_cpu_ms)}</td>
+                  <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{formatNum(p.avg_elapsed_ms)}</td>
+                  <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{formatNum(p.avg_reads)}</td>
                   <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{formatNum(p.total_cpu_ms, 0)}</td>
                   <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{formatNum(p.total_elapsed_ms, 0)}</td>
                   <td className="py-1.5 text-right text-gray-500 dark:text-gray-400 whitespace-nowrap">
