@@ -34,10 +34,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   /src/migrations/     — SQL files (###_description.sql, e.g. 001_initial.sql) + run.ts executor
 /web                 — React frontend (Vite)
   /src/pages/          — Dashboard, Instances, InstanceDetail, QueryExplorer, Alerts, Login, Settings
-  /src/components/     — StatusBar, CpuChart, MemoryChart, MemoryBreakdown, SessionBreakdown, SessionsTable, CurrentActivity, WaitsTable, TopWaitsTable, WaitsChart, DeadlocksTable, BlockingTree, FileIoChart, DiskChart, CollapsibleSection, InstanceForm, InstanceCard, AnalysisSection, OverviewTimeline, OverviewMetricCharts, Layout
+  /src/components/     — StatusBar, CpuChart, MemoryChart, MemoryBreakdown, SessionBreakdown, SessionsTable, CurrentActivity, WaitsTable, TopWaitsTable, WaitsChart, DeadlocksTable, BlockingTree, FileIoChart, DiskChart, CollapsibleSection, InstanceForm, InstanceCard, AnalysisSection, OverviewTimeline, OverviewMetricCharts, SqlServerMetrics, Layout
   /src/components/settings/ — GroupsSettings, AlertsSettings, RetentionSettings, UsersSettings, AboutSettings
 /docker              — Docker Compose stack + nginx config
-/sql                 — DMV query library (one .sql file per metric category), includes scheduler_stats.sql, procedure_stats.sql
+/sql                 — DMV query library (one .sql file per metric category), includes scheduler_stats.sql, procedure_stats.sql, server_config.sql
 /docs                — DECISIONS.md (architecture decisions), METRICS.md (metric specs)
 ```
 
@@ -129,6 +129,7 @@ Default cycle interval: 30s (COLLECTOR_INTERVAL_MS). Some metrics skip cycles:
 | os_disk | 5min (every 10th cycle) | snapshot |
 | query_plans | 60s (every 2nd cycle) | snapshot (estimated + actual) |
 | os_host_info | on connect | snapshot |
+| server_config | on connect | snapshot |
 
 ## Data retention
 - Raw metrics: 7 days (partitioned by day)

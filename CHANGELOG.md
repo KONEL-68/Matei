@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- SqlServerMetrics component: Redgate SQL Monitor-inspired section on Instance Detail page with 5 collapsible subsections (General, Latches & Locks, Buffer Cache, Server Properties, Server Configuration Options)
+- Perf counter charts: Batch Requests/sec, SQL Compilations/sec, Page Splits/sec, Full Scans/sec, User Connections, Avg Latch Wait, Lock Timeouts/sec, Lock Waits/sec, Page Life Expectancy, plus ratio charts (compilations/batch, splits/batch)
+- Server config API endpoint: live query to SQL Server sys.configurations for collation, xp_cmdshell, CLR, external scripts, remote access, MAXDOP, max memory, cost threshold
+- Server config collector: collects sys.configurations + SERVERPROPERTY on first connect (server_collation, xp_cmdshell, clr_enabled, external_scripts_enabled, remote_access, maxdop, max_memory, cost_threshold)
+- 5 new perf_counters: Page Splits/sec, Full Scans/sec, Lock Timeouts/sec, Latch Waits/sec, Total Latch Wait Time (ms)
+- Migration 015: server_config table with UPSERT support
+
+### Changed
 - Fleet dashboard with instance health cards, CPU/memory bars, top waits, deadlock badges
 - Dashboard: collapsible instance groups with grouped/ungrouped sections
 - Instance management (add/edit/delete/test connection) with group assignment

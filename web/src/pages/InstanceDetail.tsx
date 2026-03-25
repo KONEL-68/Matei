@@ -17,6 +17,7 @@ import { CurrentActivity } from '@/components/CurrentActivity';
 import { OverviewTimeline, type TimeWindow } from '@/components/OverviewTimeline';
 import { OverviewMetricCharts } from '@/components/OverviewMetricCharts';
 import { AnalysisSection } from '@/components/AnalysisSection';
+import { SqlServerMetrics } from '@/components/SqlServerMetrics';
 import { authFetch } from '@/lib/auth';
 
 type TimeRange = '1h' | '6h' | '24h' | '7d' | '30d' | '1y';
@@ -323,6 +324,15 @@ export function InstanceDetail() {
 
       {/* Analysis section (Top Queries / Tracked Queries / Top Procedures) */}
       <AnalysisSection instanceId={id!} range={range} timeWindow={timeWindow} />
+
+      {/* SQL Server Metrics (perf counters + server config) */}
+      {timeWindow && (
+        <SqlServerMetrics
+          instanceId={id!}
+          range={{ from: timeWindow.from, to: timeWindow.to }}
+          health={health ? { version: health.version, edition: health.edition } : undefined}
+        />
+      )}
 
       {/* 5. Active Sessions (full width) */}
       <div className="mt-4">
