@@ -207,7 +207,7 @@ SELECT
     qt.dbid AS database_id,
     qt.objectid AS object_id,
     ISNULL(DB_NAME(qt.dbid), '?') AS database_name,
-    ISNULL(OBJECT_SCHEMA_NAME(qt.objectid, qt.dbid), 'dbo') + '.' + OBJECT_NAME(qt.objectid, qt.dbid) AS procedure_name,
+    ISNULL(OBJECT_SCHEMA_NAME(qt.objectid, qt.dbid), 'dbo') + '.' + ISNULL(OBJECT_NAME(qt.objectid, qt.dbid), '?') AS procedure_name,
     qs.statement_start_offset,
     SUBSTRING(qt.text, (qs.statement_start_offset/2) + 1,
         ((CASE qs.statement_end_offset
@@ -230,6 +230,7 @@ FROM sys.dm_exec_query_stats qs
 CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) qt
 WHERE qt.objectid IS NOT NULL
   AND qt.dbid > 4
+  AND OBJECT_NAME(qt.objectid, qt.dbid) IS NOT NULL
 ORDER BY qt.objectid, qs.statement_start_offset
 `;
 
