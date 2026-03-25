@@ -200,6 +200,49 @@ function getWaitDescription(waitType: string): string {
   return WAIT_DESCRIPTIONS[waitType] || 'See MSDN for this wait description.';
 }
 
+export interface PlanWaitStat {
+  waitType: string;
+  waitTimeMs: number;
+  waitCount: number;
+}
+
+export function parseWaitStats(planXml: string): PlanWaitStat[] {
+  const results: PlanWaitStat[] = [];
+  // Match <Wait> elements inside <WaitStats> sections, handling optional namespace prefixes
+  const waitStatsRegex = /<[\w:]*WaitStats\b[^>]*>([\s\S]*?)<\/[\w:]*WaitStats>/gi;
+  let wsMatch: RegExpExecArray | null;
+  while ((wsMatch = waitStatsRegex.exec(planXml)) !== null) {
+    const block = wsMatch[1];
+    const waitRegex = /<[\w:]*Wait\b\s+([^>]*?)\/?\s*>/gi;
+    let wMatch: RegExpExecArray | null;
+    while ((wMatch = waitRegex.exec(block)) !== null) {
+      const attrs = wMatch[1];
+      const typeMatch = /WaitType\s*=\s*"([^"]*)"/i.exec(attrs);
+      const timeMatch = /WaitTimeMs\s*=\s*"([^"]*)"/i.exec(attrs);
+      const countMatch = /WaitCount\s*=\s*"([^"]*)"/i.exec(attrs);
+      if (typeMatch) {
+        results.push({
+          waitType: typeMatch[1],
+          waitTimeMs: timeMatch ? Number(timeMatch[1]) : 0,
+          waitCount: countMatch ? Number(countMatch[1]) : 0,
+        });
+      }
+    }
+  }
+  // Deduplicate by waitType (sum values), then sort descending by waitTimeMs
+  const merged = new Map<string, PlanWaitStat>();
+  for (const w of results) {
+    const existing = merged.get(w.waitType);
+    if (existing) {
+      existing.waitTimeMs += w.waitTimeMs;
+      existing.waitCount += w.waitCount;
+    } else {
+      merged.set(w.waitType, { ...w });
+    }
+  }
+  return Array.from(merged.values()).sort((a, b) => b.waitTimeMs - a.waitTimeMs);
+}
+
 interface WaitInfo {
   wait_type: string;
   wait_time_ms: number;
@@ -378,12 +421,45 @@ function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack, onUnt
         </div>
       )}
 
-      {/* Wait types — available in actual execution plans stored in PostgreSQL */}
+      {/* Wait types — parsed from actual execution plan XML */}
       <div>
         <div className="text-[10px] font-medium uppercase text-gray-500 dark:text-gray-400 mb-1">Wait types for this query</div>
-        <div className="text-xs text-gray-500 dark:text-gray-400 py-3 text-center border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-800/30">
-          View wait statistics in the actual execution plan for this query.
-        </div>
+        {planType !== 'actual' || !planXml ? (
+          <div className="text-xs text-gray-500 dark:text-gray-400 py-3 text-center border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-800/30">
+            Fetch actual plan to view wait statistics
+          </div>
+        ) : (() => {
+          const waits = parseWaitStats(planXml);
+          if (waits.length === 0) return (
+            <div className="text-xs text-gray-500 dark:text-gray-400 py-3 text-center border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-800/30">
+              No wait statistics in this execution plan
+            </div>
+          );
+          return (
+            <div className="border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-left">
+                    <th className="py-1.5 px-2 font-medium">Wait Type</th>
+                    <th className="py-1.5 px-2 font-medium">Description</th>
+                    <th className="py-1.5 px-2 font-medium text-right">Wait Time (ms)</th>
+                    <th className="py-1.5 px-2 font-medium text-right">Wait Count</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {waits.map(w => (
+                    <tr key={w.waitType} className="border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                      <td className="py-1.5 px-2 font-mono font-bold text-gray-900 dark:text-gray-100">{w.waitType}</td>
+                      <td className="py-1.5 px-2 text-gray-600 dark:text-gray-400">{getWaitDescription(w.waitType)}</td>
+                      <td className="py-1.5 px-2 text-right font-medium text-gray-900 dark:text-gray-100">{formatNum(w.waitTimeMs, 1)}</td>
+                      <td className="py-1.5 px-2 text-right text-gray-700 dark:text-gray-300">{formatNum(w.waitCount, 0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Memory grant */}

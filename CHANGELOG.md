@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Query detail panel: parse and display WaitStats from actual execution plan XML with wait type, description, time, and count
+- parseWaitStats utility: extracts Wait elements from SQL Server actual plan XML, handles namespaces and deduplication
 - SQL Server Metrics section: Redgate SQL Monitor-inspired collapsible section on Instance Detail with subsections (General, Latches & Locks, Buffer Cache, Server Properties, Server Configuration Options)
 - Perf counter charts: Batch Requests/sec, SQL Compilations/sec, Page Splits/sec, Full Scans/sec, User Connections, Avg Latch Wait, Lock Timeouts/sec, Lock Waits/sec, Page Life Expectancy, plus ratio charts
 - Server config collector: collects sys.configurations + SERVERPROPERTY on first connect, stored in PostgreSQL

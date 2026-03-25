@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import { AnalysisSection } from '../../components/AnalysisSection';
+import { AnalysisSection, parseWaitStats } from '../../components/AnalysisSection';
 
 vi.mock('@/lib/auth', () => ({
   authFetch: vi.fn(),
@@ -174,5 +174,75 @@ describe('AnalysisSection', () => {
     expect(screen.getByText('Duration (ms)')).toBeInTheDocument();
     expect(screen.getByText('CPU time (ms)')).toBeInTheDocument();
     expect(screen.getByText('Logical reads')).toBeInTheDocument();
+  });
+});
+
+describe('parseWaitStats', () => {
+  it('extracts wait stats from actual plan XML', () => {
+    const xml = `<ShowPlanXML>
+      <QueryPlan>
+        <WaitStats>
+          <Wait WaitType="PAGEIOLATCH_SH" WaitTimeMs="123" WaitCount="45" />
+          <Wait WaitType="SOS_SCHEDULER_YIELD" WaitTimeMs="67" WaitCount="890" />
+        </WaitStats>
+      </QueryPlan>
+    </ShowPlanXML>`;
+    const result = parseWaitStats(xml);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ waitType: 'PAGEIOLATCH_SH', waitTimeMs: 123, waitCount: 45 });
+    expect(result[1]).toEqual({ waitType: 'SOS_SCHEDULER_YIELD', waitTimeMs: 67, waitCount: 890 });
+  });
+
+  it('returns sorted by WaitTimeMs descending', () => {
+    const xml = `<WaitStats>
+      <Wait WaitType="A" WaitTimeMs="10" WaitCount="1" />
+      <Wait WaitType="B" WaitTimeMs="500" WaitCount="2" />
+      <Wait WaitType="C" WaitTimeMs="50" WaitCount="3" />
+    </WaitStats>`;
+    const result = parseWaitStats(xml);
+    expect(result[0].waitType).toBe('B');
+    expect(result[1].waitType).toBe('C');
+    expect(result[2].waitType).toBe('A');
+  });
+
+  it('returns empty array when no WaitStats present', () => {
+    const xml = '<ShowPlanXML><QueryPlan></QueryPlan></ShowPlanXML>';
+    expect(parseWaitStats(xml)).toEqual([]);
+  });
+
+  it('returns empty array for empty string', () => {
+    expect(parseWaitStats('')).toEqual([]);
+  });
+
+  it('deduplicates wait types across multiple WaitStats blocks', () => {
+    const xml = `<Plan>
+      <WaitStats>
+        <Wait WaitType="PAGEIOLATCH_SH" WaitTimeMs="100" WaitCount="10" />
+      </WaitStats>
+      <WaitStats>
+        <Wait WaitType="PAGEIOLATCH_SH" WaitTimeMs="50" WaitCount="5" />
+      </WaitStats>
+    </Plan>`;
+    const result = parseWaitStats(xml);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({ waitType: 'PAGEIOLATCH_SH', waitTimeMs: 150, waitCount: 15 });
+  });
+
+  it('handles XML with namespace prefixes', () => {
+    const xml = `<sp:ShowPlanXML xmlns:sp="http://schemas.microsoft.com/sqlserver/2004/07/showplan">
+      <sp:WaitStats>
+        <sp:Wait WaitType="LCK_M_X" WaitTimeMs="200" WaitCount="3" />
+      </sp:WaitStats>
+    </sp:ShowPlanXML>`;
+    const result = parseWaitStats(xml);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({ waitType: 'LCK_M_X', waitTimeMs: 200, waitCount: 3 });
+  });
+
+  it('handles missing WaitTimeMs and WaitCount attributes gracefully', () => {
+    const xml = `<WaitStats><Wait WaitType="WRITELOG" /></WaitStats>`;
+    const result = parseWaitStats(xml);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({ waitType: 'WRITELOG', waitTimeMs: 0, waitCount: 0 });
   });
 });
