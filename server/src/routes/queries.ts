@@ -146,28 +146,103 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
         SELECT TOP ${limit}
             ISNULL(DB_NAME(database_id), '?') AS database_name,
             ISNULL(OBJECT_SCHEMA_NAME(object_id, database_id), 'dbo') + '.' + OBJECT_NAME(object_id, database_id) AS procedure_name,
-            execution_count,
-            total_worker_time / 1000 AS total_cpu_ms,
-            total_elapsed_time / 1000 AS total_elapsed_ms,
-            total_logical_reads AS total_reads,
-            total_logical_writes AS total_writes,
-            CASE WHEN execution_count > 0
-                 THEN total_worker_time / 1000.0 / execution_count ELSE 0 END AS avg_cpu_ms,
-            CASE WHEN execution_count > 0
-                 THEN total_elapsed_time / 1000.0 / execution_count ELSE 0 END AS avg_elapsed_ms,
-            CASE WHEN execution_count > 0
-                 THEN total_logical_reads * 1.0 / execution_count ELSE 0 END AS avg_reads,
-            last_execution_time
+            SUM(execution_count) AS execution_count,
+            SUM(total_worker_time) / 1000 AS total_cpu_ms,
+            SUM(total_elapsed_time) / 1000 AS total_elapsed_ms,
+            SUM(total_logical_reads) AS total_reads,
+            SUM(total_logical_writes) AS total_writes,
+            CASE WHEN SUM(execution_count) > 0
+                 THEN SUM(total_worker_time) / 1000.0 / SUM(execution_count) ELSE 0 END AS avg_cpu_ms,
+            CASE WHEN SUM(execution_count) > 0
+                 THEN SUM(total_elapsed_time) / 1000.0 / SUM(execution_count) ELSE 0 END AS avg_elapsed_ms,
+            CASE WHEN SUM(execution_count) > 0
+                 THEN SUM(total_logical_reads) * 1.0 / SUM(execution_count) ELSE 0 END AS avg_reads,
+            MAX(last_execution_time) AS last_execution_time
         FROM sys.dm_exec_procedure_stats
         WHERE database_id > 4
           AND OBJECT_NAME(object_id, database_id) IS NOT NULL
-        ORDER BY total_worker_time DESC
+        GROUP BY database_id, object_id
+        ORDER BY SUM(total_worker_time) DESC
       `);
 
       return reply.send(result.recordset);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: `Failed to retrieve procedures: ${message}` });
+    } finally {
+      if (sqlPool) {
+        try { await sqlPool.close(); } catch { /* ignore */ }
+      }
+    }
+  });
+
+  // GET /api/queries/:instanceId/procedure-statements?db=MyDb&proc=dbo.MyProc
+  // Live query to get top statements within a specific stored procedure
+  app.get<{ Params: IdParam; Querystring: { db?: string; proc?: string } }>('/api/queries/:id/procedure-statements', async (req, reply) => {
+    const { id } = req.params;
+    const dbName = req.query.db;
+    const procName = req.query.proc;
+
+    if (!dbName || !procName) {
+      return reply.status(400).send({ error: 'Both "db" and "proc" query parameters are required' });
+    }
+
+    const instanceResult = await pool.query(
+      'SELECT id, host, port, auth_type, encrypted_credentials FROM instances WHERE id = $1',
+      [id],
+    );
+    if (instanceResult.rows.length === 0) {
+      return reply.status(404).send({ error: 'Instance not found' });
+    }
+
+    const row = instanceResult.rows[0];
+    const instance: InstanceRecord = {
+      id: row.id,
+      host: row.host,
+      port: row.port,
+      auth_type: row.auth_type,
+      encrypted_credentials: row.encrypted_credentials ? row.encrypted_credentials.toString('utf8') : null,
+    };
+
+    let sqlPool: sql.ConnectionPool | null = null;
+    try {
+      const connConfig = buildConnectionConfig(instance, config.encryptionKey);
+      sqlPool = await new sql.ConnectionPool(connConfig).connect();
+
+      const result = await sqlPool.request()
+        .input('procName', sql.NVarChar, procName)
+        .input('dbName', sql.NVarChar, dbName)
+        .query(`
+          SELECT TOP 20
+              SUBSTRING(qt.text, (qs.statement_start_offset/2) + 1,
+                  ((CASE qs.statement_end_offset
+                      WHEN -1 THEN DATALENGTH(qt.text)
+                      ELSE qs.statement_end_offset END
+                      - qs.statement_start_offset)/2) + 1) AS statement_text,
+              qs.execution_count,
+              qs.total_worker_time / 1000 AS total_cpu_ms,
+              qs.total_elapsed_time / 1000 AS total_elapsed_ms,
+              qs.total_physical_reads AS physical_reads,
+              qs.total_logical_reads AS logical_reads,
+              qs.total_logical_writes AS logical_writes,
+              CASE WHEN qs.execution_count > 0
+                   THEN qs.total_worker_time / 1000.0 / qs.execution_count ELSE 0 END AS avg_cpu_ms,
+              CASE WHEN qs.execution_count > 0
+                   THEN qs.total_elapsed_time / 1000.0 / qs.execution_count ELSE 0 END AS avg_elapsed_ms,
+              qs.last_execution_time,
+              qs.min_grant_kb,
+              qs.last_grant_kb
+          FROM sys.dm_exec_query_stats qs
+          CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) qt
+          WHERE qt.objectid = OBJECT_ID(@procName, 'P')
+            AND qt.dbid = DB_ID(@dbName)
+          ORDER BY qs.total_worker_time DESC
+        `);
+
+      return reply.send(result.recordset);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: `Failed to retrieve procedure statements: ${message}` });
     } finally {
       if (sqlPool) {
         try { await sqlPool.close(); } catch { /* ignore */ }
