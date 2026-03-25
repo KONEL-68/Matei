@@ -332,6 +332,65 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
     }
   });
 
+  // GET /api/queries/:instanceId/procedure-statements-history — aggregated procedure statements from PostgreSQL
+  app.get<{ Params: IdParam; Querystring: { db?: string; proc?: string; from?: string; to?: string } }>('/api/queries/:id/procedure-statements-history', async (req, reply) => {
+    const { id } = req.params;
+    const dbName = req.query.db;
+    const procName = req.query.proc;
+
+    if (!dbName || !procName) {
+      return reply.status(400).send({ error: 'Both "db" and "proc" query parameters are required' });
+    }
+
+    const from = req.query.from;
+    const to = req.query.to;
+
+    if (!from || !to) {
+      return reply.status(400).send({ error: 'Both "from" and "to" query parameters are required' });
+    }
+
+    const result = await pool.query(
+      `SELECT
+         statement_start_offset,
+         statement_text,
+         AVG(execution_count) AS execution_count,
+         AVG(total_cpu_ms) AS total_cpu_ms,
+         AVG(total_elapsed_ms) AS total_elapsed_ms,
+         AVG(physical_reads) AS physical_reads,
+         AVG(logical_reads) AS logical_reads,
+         AVG(logical_writes) AS logical_writes,
+         AVG(avg_cpu_ms) AS avg_cpu_ms,
+         AVG(avg_elapsed_ms) AS avg_elapsed_ms,
+         AVG(min_grant_kb) AS min_grant_kb,
+         AVG(last_grant_kb) AS last_grant_kb
+       FROM procedure_statements_raw
+       WHERE instance_id = $1
+         AND database_name = $2
+         AND procedure_name = $3
+         AND collected_at BETWEEN $4 AND $5
+       GROUP BY statement_start_offset, statement_text
+       ORDER BY statement_start_offset ASC`,
+      [id, dbName, procName, from, to],
+    );
+
+    const rows = result.rows.map((row) => ({
+      statement_start_offset: Number(row.statement_start_offset),
+      statement_text: row.statement_text,
+      execution_count: Number(row.execution_count),
+      total_cpu_ms: Number(row.total_cpu_ms),
+      total_elapsed_ms: Number(row.total_elapsed_ms),
+      physical_reads: Number(row.physical_reads),
+      logical_reads: Number(row.logical_reads),
+      logical_writes: Number(row.logical_writes),
+      avg_cpu_ms: Number(row.avg_cpu_ms),
+      avg_elapsed_ms: Number(row.avg_elapsed_ms),
+      min_grant_kb: row.min_grant_kb != null ? Number(row.min_grant_kb) : null,
+      last_grant_kb: row.last_grant_kb != null ? Number(row.last_grant_kb) : null,
+    }));
+
+    return reply.send(rows);
+  });
+
   // GET /api/queries/:instanceId/tracked — list tracked queries with their latest stats
   app.get<{ Params: IdParam; Querystring: { range?: string; from?: string; to?: string } }>('/api/queries/:id/tracked', async (req, reply) => {
     const { id } = req.params;

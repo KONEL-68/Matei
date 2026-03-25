@@ -10,7 +10,7 @@ import { collectOsMemory, type OsMemoryRow } from './collectors/os-memory.js';
 import { collectOsDisk, type OsDiskRow } from './collectors/os-disk.js';
 import { collectFileIoStats, type FileIoDelta } from './collectors/file-io-stats.js';
 import { collectQueryStats, type QueryStatsDelta } from './collectors/query-stats.js';
-import { collectProcedureStats, type ProcedureStatsDelta } from './collectors/procedure-stats.js';
+import { collectProcedureStats, collectProcedureStatements, type ProcedureStatsDelta, type ProcedureStatementRow } from './collectors/procedure-stats.js';
 import { collectOsHostInfo, type OsHostInfoRow } from './collectors/os-host-info.js';
 import { collectDeadlocks, type DeadlockRow } from './collectors/deadlocks.js';
 import { collectPerfCounters, type PerfCounterResult } from './collectors/perf-counters.js';
@@ -37,6 +37,7 @@ export interface InstanceResult {
   fileIoStats: FileIoDelta[] | null;
   queryStats: QueryStatsDelta[] | null;
   procedureStats: ProcedureStatsDelta[] | null;
+  procedureStatements: ProcedureStatementRow[];
   osHostInfo: OsHostInfoRow[];
   serverConfig: ServerConfigRow[];
   deadlocks: DeadlockRow[];
@@ -204,6 +205,7 @@ async function collectFromInstance(
     fileIoStats: null,
     queryStats: null,
     procedureStats: null,
+    procedureStatements: [],
     osHostInfo: [],
     serverConfig: [],
     deadlocks: [],
@@ -235,6 +237,7 @@ async function collectFromInstance(
       Promise<OsDiskRow[]>,
       Promise<QueryStatsDelta[] | null>,
       Promise<ProcedureStatsDelta[] | null>,
+      Promise<ProcedureStatementRow[]>,
       Promise<OsHostInfoRow[]>,
       Promise<ServerConfigRow[]>,
       Promise<DeadlockRow[]>,
@@ -248,19 +251,20 @@ async function collectFromInstance(
       isDiskCycle ? collectOsDisk(pool.request()) : Promise.resolve([]),
       isQueryStatsCycle ? collectQueryStats(pool.request(), instance.id, startTime) : Promise.resolve(null),
       isQueryStatsCycle ? collectProcedureStats(pool.request(), instance.id, startTime) : Promise.resolve(null),
+      isQueryStatsCycle ? collectProcedureStatements(pool.request()) : Promise.resolve([]),
       needsHostInfo ? collectOsHostInfo(pool.request()) : Promise.resolve([]),
       needsHostInfo ? collectServerConfig(pool.request()) : Promise.resolve([]),
       isQueryStatsCycle ? collectDeadlocks(pool.request(), instance.id) : Promise.resolve([]),
       collectPerfCounters(pool.request(), instance.id, startTime),
     ];
 
-    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, procedureStats, osHostInfo, serverConfig, deadlocks, perfCounters] = await Promise.all(collectorsPromise);
+    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, procedureStats, procedureStatements, osHostInfo, serverConfig, deadlocks, perfCounters] = await Promise.all(collectorsPromise);
 
     if (needsHostInfo && osHostInfo.length > 0) {
       hostInfoCollected.add(instance.id);
     }
 
-    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} procs=${procedureStats?.length ?? 'skip'} deadlocks=${deadlocks.length} perf=${perfCounters?.length ?? 'first-run'}${needsHostInfo ? ` hostinfo=${osHostInfo.length} serverconfig=${serverConfig.length}` : ''}`);
+    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} procs=${procedureStats?.length ?? 'skip'} proc_stmts=${procedureStatements.length || 'skip'} deadlocks=${deadlocks.length} perf=${perfCounters?.length ?? 'first-run'}${needsHostInfo ? ` hostinfo=${osHostInfo.length} serverconfig=${serverConfig.length}` : ''}`);
 
     // Collect query plans (estimated + actual) on query stats cycles — non-blocking
     if (isQueryStatsCycle && queryStats && queryStats.length > 0 && pgPool) {
@@ -284,6 +288,7 @@ async function collectFromInstance(
       fileIoStats,
       queryStats,
       procedureStats,
+      procedureStatements,
       osHostInfo,
       serverConfig,
       deadlocks,
@@ -339,6 +344,7 @@ export async function collectAll(
     ['file_io_stats', () => batchInsertFileIoStats(pgPool, results)],
     ['query_stats', () => batchInsertQueryStats(pgPool, results)],
     ['procedure_stats', () => batchInsertProcedureStats(pgPool, results)],
+    ['procedure_statements', () => batchInsertProcedureStatements(pgPool, results)],
     ['os_host_info', () => batchInsertOsHostInfo(pgPool, results)],
     ['server_config', () => batchInsertServerConfig(pgPool, results)],
     ['deadlocks', () => batchInsertDeadlocks(pgPool, results)],
@@ -693,6 +699,42 @@ async function batchInsertProcedureStats(pgPool: pg.Pool, results: InstanceResul
       execution_count_delta, cpu_ms_per_sec, elapsed_ms_per_sec,
       reads_per_sec, writes_per_sec,
       avg_cpu_ms, avg_elapsed_ms, avg_reads, avg_writes, collected_at
+    ) VALUES ${placeholders.join(', ')}`,
+    values,
+  );
+}
+
+async function batchInsertProcedureStatements(pgPool: pg.Pool, results: InstanceResult[]): Promise<void> {
+  const values: unknown[] = [];
+  const placeholders: string[] = [];
+  let idx = 1;
+
+  for (const r of results) {
+    for (const row of r.procedureStatements) {
+      placeholders.push(
+        `($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`,
+      );
+      values.push(
+        r.instanceId, row.database_name, row.procedure_name,
+        row.statement_start_offset, row.statement_text,
+        row.execution_count, row.total_cpu_ms, row.total_elapsed_ms,
+        row.physical_reads, row.logical_reads, row.logical_writes,
+        row.avg_cpu_ms, row.avg_elapsed_ms,
+        row.min_grant_kb, row.last_grant_kb, new Date(),
+      );
+    }
+  }
+
+  if (placeholders.length === 0) return;
+
+  await pgPool.query(
+    `INSERT INTO procedure_statements_raw (
+      instance_id, database_name, procedure_name,
+      statement_start_offset, statement_text,
+      execution_count, total_cpu_ms, total_elapsed_ms,
+      physical_reads, logical_reads, logical_writes,
+      avg_cpu_ms, avg_elapsed_ms,
+      min_grant_kb, last_grant_kb, collected_at
     ) VALUES ${placeholders.join(', ')}`,
     values,
   );

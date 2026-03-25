@@ -17,6 +17,7 @@ const RAW_TABLES = [
   'perf_counters_raw',
   'query_stats_raw',
   'procedure_stats_raw',
+  'procedure_statements_raw',
 ];
 
 /** Tables partitioned by month (aggregation rollups). */

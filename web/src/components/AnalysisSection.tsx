@@ -728,15 +728,23 @@ function TrackedQueriesTab({ instanceId, range, timeWindow }: { instanceId: stri
 }
 
 // --- Procedure Detail Panel (shown below the row when expanded) ---
-function ProcedureDetailPanel({ instanceId, procedure }: { instanceId: string; procedure: ProcedureRow }) {
+function ProcedureDetailPanel({ instanceId, procedure, range, timeWindow }: { instanceId: string; procedure: ProcedureRow; range: string; timeWindow: TimeWindow | null }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const { sortCol: stmtSortCol, sortDir: stmtSortDir, toggle: stmtToggle, compare: stmtCompare } = useSort<ProcedureStatement & { _seq: number }>('_seq', 'asc');
 
+  // Compute from/to for the history endpoint
+  const { from, to } = useMemo(() => {
+    if (timeWindow) return { from: timeWindow.from, to: timeWindow.to };
+    const now = new Date();
+    const ms = range === '24h' ? 86400000 : range === '6h' ? 21600000 : 3600000;
+    return { from: new Date(now.getTime() - ms).toISOString(), to: now.toISOString() };
+  }, [range, timeWindow]);
+
   const { data: statements, isLoading, error } = useQuery<ProcedureStatement[]>({
-    queryKey: ['procedure-statements', instanceId, procedure.database_name, procedure.procedure_name],
+    queryKey: ['procedure-statements-history', instanceId, procedure.database_name, procedure.procedure_name, from, to],
     queryFn: async () => {
       const res = await authFetch(
-        `/api/queries/${instanceId}/procedure-statements?db=${encodeURIComponent(procedure.database_name)}&proc=${encodeURIComponent(procedure.procedure_name)}`
+        `/api/queries/${instanceId}/procedure-statements-history?db=${encodeURIComponent(procedure.database_name)}&proc=${encodeURIComponent(procedure.procedure_name)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
@@ -918,7 +926,7 @@ function TopProceduresTab({ instanceId, range, timeWindow }: { instanceId: strin
                     {isExpanded && (
                       <tr>
                         <td colSpan={10} className="p-0">
-                          <ProcedureDetailPanel instanceId={instanceId} procedure={p} />
+                          <ProcedureDetailPanel instanceId={instanceId} procedure={p} range={range} timeWindow={timeWindow} />
                         </td>
                       </tr>
                     )}

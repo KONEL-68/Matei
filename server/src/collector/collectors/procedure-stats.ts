@@ -183,6 +183,101 @@ export async function collectProcedureStats(
   return computeProcedureStatsDelta(snapshotRows, prev.snapshot, elapsedSeconds);
 }
 
+// --- Procedure statements (snapshot) ---
+
+export interface ProcedureStatementRow {
+  database_name: string;
+  procedure_name: string;
+  statement_start_offset: number;
+  statement_text: string | null;
+  execution_count: number;
+  total_cpu_ms: number;
+  total_elapsed_ms: number;
+  physical_reads: number;
+  logical_reads: number;
+  logical_writes: number;
+  avg_cpu_ms: number;
+  avg_elapsed_ms: number;
+  min_grant_kb: number | null;
+  last_grant_kb: number | null;
+}
+
+const STATEMENTS_QUERY = `
+SELECT
+    qt.dbid AS database_id,
+    qt.objectid AS object_id,
+    ISNULL(DB_NAME(qt.dbid), '?') AS database_name,
+    ISNULL(OBJECT_SCHEMA_NAME(qt.objectid, qt.dbid), 'dbo') + '.' + OBJECT_NAME(qt.objectid, qt.dbid) AS procedure_name,
+    qs.statement_start_offset,
+    SUBSTRING(qt.text, (qs.statement_start_offset/2) + 1,
+        ((CASE qs.statement_end_offset
+            WHEN -1 THEN DATALENGTH(qt.text)
+            ELSE qs.statement_end_offset END
+            - qs.statement_start_offset)/2) + 1) AS statement_text,
+    qs.execution_count,
+    qs.total_worker_time / 1000 AS total_cpu_ms,
+    qs.total_elapsed_time / 1000 AS total_elapsed_ms,
+    qs.total_physical_reads AS physical_reads,
+    qs.total_logical_reads AS logical_reads,
+    qs.total_logical_writes AS logical_writes,
+    CASE WHEN qs.execution_count > 0
+         THEN qs.total_worker_time / 1000.0 / qs.execution_count ELSE 0 END AS avg_cpu_ms,
+    CASE WHEN qs.execution_count > 0
+         THEN qs.total_elapsed_time / 1000.0 / qs.execution_count ELSE 0 END AS avg_elapsed_ms,
+    qs.min_grant_kb,
+    qs.last_grant_kb
+FROM sys.dm_exec_query_stats qs
+CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) qt
+WHERE qt.objectid IS NOT NULL
+  AND qt.dbid > 4
+ORDER BY qt.objectid, qs.statement_start_offset
+`;
+
+/**
+ * Collect procedure statements — snapshot metric (cumulative values from plan cache).
+ * Returns all statements for procedures in user databases (dbid > 4).
+ */
+export async function collectProcedureStatements(
+  request: sql.Request,
+): Promise<ProcedureStatementRow[]> {
+  const result = await request.query(STATEMENTS_QUERY);
+  const rawRows = result.recordset as Array<{
+    database_id: number;
+    object_id: number;
+    database_name: string;
+    procedure_name: string;
+    statement_start_offset: number;
+    statement_text: string | null;
+    execution_count: number;
+    total_cpu_ms: number;
+    total_elapsed_ms: number;
+    physical_reads: number;
+    logical_reads: number;
+    logical_writes: number;
+    avg_cpu_ms: number;
+    avg_elapsed_ms: number;
+    min_grant_kb: number | null;
+    last_grant_kb: number | null;
+  }>;
+
+  return rawRows.map((row) => ({
+    database_name: row.database_name,
+    procedure_name: row.procedure_name,
+    statement_start_offset: row.statement_start_offset,
+    statement_text: row.statement_text,
+    execution_count: row.execution_count,
+    total_cpu_ms: row.total_cpu_ms,
+    total_elapsed_ms: row.total_elapsed_ms,
+    physical_reads: row.physical_reads,
+    logical_reads: row.logical_reads,
+    logical_writes: row.logical_writes,
+    avg_cpu_ms: row.avg_cpu_ms,
+    avg_elapsed_ms: row.avg_elapsed_ms,
+    min_grant_kb: row.min_grant_kb,
+    last_grant_kb: row.last_grant_kb,
+  }));
+}
+
 /** Clear stored snapshot for an instance. */
 export function clearProcedureStatsSnapshot(instanceId: number): void {
   previousSnapshots.delete(instanceId);
