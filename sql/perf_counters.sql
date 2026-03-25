@@ -31,6 +31,11 @@ WHERE counter_name IN (
     'Stolen Server Memory (KB)',
     'Memory Grants Pending',
     'Bytes Sent to Replica/sec',
-    'Bytes Received from Replica/sec'
+    'Bytes Received from Replica/sec',
+    'Page Splits/sec',
+    'Full Scans/sec',
+    'Lock Timeouts/sec',
+    'Latch Waits/sec',
+    'Total Latch Wait Time (ms)'
 )
 AND instance_name IN ('', '_Total')

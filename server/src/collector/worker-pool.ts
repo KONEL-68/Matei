@@ -13,6 +13,7 @@ import { collectQueryStats, type QueryStatsDelta } from './collectors/query-stat
 import { collectOsHostInfo, type OsHostInfoRow } from './collectors/os-host-info.js';
 import { collectDeadlocks, type DeadlockRow } from './collectors/deadlocks.js';
 import { collectPerfCounters, type PerfCounterResult } from './collectors/perf-counters.js';
+import { collectServerConfig, type ServerConfigRow } from './collectors/server-config.js';
 import { evaluateAlerts, writeAlerts } from '../alerts/engine.js';
 import { fireWebhook } from '../alerts/webhook.js';
 
@@ -35,6 +36,7 @@ export interface InstanceResult {
   fileIoStats: FileIoDelta[] | null;
   queryStats: QueryStatsDelta[] | null;
   osHostInfo: OsHostInfoRow[];
+  serverConfig: ServerConfigRow[];
   deadlocks: DeadlockRow[];
   perfCounters: PerfCounterResult[] | null;
 }
@@ -200,6 +202,7 @@ async function collectFromInstance(
     fileIoStats: null,
     queryStats: null,
     osHostInfo: [],
+    serverConfig: [],
     deadlocks: [],
     perfCounters: null,
   };
@@ -216,7 +219,7 @@ async function collectFromInstance(
     const health = await collectInstanceHealth(request);
     const startTime = health[0]?.sqlserver_start_time ?? new Date();
 
-    // Collect os_host_info on first connect only (static data)
+    // Collect os_host_info and server_config on first connect only (static data)
     const needsHostInfo = !hostInfoCollected.has(instance.id);
 
     // Run remaining collectors (file I/O always, os_disk only every 10th cycle)
@@ -229,6 +232,7 @@ async function collectFromInstance(
       Promise<OsDiskRow[]>,
       Promise<QueryStatsDelta[] | null>,
       Promise<OsHostInfoRow[]>,
+      Promise<ServerConfigRow[]>,
       Promise<DeadlockRow[]>,
       Promise<PerfCounterResult[] | null>,
     ] = [
@@ -240,17 +244,18 @@ async function collectFromInstance(
       isDiskCycle ? collectOsDisk(pool.request()) : Promise.resolve([]),
       isQueryStatsCycle ? collectQueryStats(pool.request(), instance.id, startTime) : Promise.resolve(null),
       needsHostInfo ? collectOsHostInfo(pool.request()) : Promise.resolve([]),
+      needsHostInfo ? collectServerConfig(pool.request()) : Promise.resolve([]),
       isQueryStatsCycle ? collectDeadlocks(pool.request(), instance.id) : Promise.resolve([]),
       collectPerfCounters(pool.request(), instance.id, startTime),
     ];
 
-    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, osHostInfo, deadlocks, perfCounters] = await Promise.all(collectorsPromise);
+    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, osHostInfo, serverConfig, deadlocks, perfCounters] = await Promise.all(collectorsPromise);
 
     if (needsHostInfo && osHostInfo.length > 0) {
       hostInfoCollected.add(instance.id);
     }
 
-    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} deadlocks=${deadlocks.length} perf=${perfCounters?.length ?? 'first-run'}${needsHostInfo ? ` hostinfo=${osHostInfo.length}` : ''}`);
+    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} deadlocks=${deadlocks.length} perf=${perfCounters?.length ?? 'first-run'}${needsHostInfo ? ` hostinfo=${osHostInfo.length} serverconfig=${serverConfig.length}` : ''}`);
 
     // Collect query plans (estimated + actual) on query stats cycles — non-blocking
     if (isQueryStatsCycle && queryStats && queryStats.length > 0 && pgPool) {
@@ -274,6 +279,7 @@ async function collectFromInstance(
       fileIoStats,
       queryStats,
       osHostInfo,
+      serverConfig,
       deadlocks,
       perfCounters,
     };
@@ -327,6 +333,7 @@ export async function collectAll(
     ['file_io_stats', () => batchInsertFileIoStats(pgPool, results)],
     ['query_stats', () => batchInsertQueryStats(pgPool, results)],
     ['os_host_info', () => batchInsertOsHostInfo(pgPool, results)],
+    ['server_config', () => batchInsertServerConfig(pgPool, results)],
     ['deadlocks', () => batchInsertDeadlocks(pgPool, results)],
     ['perf_counters', () => batchInsertPerfCounters(pgPool, results)],
   ] as const) {
@@ -678,6 +685,35 @@ async function batchInsertOsHostInfo(pgPool: pg.Pool, results: InstanceResult[])
     ) VALUES ${placeholders.join(', ')}`,
     values,
   );
+}
+
+async function batchInsertServerConfig(pgPool: pg.Pool, results: InstanceResult[]): Promise<void> {
+  for (const r of results) {
+    for (const row of r.serverConfig) {
+      await pgPool.query(
+        `INSERT INTO server_config (
+          instance_id, server_collation, xp_cmdshell, clr_enabled,
+          external_scripts_enabled, remote_access, max_degree_of_parallelism,
+          max_server_memory_mb, cost_threshold_for_parallelism, collected_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+        ON CONFLICT (instance_id) DO UPDATE SET
+          server_collation = EXCLUDED.server_collation,
+          xp_cmdshell = EXCLUDED.xp_cmdshell,
+          clr_enabled = EXCLUDED.clr_enabled,
+          external_scripts_enabled = EXCLUDED.external_scripts_enabled,
+          remote_access = EXCLUDED.remote_access,
+          max_degree_of_parallelism = EXCLUDED.max_degree_of_parallelism,
+          max_server_memory_mb = EXCLUDED.max_server_memory_mb,
+          cost_threshold_for_parallelism = EXCLUDED.cost_threshold_for_parallelism,
+          collected_at = NOW()`,
+        [
+          r.instanceId, row.server_collation, row.xp_cmdshell, row.clr_enabled,
+          row.external_scripts_enabled, row.remote_access, row.max_degree_of_parallelism,
+          row.max_server_memory_mb, row.cost_threshold_for_parallelism,
+        ],
+      );
+    }
+  }
 }
 
 async function batchInsertDeadlocks(pgPool: pg.Pool, results: InstanceResult[]): Promise<void> {

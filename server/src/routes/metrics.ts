@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type pg from 'pg';
+import type { AppConfig } from '../config.js';
 import { EXCLUDED_WAITS } from '../collector/collectors/wait-stats.js';
 
 interface IdParam {
@@ -69,7 +70,7 @@ function queryTier(range: string | undefined): 'raw' | '5min' | 'hourly' {
   }
 }
 
-export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
+export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?: AppConfig) {
   // GET /api/metrics/overview — fleet summary
   app.get('/api/metrics/overview', async (_req, reply) => {
     const instancesResult = await pool.query(
@@ -954,6 +955,26 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool) {
     });
 
     return reply.send(merged);
+  });
+
+  // GET /api/metrics/:instanceId/server-config — read from PostgreSQL server_config table
+  app.get<{ Params: IdParam }>('/api/metrics/:id/server-config', async (req, reply) => {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `SELECT server_collation, xp_cmdshell, clr_enabled, external_scripts_enabled,
+              remote_access, max_degree_of_parallelism, max_server_memory_mb,
+              cost_threshold_for_parallelism, collected_at
+       FROM server_config
+       WHERE instance_id = $1`,
+      [id],
+    );
+
+    if (result.rows.length === 0) {
+      return reply.send(null);
+    }
+
+    return reply.send(result.rows[0]);
   });
 }
 

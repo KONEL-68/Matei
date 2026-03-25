@@ -35,7 +35,7 @@ registerAuthHook(app, jwtSecret);
 // Routes
 await authRoutes(app, pool, jwtSecret);
 await instanceRoutes(app, pool, config);
-await metricRoutes(app, pool);
+await metricRoutes(app, pool, config);
 await alertRoutes(app, pool);
 await queryRoutes(app, pool, config);
 await groupRoutes(app, pool);
