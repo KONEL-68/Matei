@@ -1,0 +1,2 @@
+- [Always write tests](feedback_always_write_tests.md) — every new collector/query/metric must have tests, no exceptions
+- [Always update docs](feedback_update_docs.md) — update CHANGELOG.md and CLAUDE.md with every commit

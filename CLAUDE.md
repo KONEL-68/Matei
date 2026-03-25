@@ -125,6 +125,8 @@ Default cycle interval: 30s (COLLECTOR_INTERVAL_MS). Some metrics skip cycles:
 | perf_counters | 30s (every cycle) | delta (rate) + snapshot (instantaneous), includes dm_os_schedulers Pending Tasks (via scheduler_stats.sql) |
 | instance_health | 30s (every cycle) | snapshot |
 | query_stats | 60s (every 2nd cycle) | delta |
+| procedure_stats | 60s (every 2nd cycle) | delta |
+| procedure_statements | 60s (every 2nd cycle) | snapshot |
 | deadlocks | 60s (every 2nd cycle) | snapshot (event-based) |
 | os_disk | 5min (every 10th cycle) | snapshot |
 | query_plans | 60s (every 2nd cycle) | snapshot (estimated + actual) |

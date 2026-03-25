@@ -7,26 +7,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-- SqlServerMetrics component: Redgate SQL Monitor-inspired section on Instance Detail page with 5 collapsible subsections (General, Latches & Locks, Buffer Cache, Server Properties, Server Configuration Options)
-- Perf counter charts: Batch Requests/sec, SQL Compilations/sec, Page Splits/sec, Full Scans/sec, User Connections, Avg Latch Wait, Lock Timeouts/sec, Lock Waits/sec, Page Life Expectancy, plus ratio charts (compilations/batch, splits/batch)
-- Server config API endpoint: GET /api/metrics/:id/server-config reads from PostgreSQL server_config table (collation, xp_cmdshell, CLR, external scripts, remote access, MAXDOP, max memory, cost threshold)
-- Server config collector: collects sys.configurations + SERVERPROPERTY on first connect (server_collation, xp_cmdshell, clr_enabled, external_scripts_enabled, remote_access, maxdop, max_memory, cost_threshold)
-- 5 new perf_counters: Page Splits/sec, Full Scans/sec, Lock Timeouts/sec, Latch Waits/sec, Total Latch Wait Time (ms)
+- SQL Server Metrics section: Redgate SQL Monitor-inspired collapsible section on Instance Detail with subsections (General, Latches & Locks, Buffer Cache, Server Properties, Server Configuration Options)
+- Perf counter charts: Batch Requests/sec, SQL Compilations/sec, Page Splits/sec, Full Scans/sec, User Connections, Avg Latch Wait, Lock Timeouts/sec, Lock Waits/sec, Page Life Expectancy, plus ratio charts
+- Server config collector: collects sys.configurations + SERVERPROPERTY on first connect, stored in PostgreSQL
+- Server config API endpoint: GET /api/metrics/:id/server-config
+- 5 new perf counters: Page Splits/sec, Full Scans/sec, Lock Timeouts/sec, Latch Waits/sec, Total Latch Wait Time (ms)
 - Migration 015: server_config table with UPSERT support
-
-### Changed
+- Expandable procedure detail rows: click a procedure to see individual SQL statements with performance stats
+- Procedure statements: sortable columns (Seq, Executions, CPU, Duration, Reads, Writes), click row for full SQL text
+- Procedure stats delta collector: collects dm_exec_procedure_stats every 60s, stored in PostgreSQL with time range support
+- Procedure statements collector: collects statements for top procedures every 60s, stored in PostgreSQL
+- Migration 016: procedure_stats_raw table with daily partitioning
+- Migration 017: procedure_statements_raw table with daily partitioning
+- GET /api/queries/:id/procedure-stats: PostgreSQL-backed procedure stats with time range filtering
+- GET /api/queries/:id/procedure-statements-history: PostgreSQL-backed procedure statements with time range
+- Shared SQL Server connection pool cache for API routes (5-minute idle timeout, auto-reconnect)
+- Specialized Claude Code agents: matei-backend-dev, matei-frontend-dev, sql-server-dba
+- 23 missing test files for full codebase coverage (488 total tests across 81 files)
+- Agent memory system with persistent rules (always write tests, always update docs)
 - Fleet dashboard with instance health cards, CPU/memory bars, top waits, deadlock badges
 - Dashboard: collapsible instance groups with grouped/ungrouped sections
 - Instance management (add/edit/delete/test connection) with group assignment
 - Instance groups: full CRUD, bulk instance assignment, inline group dropdown on instances page
-- 10 metric collectors: instance health, wait stats, active sessions, OS CPU, OS memory, disk space, file I/O, query stats, deadlocks (XE system_health), performance counters (dm_os_performance_counters + dm_os_schedulers)
+- 12 metric collectors: instance health, wait stats, active sessions, OS CPU, OS memory, disk space, file I/O, query stats, deadlocks (XE system_health), performance counters, procedure stats, server config
 - Worker pool with configurable concurrency (default 40 workers)
 - Alert engine with threshold-based alerts (CPU, memory, disk, I/O, blocking, unreachable)
 - Alert investigation: "Investigate" button deep-links to instance at alert timestamp
 - Webhook alert delivery with UI configuration (Settings > Alerts)
 - Instance detail page: Grafana-style layout with StatusBar, CPU chart, Top Waits + Memory Breakdown + Disk Space + Session Breakdown in 4-column grid
-- StatusBar: real-time KPI strip (CPU, Top Wait, Blocked, Pending, Read/Write IO, PLE, Mem Grants Pending, Batch Req/s) with Live indicator, sticky positioning, total wait ms/s with top-3 tooltip
-- CPU chart: SQL CPU + Other CPU (Idle removed), custom dark tooltip with labels, axis fixed to 0-100
+- StatusBar: real-time KPI strip with Live indicator, sticky positioning
 - SQL Memory Breakdown: Total/Target/Stolen/Database Cache/Deficit with color-coded bars
 - Session Breakdown card: Running/Runnable/Sleeping/Suspended counts (WAITFOR excluded)
 - Wait Stats: stacked bar chart (historical) + compact Top 5 table (current)
@@ -36,12 +45,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Blocking chain visualization: tree with severity color-coding and HEAD BLOCKER badge
 - Deadlock detection via XE system_health ring_buffer with XML viewer
 - File I/O: time series chart (basename labels) + compact top-10 latency table
-- Disk Space: compact card showing used GB with colored progress bars, sorted by usage DESC
-- Disk Growth Trend: historical chart with linear regression forecast ("fills in ~Xd" or "Stable")
-- Collapsible sections with lazy loading (data fetched only when expanded)
+- Disk Space: compact card showing used GB with colored progress bars
+- Disk Growth Trend: historical chart with linear regression forecast
+- Collapsible sections with lazy loading
 - Custom time range picker (From/To datetime inputs) alongside presets (1h/6h/24h/7d/30d/1y)
 - Query Explorer page with top queries by CPU/reads/duration/executions
-- On-demand execution plan retrieval (XML) from SQL Server
+- On-demand execution plan retrieval (estimated + actual) from SQL Server, cached in PostgreSQL
 - Query stats collector with delta computation (runs every 60s)
 - Data retention: partition manager (7d raw, 30d 5min, 1y hourly)
 - Aggregation jobs (raw -> 5min -> hourly rollups)
@@ -50,48 +59,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Dark mode with system preference detection and manual toggle
 - JWT-based authentication with access/refresh tokens
 - Auto-created admin user from environment variables on first startup
-- Login page with token auto-refresh on 401
 - User management: create/delete users, change password (Settings > Users)
-- Settings page with tabs: Groups, Alerts (webhook config), Retention, Users, About
-- Auto-migration on backend startup (pending migrations applied automatically)
-- Fleet Dashboard redesign: RedGate-style InstanceCard with 3 KPIs (Waits/CPU/Disk IO), alert status bar, group headers with health bar
-- Overview Timeline with drag-selection, native DOM drag overlay, dual Y-axes for CPU
-- Overview range selector (1h/6h/24h/7d) + window quick-select (15m/30m/1h/3h/12h)
-- Overview Timeline: ReferenceArea for selected window indicator, actual values in tooltip
+- Settings page with tabs: Groups, Alerts, Retention, Users, About
+- Auto-migration on backend startup
+- Overview Timeline with drag-selection and window quick-select
 - OverviewMetricCharts: per-metric detail charts below overview
-- Metric toggle checkboxes on overview timeline
-- Analysis section: RedGate Monitor-style tabs (Top Queries, Tracked Queries, Top Procedures) with sortable columns
-- Top Queries: Totals/Avg/Impact modes, search, row numbers, expandable detail panel with SQL statement, time-series charts (CPU/Duration/Reads + Executions/min), per-query wait types, memory grants, estimated/actual execution plans
-- Tracked Queries: persist queries for monitoring via bookmark icon, full CRUD with untrack support
-- Top Procedures: search filter, row limit selector, row numbers, Database column, Last Execution timestamp
-- Query detail panel: "View estimated plan" and "View actual plan" buttons with XML display
-- Query plan persistence: plans collected every 60s during collector cycle and cached in PostgreSQL (deduplicated by MD5 hash), available even after plan cache eviction
-- Actual execution plan collection via dm_exec_query_statistics_xml (requires TF 7412 or SQL Server 2019+)
-- Per-query wait types from dm_exec_session_wait_stats with wait descriptions
-- Memory grant tracking: last_grant_kb and last_used_grant_kb persisted from dm_exec_query_stats
-- Copy query text button in query detail panel
-- Migration 012: tracked_queries table
-- Migration 013: query_plans table for persisted execution plans
-- Migration 014: memory grant columns on query_stats_raw
-- 305+ tests (180 backend + 125 frontend)
+- Analysis section: tabs (Top Queries, Tracked Queries, Top Procedures) with sortable columns
+- Top Queries: Totals/Avg/Impact modes, expandable detail with time-series charts, memory grants, execution plans
+- Tracked Queries: persist queries for monitoring via bookmark icon
+- Top Procedures: search, limit selector, expandable detail with statement breakdown
+- Query plan persistence: cached in PostgreSQL, deduplicated by MD5 hash
+- Memory grant tracking from dm_exec_query_stats
 
 ### Changed
+- Analysis section wrapped in CollapsibleSection (same style as SQL Server Metrics)
+- Top Procedures: data now served from PostgreSQL with time range filtering (was live SQL Server query)
+- Procedure statements: served from PostgreSQL history (was live SQL Server query)
+- Query waits section: replaced live SQL Server call with message pointing to actual execution plans
+- Top Procedures default limit changed from 50 to 25
+- Procedures query uses GROUP BY to eliminate duplicates from multiple cached plans
+- Procedures query optimized with CTE (aggregates on integer keys, resolves names only for TOP N)
 - Analysis section: default query mode changed from Avg to Totals, moved above Active Sessions
-- Top Queries/Procedures columns renamed to match RedGate style (Execution count, Duration ms, CPU time ms, Logical reads/writes)
-- Reads/Writes: use dm_exec_requests instead of dm_exec_sessions
-- Elapsed time formatting: Xs / Xm Ys / Xh Ym / Xd Yh
-- appName = 'Matei Monitor' in mssql connection config
-- Table column widths: table-fixed with colgroup widths
+- Top Queries/Procedures columns renamed to match RedGate style
+- Added procedure_stats_raw and query_stats_raw to partition manager RAW_TABLES
 
 ### Removed
-- Top Waits tab from Analysis section (redundant with Top Waits table in 4-column grid)
+- Top Waits tab from Analysis section (redundant with Top Waits table in grid)
+- Live SQL Server calls from History tab (all data now from PostgreSQL)
 
 ### Fixed
-- Dark mode text colors on all pages (Instances table, forms, badges, empty states)
-- Wait stats chart: X axis labels, stacked BarChart instead of AreaChart
-- File I/O chart: basename-only labels in legend/tooltip
+- White screen crash in Top Procedures: null-safe formatNum and ISNULL in SQL for NULL schema names
+- Procedure statements returning no data: OBJECT_ID needs 3-part name for cross-database resolution
+- Numeric sort bug: SQL Server bigint values returned as strings caused alphabetic sorting
+- Seq column shows fixed procedure position regardless of current sort order
+- Dark mode text colors on all pages
+- Wait stats chart: X axis labels, stacked BarChart
+- File I/O chart: basename-only labels
 - perf_counters: RTRIM for nchar(128) counter_name matching
-- perf_counters_raw: DOUBLE PRECISION column for rate counter decimal values
+- perf_counters_raw: DOUBLE PRECISION for rate counter decimal values
 - Disk Space card: show used GB instead of free GB
-- Overview Timeline drag overlay positioning
-- Overview Timeline tooltip showing normalized % instead of actual values
+- Overview Timeline drag overlay positioning and tooltip values
