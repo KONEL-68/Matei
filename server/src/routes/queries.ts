@@ -142,27 +142,44 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
       const connConfig = buildConnectionConfig(instance, config.encryptionKey);
       sqlPool = await new sql.ConnectionPool(connConfig).connect();
 
+      // CTE aggregates on integer keys first (fast), then resolves names only for TOP N
       const result = await sqlPool.request().query(`
-        SELECT TOP ${limit}
+        ;WITH agg AS (
+          SELECT TOP ${limit}
+              database_id,
+              object_id,
+              SUM(execution_count) AS execution_count,
+              SUM(total_worker_time) / 1000 AS total_cpu_ms,
+              SUM(total_elapsed_time) / 1000 AS total_elapsed_ms,
+              SUM(total_logical_reads) AS total_reads,
+              SUM(total_logical_writes) AS total_writes,
+              SUM(total_worker_time) AS _sort_cpu,
+              SUM(execution_count) AS _sort_exec,
+              SUM(total_logical_reads) AS _sort_reads,
+              MAX(last_execution_time) AS last_execution_time
+          FROM sys.dm_exec_procedure_stats
+          WHERE database_id > 4
+          GROUP BY database_id, object_id
+          HAVING OBJECT_NAME(object_id, database_id) IS NOT NULL
+          ORDER BY SUM(total_worker_time) DESC
+        )
+        SELECT
             ISNULL(DB_NAME(database_id), '?') AS database_name,
             ISNULL(OBJECT_SCHEMA_NAME(object_id, database_id), 'dbo') + '.' + OBJECT_NAME(object_id, database_id) AS procedure_name,
-            SUM(execution_count) AS execution_count,
-            SUM(total_worker_time) / 1000 AS total_cpu_ms,
-            SUM(total_elapsed_time) / 1000 AS total_elapsed_ms,
-            SUM(total_logical_reads) AS total_reads,
-            SUM(total_logical_writes) AS total_writes,
-            CASE WHEN SUM(execution_count) > 0
-                 THEN SUM(total_worker_time) / 1000.0 / SUM(execution_count) ELSE 0 END AS avg_cpu_ms,
-            CASE WHEN SUM(execution_count) > 0
-                 THEN SUM(total_elapsed_time) / 1000.0 / SUM(execution_count) ELSE 0 END AS avg_elapsed_ms,
-            CASE WHEN SUM(execution_count) > 0
-                 THEN SUM(total_logical_reads) * 1.0 / SUM(execution_count) ELSE 0 END AS avg_reads,
-            MAX(last_execution_time) AS last_execution_time
-        FROM sys.dm_exec_procedure_stats
-        WHERE database_id > 4
-          AND OBJECT_NAME(object_id, database_id) IS NOT NULL
-        GROUP BY database_id, object_id
-        ORDER BY SUM(total_worker_time) DESC
+            execution_count,
+            total_cpu_ms,
+            total_elapsed_ms,
+            total_reads,
+            total_writes,
+            CASE WHEN _sort_exec > 0
+                 THEN _sort_cpu / 1000.0 / _sort_exec ELSE 0 END AS avg_cpu_ms,
+            CASE WHEN _sort_exec > 0
+                 THEN total_elapsed_ms * 1.0 / _sort_exec ELSE 0 END AS avg_elapsed_ms,
+            CASE WHEN _sort_exec > 0
+                 THEN _sort_reads * 1.0 / _sort_exec ELSE 0 END AS avg_reads,
+            last_execution_time
+        FROM agg
+        ORDER BY total_cpu_ms DESC
       `);
 
       return reply.send(result.recordset);
@@ -217,7 +234,8 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
         .input('qualifiedName', sql.NVarChar, qualifiedName)
         .input('dbName', sql.NVarChar, dbName)
         .query(`
-          SELECT TOP 20
+          SELECT
+              qs.statement_start_offset,
               SUBSTRING(qt.text, (qs.statement_start_offset/2) + 1,
                   ((CASE qs.statement_end_offset
                       WHEN -1 THEN DATALENGTH(qt.text)
@@ -240,7 +258,7 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
           CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) qt
           WHERE qt.objectid = OBJECT_ID(@qualifiedName)
             AND qt.dbid = DB_ID(@dbName)
-          ORDER BY qs.total_worker_time DESC
+          ORDER BY qs.statement_start_offset ASC
         `);
 
       return reply.send(result.recordset);

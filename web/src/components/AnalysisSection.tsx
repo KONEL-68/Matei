@@ -58,6 +58,7 @@ interface ProcedureRow {
 }
 
 interface ProcedureStatement {
+  statement_start_offset: number;
   statement_text: string;
   execution_count: number;
   total_cpu_ms: number;
@@ -719,6 +720,9 @@ function TrackedQueriesTab({ instanceId, range, timeWindow }: { instanceId: stri
 
 // --- Procedure Detail Panel (shown below the row when expanded) ---
 function ProcedureDetailPanel({ instanceId, procedure }: { instanceId: string; procedure: ProcedureRow }) {
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const { sortCol: stmtSortCol, sortDir: stmtSortDir, toggle: stmtToggle, compare: stmtCompare } = useSort<ProcedureStatement>('statement_start_offset', 'asc');
+
   const { data: statements, isLoading, error } = useQuery<ProcedureStatement[]>({
     queryKey: ['procedure-statements', instanceId, procedure.database_name, procedure.procedure_name],
     queryFn: async () => {
@@ -729,6 +733,11 @@ function ProcedureDetailPanel({ instanceId, procedure }: { instanceId: string; p
       return res.json();
     },
   });
+
+  const sorted = useMemo(() => {
+    if (!statements) return [];
+    return [...statements].sort(stmtCompare);
+  }, [statements, stmtCompare]);
 
   return (
     <div className="bg-gray-50 dark:bg-gray-800/50 border-t border-gray-200 dark:border-gray-700 px-4 py-3 space-y-3">
@@ -743,38 +752,56 @@ function ProcedureDetailPanel({ instanceId, procedure }: { instanceId: string; p
         <div className="text-xs text-gray-500 dark:text-gray-400 py-2">Loading statements...</div>
       ) : error ? (
         <div className="text-xs text-red-500 dark:text-red-400 py-2">Failed to load statement data.</div>
-      ) : !statements || statements.length === 0 ? (
+      ) : !sorted || sorted.length === 0 ? (
         <div className="text-xs text-gray-500 dark:text-gray-400 py-2">No statement data available.</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="text-[10px] font-medium uppercase text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
               <tr>
+                <SortTh column="statement_start_offset" current={stmtSortCol} dir={stmtSortDir} onSort={stmtToggle} className="pr-1 w-6">#</SortTh>
                 <th className="py-1.5 pr-3">Query text</th>
-                <th className="py-1.5 pr-2 text-right">Execution count</th>
-                <th className="py-1.5 pr-2 text-right">CPU time (ms)</th>
-                <th className="py-1.5 pr-2 text-right">Duration (ms)</th>
-                <th className="py-1.5 pr-2 text-right">Physical reads</th>
-                <th className="py-1.5 pr-2 text-right">Logical reads</th>
-                <th className="py-1.5 pr-2 text-right">Logical writes</th>
-                <th className="py-1.5 text-right">Memory grant (KB)</th>
+                <SortTh column="execution_count" current={stmtSortCol} dir={stmtSortDir} onSort={stmtToggle} className="text-right pr-2">Executions</SortTh>
+                <SortTh column="total_cpu_ms" current={stmtSortCol} dir={stmtSortDir} onSort={stmtToggle} className="text-right pr-2">CPU (ms)</SortTh>
+                <SortTh column="total_elapsed_ms" current={stmtSortCol} dir={stmtSortDir} onSort={stmtToggle} className="text-right pr-2">Duration (ms)</SortTh>
+                <SortTh column="physical_reads" current={stmtSortCol} dir={stmtSortDir} onSort={stmtToggle} className="text-right pr-2">Phys reads</SortTh>
+                <SortTh column="logical_reads" current={stmtSortCol} dir={stmtSortDir} onSort={stmtToggle} className="text-right pr-2">Log reads</SortTh>
+                <SortTh column="logical_writes" current={stmtSortCol} dir={stmtSortDir} onSort={stmtToggle} className="text-right pr-2">Log writes</SortTh>
+                <th className="py-1.5 text-right">Memory (KB)</th>
               </tr>
             </thead>
             <tbody>
-              {statements.map((s, i) => (
-                <tr key={i} className="border-b border-gray-100 dark:border-gray-800">
-                  <td className="py-1.5 pr-3 font-mono text-gray-700 dark:text-gray-300 max-w-[350px]">
-                    <div className="truncate" title={s.statement_text}>{s.statement_text}</div>
-                  </td>
-                  <td className="py-1.5 pr-2 text-right font-medium text-gray-900 dark:text-gray-100">{formatNum(s.execution_count, 0)}</td>
-                  <td className="py-1.5 pr-2 text-right font-medium text-gray-900 dark:text-gray-100">{formatNum(s.total_cpu_ms, 0)}</td>
-                  <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{formatNum(s.total_elapsed_ms, 0)}</td>
-                  <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{formatNum(s.physical_reads, 0)}</td>
-                  <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{formatNum(s.logical_reads, 0)}</td>
-                  <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{formatNum(s.logical_writes, 0)}</td>
-                  <td className="py-1.5 text-right text-gray-500 dark:text-gray-400">{s.last_grant_kb != null ? formatNum(s.last_grant_kb, 0) : '-'}</td>
-                </tr>
-              ))}
+              {sorted.map((s, i) => {
+                const isOpen = expandedIdx === i;
+                return (
+                  <Fragment key={i}>
+                    <tr
+                      className={`border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50 ${isOpen ? 'bg-gray-100 dark:bg-gray-700/50' : ''}`}
+                      onClick={() => setExpandedIdx(isOpen ? null : i)}
+                    >
+                      <td className="py-1.5 pr-1 text-gray-400 dark:text-gray-500">{i + 1}</td>
+                      <td className="py-1.5 pr-3 font-mono text-gray-700 dark:text-gray-300 max-w-[350px]">
+                        <div className="truncate">{s.statement_text}</div>
+                      </td>
+                      <td className="py-1.5 pr-2 text-right font-medium text-gray-900 dark:text-gray-100">{formatNum(s.execution_count, 0)}</td>
+                      <td className="py-1.5 pr-2 text-right font-medium text-gray-900 dark:text-gray-100">{formatNum(s.total_cpu_ms, 0)}</td>
+                      <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{formatNum(s.total_elapsed_ms, 0)}</td>
+                      <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{formatNum(s.physical_reads, 0)}</td>
+                      <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{formatNum(s.logical_reads, 0)}</td>
+                      <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{formatNum(s.logical_writes, 0)}</td>
+                      <td className="py-1.5 text-right text-gray-500 dark:text-gray-400">{s.last_grant_kb != null ? formatNum(s.last_grant_kb, 0) : '-'}</td>
+                    </tr>
+                    {isOpen && (
+                      <tr>
+                        <td colSpan={9} className="bg-gray-100 dark:bg-gray-700/30 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                          <div className="text-[10px] font-medium uppercase text-gray-500 dark:text-gray-400 mb-1">Full statement text</div>
+                          <pre className="whitespace-pre-wrap break-words text-xs font-mono text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700 p-3 max-h-64 overflow-y-auto">{s.statement_text}</pre>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
