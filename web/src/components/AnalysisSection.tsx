@@ -730,7 +730,7 @@ function TrackedQueriesTab({ instanceId, range, timeWindow }: { instanceId: stri
 // --- Procedure Detail Panel (shown below the row when expanded) ---
 function ProcedureDetailPanel({ instanceId, procedure }: { instanceId: string; procedure: ProcedureRow }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
-  const { sortCol: stmtSortCol, sortDir: stmtSortDir, toggle: stmtToggle, compare: stmtCompare } = useSort<ProcedureStatement>('statement_start_offset', 'asc');
+  const { sortCol: stmtSortCol, sortDir: stmtSortDir, toggle: stmtToggle, compare: stmtCompare } = useSort<ProcedureStatement & { _seq: number }>('_seq', 'asc');
 
   const { data: statements, isLoading, error } = useQuery<ProcedureStatement[]>({
     queryKey: ['procedure-statements', instanceId, procedure.database_name, procedure.procedure_name],
@@ -743,10 +743,17 @@ function ProcedureDetailPanel({ instanceId, procedure }: { instanceId: string; p
     },
   });
 
-  const sorted = useMemo(() => {
+  // Assign fixed sequence numbers based on position in procedure (statement_start_offset order)
+  const withSeq = useMemo(() => {
     if (!statements) return [];
-    return [...statements].sort(stmtCompare);
-  }, [statements, stmtCompare]);
+    return [...statements]
+      .sort((a, b) => a.statement_start_offset - b.statement_start_offset)
+      .map((s, i) => ({ ...s, _seq: i + 1 }));
+  }, [statements]);
+
+  const sorted = useMemo(() => {
+    return [...withSeq].sort(stmtCompare);
+  }, [withSeq, stmtCompare]);
 
   return (
     <div className="bg-gray-50 dark:bg-gray-800/50 border-t border-gray-200 dark:border-gray-700 px-4 py-3 space-y-3">
@@ -768,7 +775,7 @@ function ProcedureDetailPanel({ instanceId, procedure }: { instanceId: string; p
           <table className="w-full text-left text-xs">
             <thead className="text-[10px] font-medium uppercase text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
               <tr>
-                <SortTh column="statement_start_offset" current={stmtSortCol} dir={stmtSortDir} onSort={stmtToggle} className="pr-1 w-10">Seq</SortTh>
+                <SortTh column="_seq" current={stmtSortCol} dir={stmtSortDir} onSort={stmtToggle} className="pr-1 w-10">Seq</SortTh>
                 <th className="py-1.5 pr-3">Query text</th>
                 <SortTh column="execution_count" current={stmtSortCol} dir={stmtSortDir} onSort={stmtToggle} className="text-right pr-2">Executions</SortTh>
                 <SortTh column="total_cpu_ms" current={stmtSortCol} dir={stmtSortDir} onSort={stmtToggle} className="text-right pr-2">CPU (ms)</SortTh>
@@ -788,7 +795,7 @@ function ProcedureDetailPanel({ instanceId, procedure }: { instanceId: string; p
                       className={`border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50 ${isOpen ? 'bg-gray-100 dark:bg-gray-700/50' : ''}`}
                       onClick={() => setExpandedIdx(isOpen ? null : i)}
                     >
-                      <td className="py-1.5 pr-1 text-gray-400 dark:text-gray-500">{i + 1}</td>
+                      <td className="py-1.5 pr-1 text-gray-400 dark:text-gray-500">{s._seq}</td>
                       <td className="py-1.5 pr-3 font-mono text-gray-700 dark:text-gray-300 max-w-[350px]">
                         <div className="truncate">{s.statement_text}</div>
                       </td>
