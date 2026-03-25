@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type pg from 'pg';
 import sql from 'mssql';
 import type { AppConfig } from '../config.js';
-import { buildConnectionConfig, type InstanceRecord } from '../lib/mssql.js';
+import { getSharedPool, closeSharedPool, type InstanceRecord } from '../lib/mssql.js';
 
 interface IdParam {
   id: string;
@@ -137,10 +137,8 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
       encrypted_credentials: row.encrypted_credentials ? row.encrypted_credentials.toString('utf8') : null,
     };
 
-    let sqlPool: sql.ConnectionPool | null = null;
     try {
-      const connConfig = buildConnectionConfig(instance, config.encryptionKey);
-      sqlPool = await new sql.ConnectionPool(connConfig).connect();
+      const sqlPool = await getSharedPool(instance, config.encryptionKey);
 
       // CTE aggregates on integer keys first (fast), then resolves names only for TOP N
       const result = await sqlPool.request().query(`
@@ -184,12 +182,9 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
 
       return reply.send(result.recordset);
     } catch (err) {
+      closeSharedPool(instance.id);
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: `Failed to retrieve procedures: ${message}` });
-    } finally {
-      if (sqlPool) {
-        try { await sqlPool.close(); } catch { /* ignore */ }
-      }
     }
   });
 
@@ -221,10 +216,8 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
       encrypted_credentials: row.encrypted_credentials ? row.encrypted_credentials.toString('utf8') : null,
     };
 
-    let sqlPool: sql.ConnectionPool | null = null;
     try {
-      const connConfig = buildConnectionConfig(instance, config.encryptionKey);
-      sqlPool = await new sql.ConnectionPool(connConfig).connect();
+      const sqlPool = await getSharedPool(instance, config.encryptionKey);
 
       // Build 3-part name for OBJECT_ID so it resolves in the correct database context
       // procName is already schema-qualified (e.g. "dbo.MyProc"), so we prepend dbName
@@ -263,12 +256,9 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
 
       return reply.send(result.recordset);
     } catch (err) {
+      closeSharedPool(instance.id);
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: `Failed to retrieve procedure statements: ${message}` });
-    } finally {
-      if (sqlPool) {
-        try { await sqlPool.close(); } catch { /* ignore */ }
-      }
     }
   });
 
@@ -402,7 +392,7 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
     return reply.send(result.rows);
   });
 
-  // Helper: get SQL Server connection for an instance
+  // Helper: get shared SQL Server connection for an instance
   async function getSqlConnection(instanceId: string): Promise<{ instance: InstanceRecord; sqlPool: sql.ConnectionPool } | null> {
     const instanceResult = await pool.query(
       'SELECT id, host, port, auth_type, encrypted_credentials FROM instances WHERE id = $1',
@@ -419,8 +409,7 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
       encrypted_credentials: row.encrypted_credentials ? row.encrypted_credentials.toString('utf8') : null,
     };
 
-    const connConfig = buildConnectionConfig(instance, config.encryptionKey);
-    const sqlPool = await new sql.ConnectionPool(connConfig).connect();
+    const sqlPool = await getSharedPool(instance, config.encryptionKey);
     return { instance, sqlPool };
   }
 
@@ -486,10 +475,9 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
 
       return reply.send({ plan: planXml, source: 'live' });
     } catch (err) {
+      closeSharedPool(conn.instance.id);
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: `Failed to retrieve plan: ${message}` });
-    } finally {
-      try { await conn.sqlPool.close(); } catch { /* ignore */ }
     }
   });
 
@@ -541,9 +529,8 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
         if (stored) return reply.send({ plan: stored, source: 'cached', message: 'dm_exec_query_statistics_xml not available — showing last captured actual plan' });
         return reply.send({ plan: null, message: 'Actual plans not supported — requires SQL Server 2016 SP1+ with lightweight profiling (TF 7412)' });
       }
+      closeSharedPool(conn.instance.id);
       return reply.status(500).send({ error: `Failed to retrieve actual plan: ${message}` });
-    } finally {
-      try { await conn.sqlPool.close(); } catch { /* ignore */ }
     }
   });
 
@@ -607,9 +594,8 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
       if (message.includes('session_wait_stats') || message.includes('Invalid object')) {
         return reply.send({ session_waits: [], current_requests: [], message: 'Per-session wait stats require SQL Server 2016+' });
       }
+      closeSharedPool(conn.instance.id);
       return reply.status(500).send({ error: `Failed to retrieve query waits: ${message}` });
-    } finally {
-      try { await conn.sqlPool.close(); } catch { /* ignore */ }
     }
   });
 }

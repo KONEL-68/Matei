@@ -45,6 +45,52 @@ export function buildConnectionConfig(instance: InstanceRecord, encryptionKey: s
   return config;
 }
 
+// Shared connection pool cache for API routes
+// Pools are cached by instance ID and auto-closed after 5 minutes of inactivity
+const poolCache = new Map<number, { pool: sql.ConnectionPool; timer: ReturnType<typeof setTimeout> }>();
+const POOL_IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+
+export async function getSharedPool(instance: InstanceRecord, encryptionKey: string): Promise<sql.ConnectionPool> {
+  const existing = poolCache.get(instance.id);
+  if (existing && existing.pool.connected) {
+    // Reset idle timer
+    clearTimeout(existing.timer);
+    existing.timer = setTimeout(() => closeSharedPool(instance.id), POOL_IDLE_TIMEOUT);
+    return existing.pool;
+  }
+
+  // Clean up stale entry if it exists but is disconnected
+  if (existing) {
+    clearTimeout(existing.timer);
+    existing.pool.close().catch(() => {});
+    poolCache.delete(instance.id);
+  }
+
+  // Create new pool
+  const config = buildConnectionConfig(instance, encryptionKey);
+  const pool = await new sql.ConnectionPool(config).connect();
+
+  const timer = setTimeout(() => closeSharedPool(instance.id), POOL_IDLE_TIMEOUT);
+  poolCache.set(instance.id, { pool, timer });
+
+  return pool;
+}
+
+export function closeSharedPool(instanceId: number): void {
+  const entry = poolCache.get(instanceId);
+  if (entry) {
+    clearTimeout(entry.timer);
+    entry.pool.close().catch(() => {});
+    poolCache.delete(instanceId);
+  }
+}
+
+export function closeAllSharedPools(): void {
+  for (const [id] of poolCache) {
+    closeSharedPool(id);
+  }
+}
+
 export async function testConnection(
   config: sql.config,
 ): Promise<{ ok: true; result: sql.IRecordSet<Record<string, unknown>> } | { ok: false; error: string }> {

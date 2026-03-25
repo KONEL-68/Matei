@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import crypto from 'node:crypto';
-import { buildConnectionConfig, type InstanceRecord } from '../../lib/mssql.js';
+import { buildConnectionConfig, getSharedPool, closeSharedPool, closeAllSharedPools, type InstanceRecord } from '../../lib/mssql.js';
 import { encrypt } from '../../lib/crypto.js';
 
 const TEST_KEY = crypto.randomBytes(32).toString('hex');
@@ -88,5 +88,168 @@ describe('buildConnectionConfig', () => {
     };
 
     expect(() => buildConnectionConfig(instance, TEST_KEY)).toThrow();
+  });
+});
+
+// --- Shared pool cache tests ---
+// These tests mock mssql.ConnectionPool to avoid real SQL Server connections
+
+const mockClose = vi.fn().mockResolvedValue(undefined);
+const mockRequest = vi.fn();
+const mockConnect = vi.fn();
+
+vi.mock('mssql', () => ({
+  default: {
+    ConnectionPool: vi.fn().mockImplementation(() => ({
+      connect: mockConnect,
+    })),
+  },
+}));
+
+function makeInstance(id: number): InstanceRecord {
+  return {
+    id,
+    host: `sql${id}.local`,
+    port: 1433,
+    auth_type: 'sql',
+    encrypted_credentials: null,
+  };
+}
+
+describe('shared pool cache', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    closeAllSharedPools();
+    vi.clearAllMocks();
+
+    mockConnect.mockResolvedValue({
+      connected: true,
+      close: mockClose,
+      request: mockRequest,
+    });
+  });
+
+  afterEach(() => {
+    closeAllSharedPools();
+    vi.useRealTimers();
+  });
+
+  it('getSharedPool creates a new pool on first call', async () => {
+    const instance = makeInstance(100);
+    const pool = await getSharedPool(instance, TEST_KEY);
+
+    expect(pool.connected).toBe(true);
+    expect(mockConnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('getSharedPool returns the same pool on subsequent calls', async () => {
+    const instance = makeInstance(101);
+    const pool1 = await getSharedPool(instance, TEST_KEY);
+    const pool2 = await getSharedPool(instance, TEST_KEY);
+
+    expect(pool1).toBe(pool2);
+    // connect() should only have been called once (pool was reused)
+    expect(mockConnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('getSharedPool creates separate pools for different instances', async () => {
+    const instance1 = makeInstance(102);
+    const instance2 = makeInstance(103);
+
+    // Return distinct objects for each connect call
+    mockConnect
+      .mockResolvedValueOnce({ connected: true, close: mockClose, request: mockRequest })
+      .mockResolvedValueOnce({ connected: true, close: mockClose, request: mockRequest });
+
+    const pool1 = await getSharedPool(instance1, TEST_KEY);
+    const pool2 = await getSharedPool(instance2, TEST_KEY);
+
+    expect(pool1).not.toBe(pool2);
+    expect(mockConnect).toHaveBeenCalledTimes(2);
+  });
+
+  it('closeSharedPool removes the pool from cache', async () => {
+    const instance = makeInstance(104);
+    await getSharedPool(instance, TEST_KEY);
+
+    closeSharedPool(instance.id);
+
+    // Next call should create a new pool
+    await getSharedPool(instance, TEST_KEY);
+    expect(mockConnect).toHaveBeenCalledTimes(2);
+  });
+
+  it('closeSharedPool is a no-op for unknown instance IDs', () => {
+    // Should not throw
+    closeSharedPool(99999);
+  });
+
+  it('closeAllSharedPools closes all cached pools', async () => {
+    const instance1 = makeInstance(105);
+    const instance2 = makeInstance(106);
+
+    await getSharedPool(instance1, TEST_KEY);
+    await getSharedPool(instance2, TEST_KEY);
+
+    closeAllSharedPools();
+
+    // Both should create new pools now
+    await getSharedPool(instance1, TEST_KEY);
+    await getSharedPool(instance2, TEST_KEY);
+    // 2 initial + 2 after closeAll
+    expect(mockConnect).toHaveBeenCalledTimes(4);
+  });
+
+  it('pool is auto-closed after 5 minutes of inactivity', async () => {
+    const instance = makeInstance(107);
+    await getSharedPool(instance, TEST_KEY);
+
+    // Advance time past the 5-minute idle timeout
+    vi.advanceTimersByTime(5 * 60 * 1000 + 100);
+
+    // Pool should have been evicted, next call creates a new one
+    await getSharedPool(instance, TEST_KEY);
+    expect(mockConnect).toHaveBeenCalledTimes(2);
+  });
+
+  it('idle timer resets on each getSharedPool call', async () => {
+    const instance = makeInstance(108);
+    await getSharedPool(instance, TEST_KEY);
+
+    // Advance 4 minutes (still within timeout)
+    vi.advanceTimersByTime(4 * 60 * 1000);
+    await getSharedPool(instance, TEST_KEY);
+
+    // Advance another 4 minutes (would have expired without the reset)
+    vi.advanceTimersByTime(4 * 60 * 1000);
+    await getSharedPool(instance, TEST_KEY);
+
+    // Pool should have been reused all three times (only 1 connect call)
+    expect(mockConnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('getSharedPool creates a new pool if existing pool is disconnected', async () => {
+    const instance = makeInstance(109);
+
+    // First call creates a connected pool
+    mockConnect.mockResolvedValueOnce({
+      connected: true,
+      close: mockClose,
+      request: mockRequest,
+    });
+    await getSharedPool(instance, TEST_KEY);
+
+    // Simulate the pool becoming disconnected
+    closeSharedPool(instance.id);
+
+    // Manually set up a disconnected pool entry to test the reconnect path
+    mockConnect.mockResolvedValueOnce({
+      connected: true,
+      close: mockClose,
+      request: mockRequest,
+    });
+    const pool2 = await getSharedPool(instance, TEST_KEY);
+    expect(pool2.connected).toBe(true);
+    expect(mockConnect).toHaveBeenCalledTimes(2);
   });
 });

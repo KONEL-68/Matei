@@ -8,26 +8,21 @@ const mockRequest = {
 };
 const mockSqlPool = {
   request: vi.fn(() => mockRequest),
-  close: vi.fn().mockResolvedValue(undefined),
+  connected: true,
 };
 vi.mock('mssql', () => {
   return {
     default: {
-      ConnectionPool: vi.fn(() => ({
-        connect: vi.fn().mockResolvedValue(mockSqlPool),
-      })),
       NVarChar: 'NVarChar',
     },
   };
 });
 
-// Mock buildConnectionConfig to avoid crypto/decryption
+// Mock getSharedPool and closeSharedPool
+const mockCloseSharedPool = vi.fn();
 vi.mock('../../lib/mssql.js', () => ({
-  buildConnectionConfig: vi.fn(() => ({
-    server: 'localhost',
-    port: 1433,
-    options: { encrypt: true, trustServerCertificate: true },
-  })),
+  getSharedPool: vi.fn().mockImplementation(() => Promise.resolve(mockSqlPool)),
+  closeSharedPool: (...args: unknown[]) => mockCloseSharedPool(...args),
 }));
 
 import { queryRoutes } from '../../routes/queries.js';
@@ -161,7 +156,7 @@ describe('GET /api/queries/:id/procedure-statements', () => {
     const body = JSON.parse(res.body);
     expect(body.error).toContain('Connection timeout');
 
-    // Verify connection was closed in finally block
-    expect(mockSqlPool.close).toHaveBeenCalled();
+    // Verify shared pool was evicted on error
+    expect(mockCloseSharedPool).toHaveBeenCalled();
   });
 });
