@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
-import { insertGapBreaks } from '@/lib/chart-utils';
+import { insertGapBreaks, generateTicks } from '@/lib/chart-utils';
 
 interface DiskChartProps {
   instanceId: string;
@@ -133,16 +133,25 @@ export function DiskChart({ instanceId, range }: DiskChartProps) {
 
   const chartData = insertGapBreaks(preForecastData, 'bucket');
 
+  // Numeric x-axis domain and ticks
+  const allTs = preForecastData.map((d) => d.ts);
+  const minTs = Math.min(...allTs);
+  const maxTs = Math.max(...allTs);
+  const axisTicks = generateTicks(minTs, maxTs, 10);
+
   return (
     <div>
       <ResponsiveContainer width="100%" height={220}>
         <ComposedChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
           <XAxis
-            dataKey="bucket"
+            dataKey="ts"
+            type="number"
+            domain={[minTs, maxTs]}
+            ticks={axisTicks}
             fontSize={11}
             tick={{ fill: dark ? '#9ca3af' : '#6b7280' }}
-            tickFormatter={(v: string) => formatTime(v)}
+            tickFormatter={(v: number) => formatTime(new Date(v).toISOString())}
           />
           <YAxis domain={[0, 100]} fontSize={11} tick={{ fill: dark ? '#9ca3af' : '#6b7280' }} />
           <Tooltip
@@ -152,7 +161,7 @@ export function DiskChart({ instanceId, range }: DiskChartProps) {
               backgroundColor: dark ? '#1f2937' : '#fff',
               color: dark ? '#e5e7eb' : '#111',
             }}
-            labelFormatter={(v: string) => formatTime(v)}
+            labelFormatter={(v: number) => formatTime(new Date(v).toISOString())}
             formatter={(value: number) => [`${value.toFixed(1)}%`]}
           />
           <Legend wrapperStyle={{ fontSize: 11, color: dark ? '#d1d5db' : undefined }} />
@@ -161,7 +170,7 @@ export function DiskChart({ instanceId, range }: DiskChartProps) {
           {volumes.map((vol, i) => (
             <Line
               key={vol}
-              type="monotone"
+              type="linear"
               dataKey={vol}
               stroke={COLORS[i % COLORS.length]}
               strokeWidth={2}
@@ -172,7 +181,7 @@ export function DiskChart({ instanceId, range }: DiskChartProps) {
           {volumes.map((vol, i) => (
             <Line
               key={`${vol}_forecast`}
-              type="monotone"
+              type="linear"
               dataKey={`${vol}_forecast`}
               stroke={COLORS[i % COLORS.length]}
               strokeWidth={1.5}

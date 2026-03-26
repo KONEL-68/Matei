@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
-import { insertGapBreaks } from '@/lib/chart-utils';
+import { insertGapBreaks, generateTicks } from '@/lib/chart-utils';
 import type { TimeWindow } from '@/components/OverviewTimeline';
 
 interface Props {
@@ -33,12 +33,15 @@ interface TPayload {
 }
 
 function SimpleTooltip({ active, payload, label, unit }: {
-  active?: boolean; payload?: TPayload[]; label?: string; unit: string;
+  active?: boolean; payload?: TPayload[]; label?: string | number; unit: string;
 }) {
   if (!active || !payload?.length) return null;
+  const displayLabel = label != null && typeof label === 'number'
+    ? formatTime(new Date(label).toISOString())
+    : (label ?? '');
   return (
     <div className="rounded border border-gray-700 bg-gray-900 p-2 text-xs shadow-lg">
-      <p className="mb-1 text-gray-400">{label ?? ''}</p>
+      <p className="mb-1 text-gray-400">{displayLabel}</p>
       {payload.map((p) => (
         <div key={p.dataKey} className="flex items-center gap-2">
           <span style={{ color: p.color }}>&#9632;</span>
@@ -51,7 +54,7 @@ function SimpleTooltip({ active, payload, label, unit }: {
 }
 
 // ── CPU ──
-function CpuMiniChart({ instanceId, rangeParams, dark }: { instanceId: string; rangeParams: string; dark: boolean }) {
+function CpuMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instanceId: string; rangeParams: string; dark: boolean; timeWindow: TimeWindow | null }) {
   const { data = [] } = useQuery<Array<{ sql_cpu_pct: number; other_process_cpu_pct: number; collected_at: string }>>({
     queryKey: ['overview-cpu', instanceId, rangeParams],
     queryFn: async () => {
@@ -70,6 +73,12 @@ function CpuMiniChart({ instanceId, rangeParams, dark }: { instanceId: string; r
   }));
   const chartData = insertGapBreaks(mapped, 'time');
 
+  // Clip x-axis domain to actual data bounds so lines don't droop into empty space
+  const timestamps = mapped.map((d) => d.ts);
+  const minTs = timestamps.length > 0 ? Math.min(...timestamps) : (timeWindow ? new Date(timeWindow.from).getTime() : 0);
+  const maxTs = timestamps.length > 0 ? Math.max(...timestamps) : (timeWindow ? new Date(timeWindow.to).getTime() : 0);
+  const axisTicks = generateTicks(minTs, maxTs, 8);
+
   if (chartData.length === 0) return <EmptyPanel title="CPU Utilization (%)" />;
 
   return (
@@ -77,12 +86,12 @@ function CpuMiniChart({ instanceId, rangeParams, dark }: { instanceId: string; r
       <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
         <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
-          <XAxis dataKey="time" fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} />
+          <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
           <YAxis domain={[0, 100]} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={30} />
           <Tooltip content={<SimpleTooltip unit="%" />} />
           <Legend wrapperStyle={{ fontSize: 10 }} />
-          <Line type="monotone" dataKey="SQL CPU" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls={false} />
-          <Line type="monotone" dataKey="Other CPU" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls={false} />
+          <Line type="linear" dataKey="SQL CPU" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls={false} />
+          <Line type="linear" dataKey="Other CPU" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls={false} />
         </LineChart>
       </ResponsiveContainer>
     </Panel>
@@ -90,7 +99,7 @@ function CpuMiniChart({ instanceId, rangeParams, dark }: { instanceId: string; r
 }
 
 // ── Memory ──
-function MemoryMiniChart({ instanceId, rangeParams, dark }: { instanceId: string; rangeParams: string; dark: boolean }) {
+function MemoryMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instanceId: string; rangeParams: string; dark: boolean; timeWindow: TimeWindow | null }) {
   const { data = [] } = useQuery<Array<{
     os_total_memory_mb: number; sql_committed_mb: number; sql_target_mb: number; collected_at: string;
   }>>({
@@ -117,6 +126,12 @@ function MemoryMiniChart({ instanceId, rangeParams, dark }: { instanceId: string
   });
   const chartData = insertGapBreaks(mapped, 'time');
 
+  // Clip x-axis domain to actual data bounds so lines don't droop into empty space
+  const timestamps = mapped.map((d) => d.ts);
+  const minTs = timestamps.length > 0 ? Math.min(...timestamps) : (timeWindow ? new Date(timeWindow.from).getTime() : 0);
+  const maxTs = timestamps.length > 0 ? Math.max(...timestamps) : (timeWindow ? new Date(timeWindow.to).getTime() : 0);
+  const axisTicks = generateTicks(minTs, maxTs, 8);
+
   if (chartData.length === 0) return <EmptyPanel title="SQL Memory (GB)" />;
 
   const allVals = data.flatMap(d => [d.sql_committed_mb, d.sql_target_mb]);
@@ -131,13 +146,13 @@ function MemoryMiniChart({ instanceId, rangeParams, dark }: { instanceId: string
       <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
         <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
-          <XAxis dataKey="time" fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} />
+          <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
           <YAxis domain={[yMin, yMax]} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={40} tickFormatter={formatGB} />
           <Tooltip content={({ active, payload, label }) => {
             if (!active || !payload?.length) return null;
             return (
               <div className="rounded border border-gray-700 bg-gray-900 p-2 text-xs shadow-lg">
-                <p className="mb-1 text-gray-400">{label ?? ''}</p>
+                <p className="mb-1 text-gray-400">{label != null ? formatTime(new Date(Number(label)).toISOString()) : ''}</p>
                 {payload.filter((p: any) => p.value != null).map((p: any) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
                   <div key={p.dataKey} className="flex items-center gap-2">
                     <span style={{ color: p.color }}>&#9632;</span>
@@ -149,9 +164,9 @@ function MemoryMiniChart({ instanceId, rangeParams, dark }: { instanceId: string
             );
           }} />
           <Legend wrapperStyle={{ fontSize: 10 }} />
-          <Line type="monotone" dataKey="SQL Committed" stroke="#8b5cf6" strokeWidth={1.5} dot={false} connectNulls={false} />
-          <Line type="monotone" dataKey="SQL Target" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls={false} />
-          {hasDeficit && <Line type="monotone" dataKey="Memory Deficit" stroke="#ef4444" strokeWidth={1.5} dot={false} strokeDasharray="5 3" connectNulls={false} />}
+          <Line type="linear" dataKey="SQL Committed" stroke="#8b5cf6" strokeWidth={1.5} dot={false} connectNulls={false} />
+          <Line type="linear" dataKey="SQL Target" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls={false} />
+          {hasDeficit && <Line type="linear" dataKey="Memory Deficit" stroke="#ef4444" strokeWidth={1.5} dot={false} strokeDasharray="5 3" connectNulls={false} />}
         </LineChart>
       </ResponsiveContainer>
     </Panel>
@@ -226,7 +241,7 @@ function WaitsMiniChart({ instanceId, rangeParams, dark }: { instanceId: string;
 }
 
 // ── Disk I/O Throughput ──
-function DiskIoMiniChart({ instanceId, rangeParams, dark }: { instanceId: string; rangeParams: string; dark: boolean }) {
+function DiskIoMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instanceId: string; rangeParams: string; dark: boolean; timeWindow: TimeWindow | null }) {
   const { data: overviewData = [] } = useQuery<Array<{
     bucket: string; disk_read_mb_per_sec: number | null; disk_write_mb_per_sec: number | null;
   }>>({
@@ -249,6 +264,12 @@ function DiskIoMiniChart({ instanceId, rangeParams, dark }: { instanceId: string
     }));
   const chartData = insertGapBreaks(mapped, 'time');
 
+  // Clip x-axis domain to actual data bounds so lines don't droop into empty space
+  const timestamps = mapped.map((d) => d.ts);
+  const minTs = timestamps.length > 0 ? Math.min(...timestamps) : (timeWindow ? new Date(timeWindow.from).getTime() : 0);
+  const maxTs = timestamps.length > 0 ? Math.max(...timestamps) : (timeWindow ? new Date(timeWindow.to).getTime() : 0);
+  const axisTicks = generateTicks(minTs, maxTs, 8);
+
   if (chartData.length === 0) return <EmptyPanel title="Throughput (MB/s)" />;
 
   return (
@@ -256,12 +277,12 @@ function DiskIoMiniChart({ instanceId, rangeParams, dark }: { instanceId: string
       <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
         <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
-          <XAxis dataKey="time" fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} />
+          <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
           <YAxis fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={40} />
           <Tooltip content={<SimpleTooltip unit=" MB/s" />} />
           <Legend wrapperStyle={{ fontSize: 10 }} />
-          <Line type="monotone" dataKey="Read" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls={false} />
-          <Line type="monotone" dataKey="Write" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls={false} />
+          <Line type="linear" dataKey="Read" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls={false} />
+          <Line type="linear" dataKey="Write" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls={false} />
         </LineChart>
       </ResponsiveContainer>
     </Panel>
@@ -299,10 +320,10 @@ export function OverviewMetricCharts({ instanceId, window }: Props) {
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" data-testid="overview-metric-charts">
-      <CpuMiniChart instanceId={instanceId} rangeParams={rangeParams} dark={dark} />
-      <MemoryMiniChart instanceId={instanceId} rangeParams={rangeParams} dark={dark} />
+      <CpuMiniChart instanceId={instanceId} rangeParams={rangeParams} dark={dark} timeWindow={window} />
+      <MemoryMiniChart instanceId={instanceId} rangeParams={rangeParams} dark={dark} timeWindow={window} />
       <WaitsMiniChart instanceId={instanceId} rangeParams={rangeParams} dark={dark} />
-      <DiskIoMiniChart instanceId={instanceId} rangeParams={rangeParams} dark={dark} />
+      <DiskIoMiniChart instanceId={instanceId} rangeParams={rangeParams} dark={dark} timeWindow={window} />
     </div>
   );
 }

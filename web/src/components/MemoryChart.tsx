@@ -1,6 +1,6 @@
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useTheme } from '@/lib/theme';
-import { insertGapBreaks } from '@/lib/chart-utils';
+import { insertGapBreaks, generateTicks } from '@/lib/chart-utils';
 
 interface MemoryDataPoint {
   os_total_memory_mb: number;
@@ -38,6 +38,12 @@ export function MemoryChart({ data }: MemoryChartProps) {
   }));
   const chartData = insertGapBreaks(mapped, 'time');
 
+  // Numeric x-axis domain and ticks
+  const timestamps = mapped.map((d) => d.ts);
+  const minTs = Math.min(...timestamps);
+  const maxTs = Math.max(...timestamps);
+  const axisTicks = generateTicks(minTs, maxTs, 10);
+
   if (chartData.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center rounded-lg border border-gray-200 bg-white text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">
@@ -54,7 +60,7 @@ export function MemoryChart({ data }: MemoryChartProps) {
       <ResponsiveContainer width="100%" height={280}>
         <AreaChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
-          <XAxis dataKey="time" fontSize={11} tick={{ fill: dark ? '#9ca3af' : '#6b7280' }} />
+          <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={11} tick={{ fill: dark ? '#9ca3af' : '#6b7280' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
           <YAxis domain={[0, maxMem]} fontSize={11} tick={{ fill: dark ? '#9ca3af' : '#6b7280' }} tickFormatter={(v) => formatMB(v)} />
           <Tooltip
             contentStyle={{
@@ -63,11 +69,12 @@ export function MemoryChart({ data }: MemoryChartProps) {
               backgroundColor: dark ? '#1f2937' : '#fff',
               color: dark ? '#e5e7eb' : '#111',
             }}
+            labelFormatter={(v: number) => formatTime(new Date(v).toISOString())}
             formatter={(value: number) => [formatMB(value)]}
           />
           <Legend wrapperStyle={{ fontSize: 12, color: dark ? '#d1d5db' : undefined }} />
-          <Area type="monotone" dataKey="SQL Committed" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={dark ? 0.2 : 0.3} strokeWidth={2} dot={false} connectNulls={false} />
-          <Area type="monotone" dataKey="OS Available" stroke="#10b981" fill="#10b981" fillOpacity={dark ? 0.1 : 0.15} strokeWidth={2} dot={false} connectNulls={false} />
+          <Area type="linear" dataKey="SQL Committed" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={dark ? 0.2 : 0.3} strokeWidth={2} dot={false} connectNulls={false} />
+          <Area type="linear" dataKey="OS Available" stroke="#10b981" fill="#10b981" fillOpacity={dark ? 0.1 : 0.15} strokeWidth={2} dot={false} connectNulls={false} />
         </AreaChart>
       </ResponsiveContainer>
     </div>

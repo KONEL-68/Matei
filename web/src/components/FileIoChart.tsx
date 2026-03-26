@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
-import { insertGapBreaks } from '@/lib/chart-utils';
+import { insertGapBreaks, generateTicks } from '@/lib/chart-utils';
 
 interface FileIoChartProps {
   instanceId: string;
@@ -47,7 +47,7 @@ function FileIoTooltip({ active, payload, label, range, fileKeyMap }: {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded border border-gray-700 bg-gray-900 p-2 text-xs shadow-lg">
-      <p className="mb-1 text-gray-400">{label ? formatTime(label, range) : ''}</p>
+      <p className="mb-1 text-gray-400">{label != null ? formatTime(new Date(Number(label)).toISOString(), range) : ''}</p>
       {payload.map((p) => {
         const fullPath = fileKeyMap.get(p.dataKey) || p.dataKey;
         return (
@@ -105,16 +105,25 @@ export function FileIoChart({ instanceId, range }: FileIoChartProps) {
   const chartData = insertGapBreaks([...bucketMap.values()], 'bucket');
   const uniqueShortKeys = [...new Set(shortKeys)];
 
+  // Numeric x-axis domain and ticks
+  const allTs = [...bucketMap.values()].map((d) => d.ts);
+  const minTs = Math.min(...allTs);
+  const maxTs = Math.max(...allTs);
+  const axisTicks = generateTicks(minTs, maxTs, 10);
+
   return (
     <div>
       <ResponsiveContainer width="100%" height={280}>
         <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
           <XAxis
-            dataKey="bucket"
+            dataKey="ts"
+            type="number"
+            domain={[minTs, maxTs]}
+            ticks={axisTicks}
             fontSize={11}
             tick={{ fill: dark ? '#9ca3af' : '#6b7280' }}
-            tickFormatter={(v: string) => formatTime(v, range)}
+            tickFormatter={(v: number) => formatTime(new Date(v).toISOString(), range)}
           />
           <YAxis fontSize={11} tick={{ fill: dark ? '#9ca3af' : '#6b7280' }} />
           <Tooltip content={<FileIoTooltip range={range} fileKeyMap={fileKeyMap} />} />
@@ -124,7 +133,7 @@ export function FileIoChart({ instanceId, range }: FileIoChartProps) {
           {uniqueShortKeys.map((fk, i) => (
             <Line
               key={fk}
-              type="monotone"
+              type="linear"
               dataKey={fk}
               stroke={COLORS[i % COLORS.length]}
               strokeWidth={2}

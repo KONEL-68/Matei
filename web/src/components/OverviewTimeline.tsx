@@ -496,10 +496,10 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
                 );
               }}
             />
-            {activeMetrics.has('cpu') && <Line yAxisId="pct" type="monotone" dataKey="cpu" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
-            {activeMetrics.has('memory') && <Line yAxisId="auto" type="monotone" dataKey="memory" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
-            {activeMetrics.has('waits') && <Line yAxisId="auto" type="monotone" dataKey="waits" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
-            {activeMetrics.has('disk_io') && <Line yAxisId="auto" type="monotone" dataKey="disk_io" stroke="#10b981" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
+            {activeMetrics.has('cpu') && <Line yAxisId="pct" type="linear" dataKey="cpu" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
+            {activeMetrics.has('memory') && <Line yAxisId="auto" type="linear" dataKey="memory" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
+            {activeMetrics.has('waits') && <Line yAxisId="auto" type="linear" dataKey="waits" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
+            {activeMetrics.has('disk_io') && <Line yAxisId="auto" type="linear" dataKey="disk_io" stroke="#10b981" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
           </ComposedChart>
         </ResponsiveContainer>
 

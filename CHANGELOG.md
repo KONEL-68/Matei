@@ -7,10 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Fix chart line droop/drop to zero at edges: switch all time-series charts from monotone to linear interpolation to prevent Bezier curve overshoot, and clip x-axis domains to actual data bounds instead of the wider time window range
+- All detail charts (CPU, Memory, File I/O, Disk, Overview metric charts, SQL Server Metrics) now use numeric time-based x-axes with fixed domains, matching OverviewTimeline; data gaps render as proportionally-sized empty space instead of a single missing tick
+- Overview chart API: fix duplicate data points caused by PostgreSQL Date objects compared by reference in Set/Map; convert bucket timestamps to ISO strings for correct merge across metrics
 - All detail charts (CPU, Memory, File I/O, Disk, Overview metric charts) now correctly show gaps when data wasn't collected, matching OverviewTimeline behavior
 - OverviewTimeline chart no longer draws misleading lines across time gaps (e.g., overnight when backend was off); uses dynamic gap detection based on median data interval to insert line breaks
+- OverviewTimeline x-axis now spans the full selected time range (1h/6h/24h/7d) with evenly spaced ticks, instead of only covering first-to-last data point
 
 ### Added
+- Shared `generateTicks` helper in chart-utils for numeric x-axis tick generation across all time-series charts
 - Shared chart-utils library (`web/src/lib/chart-utils.ts`): extracted `insertGapBreaks` and `fillAllNulls` from OverviewTimeline for reuse across all time-series charts
 - Query detail panel: parse and display WaitStats from actual execution plan XML with wait type, description, time, and count
 - parseWaitStats utility: extracts Wait elements from SQL Server actual plan XML, handles namespaces and deduplication

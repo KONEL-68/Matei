@@ -508,9 +508,9 @@ function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack, onUnt
                   <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#9CA3AF' }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 9, fill: '#9CA3AF' }} width={40} />
                   <Tooltip contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: 6, fontSize: 11 }} labelStyle={{ color: '#9CA3AF' }} />
-                  <Line type="monotone" dataKey="cpu" name="CPU ms/s" stroke="#3B82F6" strokeWidth={1.5} dot={false} />
-                  <Line type="monotone" dataKey="duration" name="Duration ms/s" stroke="#F59E0B" strokeWidth={1.5} dot={false} />
-                  <Line type="monotone" dataKey="reads" name="Reads/s" stroke="#10B981" strokeWidth={1.5} dot={false} />
+                  <Line type="linear" dataKey="cpu" name="CPU ms/s" stroke="#3B82F6" strokeWidth={1.5} dot={false} />
+                  <Line type="linear" dataKey="duration" name="Duration ms/s" stroke="#F59E0B" strokeWidth={1.5} dot={false} />
+                  <Line type="linear" dataKey="reads" name="Reads/s" stroke="#10B981" strokeWidth={1.5} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -524,7 +524,7 @@ function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack, onUnt
                   <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#9CA3AF' }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 9, fill: '#9CA3AF' }} width={40} />
                   <Tooltip contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: 6, fontSize: 11 }} labelStyle={{ color: '#9CA3AF' }} formatter={(value: number) => [value.toFixed(1), 'Exec/min']} />
-                  <Line type="monotone" dataKey="execsPerMin" name="Exec/min" stroke="#8B5CF6" strokeWidth={1.5} dot={false} />
+                  <Line type="linear" dataKey="execsPerMin" name="Exec/min" stroke="#8B5CF6" strokeWidth={1.5} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             </div>

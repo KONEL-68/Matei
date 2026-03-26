@@ -1,6 +1,6 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useTheme } from '@/lib/theme';
-import { insertGapBreaks } from '@/lib/chart-utils';
+import { insertGapBreaks, generateTicks } from '@/lib/chart-utils';
 
 interface CpuDataPoint {
   sql_cpu_pct: number;
@@ -28,12 +28,12 @@ interface TooltipPayloadEntry {
 function CpuTooltip({ active, payload, label }: {
   active?: boolean;
   payload?: TooltipPayloadEntry[];
-  label?: string;
+  label?: number;
 }) {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded border border-gray-700 bg-gray-900 p-2 text-xs shadow-lg">
-      <p className="mb-1 text-gray-400">{label ?? ''}</p>
+      <p className="mb-1 text-gray-400">{label != null ? formatTime(new Date(label).toISOString()) : ''}</p>
       {payload.map((p) => (
         <div key={p.dataKey} className="flex items-center gap-2">
           <span style={{ color: p.color }}>&#9632;</span>
@@ -57,6 +57,12 @@ export function CpuChart({ data, height = 280 }: CpuChartProps) {
   }));
   const chartData = insertGapBreaks(mapped, 'time');
 
+  // Numeric x-axis domain and ticks
+  const timestamps = mapped.map((d) => d.ts);
+  const minTs = Math.min(...timestamps);
+  const maxTs = Math.max(...timestamps);
+  const axisTicks = generateTicks(minTs, maxTs, 10);
+
   if (chartData.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center rounded-lg border border-gray-200 bg-white text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">
@@ -71,12 +77,12 @@ export function CpuChart({ data, height = 280 }: CpuChartProps) {
       <ResponsiveContainer width="100%" height={height}>
         <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
-          <XAxis dataKey="time" fontSize={11} tick={{ fill: dark ? '#9ca3af' : '#6b7280' }} />
+          <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={11} tick={{ fill: dark ? '#9ca3af' : '#6b7280' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
           <YAxis domain={[0, 100]} fontSize={11} tick={{ fill: dark ? '#9ca3af' : '#6b7280' }} />
           <Tooltip content={<CpuTooltip />} />
           <Legend wrapperStyle={{ fontSize: 12, color: dark ? '#d1d5db' : undefined }} />
-          <Line type="monotone" dataKey="SQL CPU" stroke="#3b82f6" strokeWidth={2} dot={false} connectNulls={false} />
-          <Line type="monotone" dataKey="Other CPU" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls={false} />
+          <Line type="linear" dataKey="SQL CPU" stroke="#3b82f6" strokeWidth={2} dot={false} connectNulls={false} />
+          <Line type="linear" dataKey="Other CPU" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>

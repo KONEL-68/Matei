@@ -7,6 +7,7 @@ import {
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
 import { CollapsibleSection } from '@/components/CollapsibleSection';
+import { generateTicks } from '@/lib/chart-utils';
 
 // ── Types ──
 
@@ -104,7 +105,7 @@ function formatValue(v: number, unit: string): string {
 function buildChartData(
   series: PerfCounterSeries[],
   chart: ChartDef,
-): Array<{ time: string; value: number }> {
+): Array<{ time: string; ts: number; value: number }> {
   if (chart.ratio && chart.counters.length === 2) {
     // Group by bucket, compute ratio
     const bucketMap = new Map<string, { num: number; den: number }>();
@@ -122,6 +123,7 @@ function buildChartData(
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([bucket, { num, den }]) => ({
         time: formatTime(bucket),
+        ts: new Date(bucket).getTime(),
         value: den > 0 ? num / den : 0,
       }));
   }
@@ -133,6 +135,7 @@ function buildChartData(
     .sort((a, b) => a.bucket.localeCompare(b.bucket))
     .map(pt => ({
       time: formatTime(pt.bucket),
+      ts: new Date(pt.bucket).getTime(),
       value: pt.cntr_value,
     }));
 }
@@ -140,12 +143,15 @@ function buildChartData(
 // ── Tooltip ──
 
 function ChartTooltip({ active, payload, label, unit }: {
-  active?: boolean; payload?: TPayload[]; label?: string; unit: string;
+  active?: boolean; payload?: TPayload[]; label?: string | number; unit: string;
 }) {
   if (!active || !payload?.length) return null;
+  const displayLabel = label != null && typeof label === 'number'
+    ? formatTime(new Date(label).toISOString())
+    : (label ?? '');
   return (
     <div className="rounded border border-gray-700 bg-gray-900 p-2 text-xs shadow-lg">
-      <p className="mb-1 text-gray-400">{label ?? ''}</p>
+      <p className="mb-1 text-gray-400">{displayLabel}</p>
       {payload.map((p) => (
         <div key={p.dataKey} className="flex items-center gap-2">
           <span style={{ color: p.color }}>&#9632;</span>
@@ -158,10 +164,12 @@ function ChartTooltip({ active, payload, label, unit }: {
 
 // ── Mini chart ──
 
-function MiniChart({ data, unit, dark }: {
-  data: Array<{ time: string; value: number }>;
+function MiniChart({ data, unit, dark, minTs, maxTs }: {
+  data: Array<{ time: string; ts: number; value: number }>;
   unit: string;
   dark: boolean;
+  minTs: number;
+  maxTs: number;
 }) {
   if (data.length === 0) {
     return (
@@ -174,11 +182,13 @@ function MiniChart({ data, unit, dark }: {
     );
   }
 
+  const axisTicks = generateTicks(minTs, maxTs, 6);
+
   return (
     <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
       <LineChart data={data}>
         <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
-        <XAxis dataKey="time" fontSize={9} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} />
+        <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={9} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
         <YAxis fontSize={9} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={40} tickFormatter={(v: number) => formatValue(v, '')} />
         <Tooltip content={<ChartTooltip unit={unit} />} />
         <defs>
@@ -188,7 +198,7 @@ function MiniChart({ data, unit, dark }: {
           </linearGradient>
         </defs>
         <Line
-          type="monotone"
+          type="linear"
           dataKey="value"
           stroke={LINE_COLOR}
           strokeWidth={1.5}
@@ -213,10 +223,12 @@ function ChartPanel({ title, children }: { title: string; children: React.ReactN
 
 // ── Chart grid ──
 
-function ChartGrid({ charts, series, dark }: {
+function ChartGrid({ charts, series, dark, minTs, maxTs }: {
   charts: ChartDef[];
   series: PerfCounterSeries[];
   dark: boolean;
+  minTs: number;
+  maxTs: number;
 }) {
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -224,7 +236,7 @@ function ChartGrid({ charts, series, dark }: {
         const data = buildChartData(series, chart);
         return (
           <ChartPanel key={chart.title} title={chart.title}>
-            <MiniChart data={data} unit={chart.unit} dark={dark} />
+            <MiniChart data={data} unit={chart.unit} dark={dark} minTs={minTs} maxTs={maxTs} />
           </ChartPanel>
         );
       })}
@@ -291,25 +303,30 @@ export function SqlServerMetrics({ instanceId, range, health }: SqlServerMetrics
 
   const series = useMemo(() => perfData?.series ?? [], [perfData]);
 
+  // Clip x-axis domain to actual data bounds so lines don't droop into empty space
+  const allTimestamps = series.map(pt => new Date(pt.bucket).getTime());
+  const minTs = allTimestamps.length > 0 ? Math.min(...allTimestamps) : new Date(range.from).getTime();
+  const maxTs = allTimestamps.length > 0 ? Math.max(...allTimestamps) : new Date(range.to).getTime();
+
   return (
     <CollapsibleSection title="SQL Server Metrics" defaultOpen>
       <div className="space-y-6" data-testid="sql-server-metrics">
         {/* General */}
         <div>
           <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">General</h3>
-          <ChartGrid charts={GENERAL_CHARTS} series={series} dark={dark} />
+          <ChartGrid charts={GENERAL_CHARTS} series={series} dark={dark} minTs={minTs} maxTs={maxTs} />
         </div>
 
         {/* Latches and Locks */}
         <div>
           <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Latches and Locks</h3>
-          <ChartGrid charts={LATCH_LOCK_CHARTS} series={series} dark={dark} />
+          <ChartGrid charts={LATCH_LOCK_CHARTS} series={series} dark={dark} minTs={minTs} maxTs={maxTs} />
         </div>
 
         {/* Buffer Cache */}
         <div>
           <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Buffer Cache</h3>
-          <ChartGrid charts={BUFFER_CHARTS} series={series} dark={dark} />
+          <ChartGrid charts={BUFFER_CHARTS} series={series} dark={dark} minTs={minTs} maxTs={maxTs} />
         </div>
 
         {/* Server Properties + Configuration side by side */}
