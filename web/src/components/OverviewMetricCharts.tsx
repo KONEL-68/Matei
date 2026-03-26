@@ -6,6 +6,7 @@ import {
 } from 'recharts';
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
+import { insertGapBreaks } from '@/lib/chart-utils';
 import type { TimeWindow } from '@/components/OverviewTimeline';
 
 interface Props {
@@ -61,11 +62,13 @@ function CpuMiniChart({ instanceId, rangeParams, dark }: { instanceId: string; r
     refetchInterval: 30_000,
   });
 
-  const chartData = data.map(d => ({
+  const mapped = data.map(d => ({
     time: formatTime(d.collected_at),
-    'SQL CPU': d.sql_cpu_pct,
-    'Other CPU': d.other_process_cpu_pct,
+    ts: new Date(d.collected_at).getTime(),
+    'SQL CPU': d.sql_cpu_pct as number | null,
+    'Other CPU': d.other_process_cpu_pct as number | null,
   }));
+  const chartData = insertGapBreaks(mapped, 'time');
 
   if (chartData.length === 0) return <EmptyPanel title="CPU Utilization (%)" />;
 
@@ -78,8 +81,8 @@ function CpuMiniChart({ instanceId, rangeParams, dark }: { instanceId: string; r
           <YAxis domain={[0, 100]} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={30} />
           <Tooltip content={<SimpleTooltip unit="%" />} />
           <Legend wrapperStyle={{ fontSize: 10 }} />
-          <Line type="monotone" dataKey="SQL CPU" stroke="#3b82f6" strokeWidth={1.5} dot={false} />
-          <Line type="monotone" dataKey="Other CPU" stroke="#f59e0b" strokeWidth={1.5} dot={false} />
+          <Line type="monotone" dataKey="SQL CPU" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls={false} />
+          <Line type="monotone" dataKey="Other CPU" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls={false} />
         </LineChart>
       </ResponsiveContainer>
     </Panel>
@@ -102,15 +105,17 @@ function MemoryMiniChart({ instanceId, rangeParams, dark }: { instanceId: string
 
   const hasDeficit = data.some(d => d.sql_target_mb > d.sql_committed_mb);
 
-  const chartData = data.map(d => {
+  const mapped = data.map(d => {
     const deficit = d.sql_target_mb - d.sql_committed_mb;
     return {
       time: formatTime(d.collected_at),
-      'SQL Committed': d.sql_committed_mb,
-      'SQL Target': d.sql_target_mb,
+      ts: new Date(d.collected_at).getTime(),
+      'SQL Committed': d.sql_committed_mb as number | null,
+      'SQL Target': d.sql_target_mb as number | null,
       ...(hasDeficit ? { 'Memory Deficit': deficit > 0 ? deficit : null } : {}),
     };
   });
+  const chartData = insertGapBreaks(mapped, 'time');
 
   if (chartData.length === 0) return <EmptyPanel title="SQL Memory (GB)" />;
 
@@ -144,8 +149,8 @@ function MemoryMiniChart({ instanceId, rangeParams, dark }: { instanceId: string
             );
           }} />
           <Legend wrapperStyle={{ fontSize: 10 }} />
-          <Line type="monotone" dataKey="SQL Committed" stroke="#8b5cf6" strokeWidth={1.5} dot={false} />
-          <Line type="monotone" dataKey="SQL Target" stroke="#a855f7" strokeWidth={1.5} dot={false} />
+          <Line type="monotone" dataKey="SQL Committed" stroke="#8b5cf6" strokeWidth={1.5} dot={false} connectNulls={false} />
+          <Line type="monotone" dataKey="SQL Target" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls={false} />
           {hasDeficit && <Line type="monotone" dataKey="Memory Deficit" stroke="#ef4444" strokeWidth={1.5} dot={false} strokeDasharray="5 3" connectNulls={false} />}
         </LineChart>
       </ResponsiveContainer>
@@ -234,13 +239,15 @@ function DiskIoMiniChart({ instanceId, rangeParams, dark }: { instanceId: string
     refetchInterval: 30_000,
   });
 
-  const chartData = overviewData
+  const mapped = overviewData
     .filter(d => d.disk_read_mb_per_sec != null || d.disk_write_mb_per_sec != null)
     .map(d => ({
       time: formatTime(d.bucket),
-      'Read': d.disk_read_mb_per_sec ?? 0,
-      'Write': d.disk_write_mb_per_sec ?? 0,
+      ts: new Date(d.bucket).getTime(),
+      'Read': (d.disk_read_mb_per_sec ?? 0) as number | null,
+      'Write': (d.disk_write_mb_per_sec ?? 0) as number | null,
     }));
+  const chartData = insertGapBreaks(mapped, 'time');
 
   if (chartData.length === 0) return <EmptyPanel title="Throughput (MB/s)" />;
 
@@ -253,8 +260,8 @@ function DiskIoMiniChart({ instanceId, rangeParams, dark }: { instanceId: string
           <YAxis fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={40} />
           <Tooltip content={<SimpleTooltip unit=" MB/s" />} />
           <Legend wrapperStyle={{ fontSize: 10 }} />
-          <Line type="monotone" dataKey="Read" stroke="#3b82f6" strokeWidth={1.5} dot={false} />
-          <Line type="monotone" dataKey="Write" stroke="#f59e0b" strokeWidth={1.5} dot={false} />
+          <Line type="monotone" dataKey="Read" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls={false} />
+          <Line type="monotone" dataKey="Write" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls={false} />
         </LineChart>
       </ResponsiveContainer>
     </Panel>

@@ -6,7 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- All detail charts (CPU, Memory, File I/O, Disk, Overview metric charts) now correctly show gaps when data wasn't collected, matching OverviewTimeline behavior
+- OverviewTimeline chart no longer draws misleading lines across time gaps (e.g., overnight when backend was off); uses dynamic gap detection based on median data interval to insert line breaks
+
 ### Added
+- Shared chart-utils library (`web/src/lib/chart-utils.ts`): extracted `insertGapBreaks` and `fillAllNulls` from OverviewTimeline for reuse across all time-series charts
 - Query detail panel: parse and display WaitStats from actual execution plan XML with wait type, description, time, and count
 - parseWaitStats utility: extracts Wait elements from SQL Server actual plan XML, handles namespaces and deduplication
 - Copy plan XML button in query detail panel (copies full execution plan to clipboard)

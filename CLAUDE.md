@@ -36,6 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   /src/pages/          — Dashboard, Instances, InstanceDetail, QueryExplorer, Alerts, Login, Settings
   /src/components/     — StatusBar, CpuChart, MemoryChart, MemoryBreakdown, SessionBreakdown, SessionsTable, CurrentActivity, WaitsTable, TopWaitsTable, WaitsChart, DeadlocksTable, BlockingTree, FileIoChart, DiskChart, CollapsibleSection, InstanceForm, InstanceCard, AnalysisSection, OverviewTimeline, OverviewMetricCharts, SqlServerMetrics, Layout
   /src/components/settings/ — GroupsSettings, AlertsSettings, RetentionSettings, UsersSettings, AboutSettings
+  /src/lib/              — auth.ts, theme.ts, utils.ts, chart-utils.ts (insertGapBreaks, fillAllNulls)
 /docker              — Docker Compose stack + nginx config
 /sql                 — DMV query library (one .sql file per metric category), includes scheduler_stats.sql, procedure_stats.sql, procedure_statements.sql, server_config.sql
 /docs                — DECISIONS.md (architecture decisions), METRICS.md (metric specs)

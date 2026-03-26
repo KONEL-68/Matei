@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ComposedChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
+import { insertGapBreaks as insertGapBreaksGeneric, fillAllNulls as fillAllNullsGeneric } from '@/lib/chart-utils';
 
 export interface TimeWindow {
   from: string;
@@ -53,22 +54,18 @@ const TOOLTIP_METRICS = [
   { key: 'disk_io', label: 'Disk I/O', color: '#10b981' },
 ];
 
-/** Fill forward nulls in chartData so every bucket carries the last known value per metric. */
-function fillForward(data: ChartPoint[]): ChartPoint[] {
-  if (data.length === 0) return data;
-  const keys: (keyof ChartPoint)[] = ['cpu', 'memory', 'waits', 'disk_io'];
-  const last: Record<string, number | null> = { cpu: null, memory: null, waits: null, disk_io: null };
-  return data.map(pt => {
-    const filled = { ...pt };
-    for (const k of keys) {
-      if (filled[k] != null) {
-        last[k] = filled[k] as number;
-      } else {
-        (filled as any)[k] = last[k]; // eslint-disable-line @typescript-eslint/no-explicit-any
-      }
-    }
-    return filled;
-  });
+/** Fill all sparse nulls via forward-fill then backward-fill so no natural nulls remain. */
+function fillAllNulls(data: ChartPoint[]): ChartPoint[] {
+  return fillAllNullsGeneric(data, ['cpu', 'memory', 'waits', 'disk_io']);
+}
+
+/**
+ * Insert null-valued points at large time gaps so Recharts breaks the line.
+ * Only triggers for gaps that indicate the backend was offline (not normal
+ * collection jitter). Uses 10x the median interval as threshold.
+ */
+function insertGapBreaks(data: ChartPoint[]): ChartPoint[] {
+  return insertGapBreaksGeneric(data, 'bucket');
 }
 
 const METRICS = [
@@ -119,20 +116,28 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
     refetchInterval: 30_000,
   });
 
-  const chartData: ChartPoint[] = fillForward(rawData.map(pt => ({
+  const mapped: ChartPoint[] = rawData.map(pt => ({
     bucket: pt.bucket,
     ts: new Date(pt.bucket).getTime(),
     cpu: pt.cpu_pct,
     memory: pt.memory_gb,
     waits: pt.waits_ms_per_sec,
     disk_io: pt.disk_io_mb_per_sec,
-  })));
+  }));
+  const chartData: ChartPoint[] = insertGapBreaks(fillAllNulls(mapped));
 
   const chartDataRef = useRef(chartData);
   chartDataRef.current = chartData;
 
-  const minTs = chartData.length > 0 ? chartData[0].ts : 0;
-  const maxTs = chartData.length > 0 ? chartData[chartData.length - 1].ts : 0;
+  const rangeMs = { '1h': 3600_000, '6h': 6 * 3600_000, '24h': 24 * 3600_000, '7d': 7 * 24 * 3600_000 }[overviewRange];
+  const maxTs = Date.now();
+  const minTs = maxTs - rangeMs;
+
+  // Generate evenly spaced ticks across the full time range
+  const tickInterval = { '1h': 5 * 60_000, '6h': 30 * 60_000, '24h': 60 * 60_000, '7d': 12 * 3600_000 }[overviewRange];
+  const axisTicks: number[] = [];
+  const firstTick = Math.ceil(minTs / tickInterval) * tickInterval;
+  for (let t = firstTick; t <= maxTs; t += tickInterval) axisTicks.push(t);
 
   const getPlotBounds = useCallback(() => {
     const el = chartWrapRef.current;
@@ -454,10 +459,13 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
         <ResponsiveContainer width="100%" height={150}>
           <ComposedChart data={chartData} margin={CHART_MARGIN}>
             <XAxis
-              dataKey="bucket"
+              dataKey="ts"
+              type="number"
+              domain={[minTs, maxTs]}
+              ticks={axisTicks}
               fontSize={10}
               tick={{ fill: dark ? '#6b7280' : '#9ca3af' }}
-              tickFormatter={formatTime}
+              tickFormatter={(v: number) => formatTime(new Date(v).toISOString())}
               height={XAXIS_HEIGHT}
             />
             <YAxis yAxisId="pct" domain={[0, 100]} hide />
@@ -470,7 +478,7 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
                 if (!pt) return null;
                 return (
                   <div className="rounded border border-gray-700 bg-gray-900 p-2 text-xs shadow-lg">
-                    <p className="mb-1 text-gray-400">{label ? formatTime(label) : ''}</p>
+                    <p className="mb-1 text-gray-400">{pt.bucket ? formatTime(pt.bucket) : ''}</p>
                     {TOOLTIP_METRICS.map(({ key, label: lbl, color }) => {
                       const val = pt[key as keyof ChartPoint] as number | null;
                       const unit = UNITS[key] ?? '';
@@ -488,10 +496,10 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
                 );
               }}
             />
-            {activeMetrics.has('cpu') && <Line yAxisId="pct" type="monotone" dataKey="cpu" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />}
-            {activeMetrics.has('memory') && <Line yAxisId="auto" type="monotone" dataKey="memory" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />}
-            {activeMetrics.has('waits') && <Line yAxisId="auto" type="monotone" dataKey="waits" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />}
-            {activeMetrics.has('disk_io') && <Line yAxisId="auto" type="monotone" dataKey="disk_io" stroke="#10b981" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />}
+            {activeMetrics.has('cpu') && <Line yAxisId="pct" type="monotone" dataKey="cpu" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
+            {activeMetrics.has('memory') && <Line yAxisId="auto" type="monotone" dataKey="memory" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
+            {activeMetrics.has('waits') && <Line yAxisId="auto" type="monotone" dataKey="waits" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
+            {activeMetrics.has('disk_io') && <Line yAxisId="auto" type="monotone" dataKey="disk_io" stroke="#10b981" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
           </ComposedChart>
         </ResponsiveContainer>
 

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
+import { insertGapBreaks } from '@/lib/chart-utils';
 
 interface DiskChartProps {
   instanceId: string;
@@ -79,16 +80,17 @@ export function DiskChart({ instanceId, range }: DiskChartProps) {
 
   // Pivot: one line per volume
   const volumes = [...new Set(rawData.map((d) => d.volume_mount_point))];
-  const bucketMap = new Map<string, Record<string, number | string>>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const bucketMap = new Map<string, Record<string, any> & { ts: number }>();
 
   for (const pt of rawData) {
     if (!bucketMap.has(pt.bucket)) {
-      bucketMap.set(pt.bucket, { bucket: pt.bucket });
+      bucketMap.set(pt.bucket, { bucket: pt.bucket, ts: new Date(pt.bucket).getTime() });
     }
     bucketMap.get(pt.bucket)![pt.volume_mount_point] = pt.used_pct;
   }
 
-  const chartData = [...bucketMap.entries()]
+  const preForecastData = [...bucketMap.entries()]
     .sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime())
     .map(([, vals]) => vals);
 
@@ -102,12 +104,13 @@ export function DiskChart({ instanceId, range }: DiskChartProps) {
   }
 
   // Add forecast points to chart (extend last 2 points with dashed line)
-  const lastBucket = chartData[chartData.length - 1]?.bucket as string | undefined;
+  const lastBucket = preForecastData[preForecastData.length - 1]?.bucket as string | undefined;
   if (lastBucket) {
     const lastTime = new Date(lastBucket).getTime();
     // Add a forecast point 24h ahead
     const futureTime = lastTime + 24 * 60 * 60 * 1000;
-    const futureEntry: Record<string, number | string> = { bucket: new Date(futureTime).toISOString() };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const futureEntry: Record<string, any> & { ts: number } = { bucket: new Date(futureTime).toISOString(), ts: futureTime };
     let hasForecast = false;
 
     for (const vol of volumes) {
@@ -118,15 +121,17 @@ export function DiskChart({ instanceId, range }: DiskChartProps) {
       if (slope > 0) {
         futureEntry[`${vol}_forecast`] = Math.min(100, slope * futureTime + intercept);
         // Also add forecast key to last real point
-        const lastVal = chartData[chartData.length - 1][vol];
+        const lastVal = preForecastData[preForecastData.length - 1][vol];
         if (lastVal != null) {
-          chartData[chartData.length - 1][`${vol}_forecast`] = lastVal;
+          preForecastData[preForecastData.length - 1][`${vol}_forecast`] = lastVal;
         }
         hasForecast = true;
       }
     }
-    if (hasForecast) chartData.push(futureEntry);
+    if (hasForecast) preForecastData.push(futureEntry);
   }
+
+  const chartData = insertGapBreaks(preForecastData, 'bucket');
 
   return (
     <div>
@@ -161,6 +166,7 @@ export function DiskChart({ instanceId, range }: DiskChartProps) {
               stroke={COLORS[i % COLORS.length]}
               strokeWidth={2}
               dot={false}
+              connectNulls={false}
             />
           ))}
           {volumes.map((vol, i) => (
@@ -173,6 +179,7 @@ export function DiskChart({ instanceId, range }: DiskChartProps) {
               strokeDasharray="5 5"
               dot={false}
               legendType="none"
+              connectNulls={false}
             />
           ))}
         </ComposedChart>

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
+import { insertGapBreaks } from '@/lib/chart-utils';
 
 interface FileIoChartProps {
   instanceId: string;
@@ -90,17 +91,18 @@ export function FileIoChart({ instanceId, range }: FileIoChartProps) {
   fileKeys.forEach((fk, i) => fileKeyMap.set(shortKeys[i], fk));
 
   // Use short names as data keys
-  const bucketMap = new Map<string, Record<string, number | string>>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const bucketMap = new Map<string, Record<string, any> & { ts: number }>();
   for (const pt of rawData) {
     if (!bucketMap.has(pt.bucket)) {
-      bucketMap.set(pt.bucket, { bucket: pt.bucket });
+      bucketMap.set(pt.bucket, { bucket: pt.bucket, ts: new Date(pt.bucket).getTime() });
     }
     const entry = bucketMap.get(pt.bucket)!;
     const short = basename(pt.file_key);
     entry[short] = Math.max(pt.avg_read_latency_ms, pt.avg_write_latency_ms);
   }
 
-  const chartData = [...bucketMap.values()];
+  const chartData = insertGapBreaks([...bucketMap.values()], 'bucket');
   const uniqueShortKeys = [...new Set(shortKeys)];
 
   return (
@@ -127,6 +129,7 @@ export function FileIoChart({ instanceId, range }: FileIoChartProps) {
               stroke={COLORS[i % COLORS.length]}
               strokeWidth={2}
               dot={false}
+              connectNulls={false}
             />
           ))}
         </LineChart>

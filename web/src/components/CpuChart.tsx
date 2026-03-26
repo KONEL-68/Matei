@@ -1,5 +1,6 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useTheme } from '@/lib/theme';
+import { insertGapBreaks } from '@/lib/chart-utils';
 
 interface CpuDataPoint {
   sql_cpu_pct: number;
@@ -48,11 +49,13 @@ export function CpuChart({ data, height = 280 }: CpuChartProps) {
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
-  const chartData = data.map((d) => ({
+  const mapped = data.map((d) => ({
     time: formatTime(d.collected_at),
-    'SQL CPU': d.sql_cpu_pct,
-    'Other CPU': d.other_process_cpu_pct,
+    ts: new Date(d.collected_at).getTime(),
+    'SQL CPU': d.sql_cpu_pct as number | null,
+    'Other CPU': d.other_process_cpu_pct as number | null,
   }));
+  const chartData = insertGapBreaks(mapped, 'time');
 
   if (chartData.length === 0) {
     return (
@@ -72,8 +75,8 @@ export function CpuChart({ data, height = 280 }: CpuChartProps) {
           <YAxis domain={[0, 100]} fontSize={11} tick={{ fill: dark ? '#9ca3af' : '#6b7280' }} />
           <Tooltip content={<CpuTooltip />} />
           <Legend wrapperStyle={{ fontSize: 12, color: dark ? '#d1d5db' : undefined }} />
-          <Line type="monotone" dataKey="SQL CPU" stroke="#3b82f6" strokeWidth={2} dot={false} />
-          <Line type="monotone" dataKey="Other CPU" stroke="#f59e0b" strokeWidth={2} dot={false} />
+          <Line type="monotone" dataKey="SQL CPU" stroke="#3b82f6" strokeWidth={2} dot={false} connectNulls={false} />
+          <Line type="monotone" dataKey="Other CPU" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>

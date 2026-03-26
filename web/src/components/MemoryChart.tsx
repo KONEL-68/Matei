@@ -1,5 +1,6 @@
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useTheme } from '@/lib/theme';
+import { insertGapBreaks } from '@/lib/chart-utils';
 
 interface MemoryDataPoint {
   os_total_memory_mb: number;
@@ -28,12 +29,14 @@ export function MemoryChart({ data }: MemoryChartProps) {
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
-  const chartData = data.map((d) => ({
+  const mapped = data.map((d) => ({
     time: formatTime(d.collected_at),
-    'SQL Committed': d.sql_committed_mb,
-    'OS Available': d.os_available_memory_mb,
-    'OS Total': d.os_total_memory_mb,
+    ts: new Date(d.collected_at).getTime(),
+    'SQL Committed': d.sql_committed_mb as number | null,
+    'OS Available': d.os_available_memory_mb as number | null,
+    'OS Total': d.os_total_memory_mb as number | null,
   }));
+  const chartData = insertGapBreaks(mapped, 'time');
 
   if (chartData.length === 0) {
     return (
@@ -63,8 +66,8 @@ export function MemoryChart({ data }: MemoryChartProps) {
             formatter={(value: number) => [formatMB(value)]}
           />
           <Legend wrapperStyle={{ fontSize: 12, color: dark ? '#d1d5db' : undefined }} />
-          <Area type="monotone" dataKey="SQL Committed" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={dark ? 0.2 : 0.3} strokeWidth={2} dot={false} />
-          <Area type="monotone" dataKey="OS Available" stroke="#10b981" fill="#10b981" fillOpacity={dark ? 0.1 : 0.15} strokeWidth={2} dot={false} />
+          <Area type="monotone" dataKey="SQL Committed" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={dark ? 0.2 : 0.3} strokeWidth={2} dot={false} connectNulls={false} />
+          <Area type="monotone" dataKey="OS Available" stroke="#10b981" fill="#10b981" fillOpacity={dark ? 0.1 : 0.15} strokeWidth={2} dot={false} connectNulls={false} />
         </AreaChart>
       </ResponsiveContainer>
     </div>
