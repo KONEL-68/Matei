@@ -65,6 +65,24 @@ export function insertGapBreaks<T extends { ts: number; [key: string]: any }>(
 }
 
 /**
+ * Generate evenly-spaced tick values for a numeric time axis.
+ *
+ * @param minTs  Start of the time range (epoch ms).
+ * @param maxTs  End of the time range (epoch ms).
+ * @param count  Desired number of ticks (default 10). Actual count may differ
+ *               slightly due to rounding to a "nice" interval.
+ */
+export function generateTicks(minTs: number, maxTs: number, count: number = 10): number[] {
+  if (maxTs <= minTs || count < 1) return [];
+  const interval = (maxTs - minTs) / count;
+  const ticks: number[] = [];
+  for (let i = 1; i < count; i++) {
+    ticks.push(Math.round(minTs + i * interval));
+  }
+  return ticks;
+}
+
+/**
  * Forward-fill then backward-fill sparse metric nulls.
  *
  * Used by OverviewTimeline where a single row may have some metrics collected

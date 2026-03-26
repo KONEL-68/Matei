@@ -197,7 +197,32 @@ function WaitsMiniChart({ instanceId, rangeParams, dark }: { instanceId: string;
     }
     bucketMap.get(pt.bucket)![pt.wait_type] = pt.wait_ms_per_sec;
   }
-  const chartData = [...bucketMap.values()];
+  // Fill empty time buckets so gaps render as empty space in the bar chart
+  const sortedBuckets = [...bucketMap.keys()].sort();
+  let chartData: Record<string, number | string>[] = [...bucketMap.values()];
+  if (sortedBuckets.length >= 2) {
+    const timestamps = sortedBuckets.map(b => new Date(b).getTime());
+    const intervals: number[] = [];
+    for (let i = 1; i < timestamps.length; i++) intervals.push(timestamps[i] - timestamps[i - 1]);
+    intervals.sort((a, b) => a - b);
+    const median = intervals[Math.floor(intervals.length / 2)];
+    if (median > 0) {
+      const filled = new Map(bucketMap);
+      for (let t = timestamps[0]; t <= timestamps[timestamps.length - 1]; t += median) {
+        const iso = new Date(t).toISOString();
+        if (!filled.has(iso)) {
+          let found = false;
+          for (const key of filled.keys()) {
+            if (Math.abs(new Date(key).getTime() - t) < median * 0.3) { found = true; break; }
+          }
+          if (!found) filled.set(iso, { bucket: iso });
+        }
+      }
+      chartData = [...filled.values()].sort((a, b) =>
+        new Date(a.bucket as string).getTime() - new Date(b.bucket as string).getTime()
+      );
+    }
+  }
 
   const toggleWait = (dataKey: string) => {
     setHiddenWaits(prev => {

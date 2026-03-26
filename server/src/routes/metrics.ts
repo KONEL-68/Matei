@@ -436,7 +436,7 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
     );
 
     return reply.send(result.rows.map((r: { bucket: string; wait_type: string; wait_ms_per_sec: number }) => ({
-      bucket: r.bucket,
+      bucket: new Date(r.bucket).toISOString(),
       wait_type: r.wait_type,
       wait_ms_per_sec: Number(r.wait_ms_per_sec),
     })));
@@ -588,7 +588,7 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
       );
 
       return reply.send(result.rows.map((r: { bucket: string; volume_mount_point: string; used_pct: number }) => ({
-        bucket: r.bucket,
+        bucket: new Date(r.bucket).toISOString(),
         volume_mount_point: r.volume_mount_point,
         used_pct: Number(r.used_pct),
       })));
@@ -652,7 +652,7 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
       );
 
       return reply.send(result.rows.map((r: { bucket: string; file_key: string; avg_read_latency_ms: number; avg_write_latency_ms: number }) => ({
-        bucket: r.bucket,
+        bucket: new Date(r.bucket).toISOString(),
         file_key: r.file_key,
         avg_read_latency_ms: Number(r.avg_read_latency_ms),
         avg_write_latency_ms: Number(r.avg_write_latency_ms),
@@ -794,7 +794,7 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
         collected_at: r.collected_at,
       })),
       series: seriesResult.rows.map((r: { bucket: string; counter_name: string; cntr_value: number }) => ({
-        bucket: r.bucket,
+        bucket: new Date(r.bucket).toISOString(),
         counter_name: r.counter_name,
         cntr_value: Number(r.cntr_value),
       })),
@@ -864,7 +864,7 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
         [id, ...tf.params, bucketMinutes],
       );
       cpuRows = r.rows.map((row: { bucket: string; sql_cpu_pct: number }) => ({
-        bucket: row.bucket,
+        bucket: new Date(row.bucket).toISOString(),
         sql_cpu_pct: Number(row.sql_cpu_pct),
       }));
     } catch { /* */ }
@@ -882,7 +882,7 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
         [id, ...tf.params, bucketMinutes],
       );
       memRows = r.rows.map((row: { bucket: string; committed_gb: number }) => ({
-        bucket: row.bucket,
+        bucket: new Date(row.bucket).toISOString(),
         committed_gb: Number(row.committed_gb),
       }));
     } catch { /* */ }
@@ -902,7 +902,7 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
         [id, ...tf.params, bucketMinutes, excludedWaitsArray],
       );
       waitsRows = r.rows.map((row: { bucket: string; total_wait_ms_per_sec: number }) => ({
-        bucket: row.bucket,
+        bucket: new Date(row.bucket).toISOString(),
         total_wait_ms_per_sec: Number(row.total_wait_ms_per_sec),
       }));
     } catch { /* */ }
@@ -922,7 +922,7 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
         [id, ...tf.params, bucketMinutes],
       );
       ioRows = r.rows.map((row: { bucket: string; disk_io_mb_per_sec: number; disk_read_mb_per_sec: number; disk_write_mb_per_sec: number }) => ({
-        bucket: row.bucket,
+        bucket: new Date(row.bucket).toISOString(),
         disk_io_mb_per_sec: Number(row.disk_io_mb_per_sec),
         disk_read_mb_per_sec: Number(row.disk_read_mb_per_sec),
         disk_write_mb_per_sec: Number(row.disk_write_mb_per_sec),

@@ -7,12 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
-- Fix chart line droop/drop to zero at edges: switch all time-series charts from monotone to linear interpolation to prevent Bezier curve overshoot, and clip x-axis domains to actual data bounds instead of the wider time window range
-- All detail charts (CPU, Memory, File I/O, Disk, Overview metric charts, SQL Server Metrics) now use numeric time-based x-axes with fixed domains, matching OverviewTimeline; data gaps render as proportionally-sized empty space instead of a single missing tick
-- Overview chart API: fix duplicate data points caused by PostgreSQL Date objects compared by reference in Set/Map; convert bucket timestamps to ISO strings for correct merge across metrics
-- All detail charts (CPU, Memory, File I/O, Disk, Overview metric charts) now correctly show gaps when data wasn't collected, matching OverviewTimeline behavior
-- OverviewTimeline chart no longer draws misleading lines across time gaps (e.g., overnight when backend was off); uses dynamic gap detection based on median data interval to insert line breaks
-- OverviewTimeline x-axis now spans the full selected time range (1h/6h/24h/7d) with evenly spaced ticks, instead of only covering first-to-last data point
+- All metric API endpoints: fix PostgreSQL Date objects compared by reference in Set/Map by converting bucket timestamps to ISO strings (affected overview-chart, waits/chart, file-io/chart, disk, perf-counters)
+- All time-series charts show proportional gaps when data wasn't collected (e.g., backend offline overnight): OverviewTimeline, CPU, Memory, File I/O, Disk, Throughput, SQL Server Metrics, Wait Stats bar charts
+- OverviewTimeline x-axis spans full selected time range (1h/6h/24h/7d) with evenly spaced ticks
+- Chart line droop at edges fixed: switched from monotone to linear interpolation across all charts
+- Wait Stats bar charts (WaitsChart, WaitsMiniChart): fill empty time buckets so gaps render as proportional empty space
 
 ### Added
 - Shared `generateTicks` helper in chart-utils for numeric x-axis tick generation across all time-series charts

@@ -62,7 +62,8 @@ describe('OverviewTimeline', () => {
 
     fireEvent.click(screen.getByTestId('quick-1h'));
     expect(onWindowChange).toHaveBeenCalledTimes(1);
-    const call = onWindowChange.mock.calls[0][0] as TimeWindow;
+    const mockFn = onWindowChange as ReturnType<typeof vi.fn>;
+    const call = mockFn.mock.calls[0][0] as TimeWindow;
     const from = new Date(call.from).getTime();
     const to = new Date(call.to).getTime();
     const diffMinutes = (to - from) / 60000;

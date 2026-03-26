@@ -7,7 +7,7 @@ import {
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
 import { CollapsibleSection } from '@/components/CollapsibleSection';
-import { generateTicks } from '@/lib/chart-utils';
+import { generateTicks, insertGapBreaks } from '@/lib/chart-utils';
 
 // ── Types ──
 
@@ -203,6 +203,7 @@ function MiniChart({ data, unit, dark, minTs, maxTs }: {
           stroke={LINE_COLOR}
           strokeWidth={1.5}
           dot={false}
+          connectNulls={false}
           fill="url(#areaFill)"
         />
       </LineChart>
@@ -233,7 +234,7 @@ function ChartGrid({ charts, series, dark, minTs, maxTs }: {
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
       {charts.map((chart) => {
-        const data = buildChartData(series, chart);
+        const data = insertGapBreaks(buildChartData(series, chart), 'time');
         return (
           <ChartPanel key={chart.title} title={chart.title}>
             <MiniChart data={data} unit={chart.unit} dark={dark} minTs={minTs} maxTs={maxTs} />
@@ -303,10 +304,8 @@ export function SqlServerMetrics({ instanceId, range, health }: SqlServerMetrics
 
   const series = useMemo(() => perfData?.series ?? [], [perfData]);
 
-  // Clip x-axis domain to actual data bounds so lines don't droop into empty space
-  const allTimestamps = series.map(pt => new Date(pt.bucket).getTime());
-  const minTs = allTimestamps.length > 0 ? Math.min(...allTimestamps) : new Date(range.from).getTime();
-  const maxTs = allTimestamps.length > 0 ? Math.max(...allTimestamps) : new Date(range.to).getTime();
+  const minTs = new Date(range.from).getTime();
+  const maxTs = new Date(range.to).getTime();
 
   return (
     <CollapsibleSection title="SQL Server Metrics" defaultOpen>
