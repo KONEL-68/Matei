@@ -16,6 +16,7 @@ import { collectDeadlocks, type DeadlockRow } from './collectors/deadlocks.js';
 import { collectPerfCounters, type PerfCounterResult } from './collectors/perf-counters.js';
 import { collectServerConfig, type ServerConfigRow } from './collectors/server-config.js';
 import { collectMemoryClerks, type MemoryClerkRow } from './collectors/memory-clerks.js';
+import { collectPermissions, type PermissionsRow } from './collectors/permissions.js';
 import { evaluateAlerts, writeAlerts } from '../alerts/engine.js';
 import { fireWebhook } from '../alerts/webhook.js';
 
@@ -44,6 +45,7 @@ export interface InstanceResult {
   deadlocks: DeadlockRow[];
   perfCounters: PerfCounterResult[] | null;
   memoryClerks: MemoryClerkRow[];
+  permissions: PermissionsRow[];
 }
 
 // Track which instances support dm_exec_query_statistics_xml (avoid repeated errors)
@@ -192,6 +194,7 @@ async function collectFromInstance(
   encryptionKey: string,
   isDiskCycle: boolean,
   isQueryStatsCycle: boolean,
+  isPermissionsCycle: boolean,
   log: CollectorLog,
   pgPool: pg.Pool,
 ): Promise<InstanceResult> {
@@ -213,6 +216,7 @@ async function collectFromInstance(
     deadlocks: [],
     perfCounters: null,
     memoryClerks: [],
+    permissions: [],
   };
 
   let pool: sql.ConnectionPool | null = null;
@@ -246,6 +250,7 @@ async function collectFromInstance(
       Promise<DeadlockRow[]>,
       Promise<PerfCounterResult[] | null>,
       Promise<MemoryClerkRow[]>,
+      Promise<PermissionsRow[]>,
     ] = [
       collectWaitStats(pool.request(), instance.id, startTime),
       collectActiveSessions(pool.request()),
@@ -261,15 +266,16 @@ async function collectFromInstance(
       isQueryStatsCycle ? collectDeadlocks(pool.request(), instance.id) : Promise.resolve([]),
       collectPerfCounters(pool.request(), instance.id, startTime),
       isQueryStatsCycle ? collectMemoryClerks(pool.request()) : Promise.resolve([]),
+      isPermissionsCycle ? collectPermissions(pool.request()) : Promise.resolve([]),
     ];
 
-    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, procedureStats, procedureStatements, osHostInfo, serverConfig, deadlocks, perfCounters, memoryClerks] = await Promise.all(collectorsPromise);
+    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, procedureStats, procedureStatements, osHostInfo, serverConfig, deadlocks, perfCounters, memoryClerks, permissions] = await Promise.all(collectorsPromise);
 
     if (needsHostInfo && osHostInfo.length > 0) {
       hostInfoCollected.add(instance.id);
     }
 
-    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} procs=${procedureStats?.length ?? 'skip'} proc_stmts=${procedureStatements.length || 'skip'} deadlocks=${deadlocks.length} perf=${perfCounters?.length ?? 'first-run'} mem_clerks=${memoryClerks.length || 'skip'}${needsHostInfo ? ` hostinfo=${osHostInfo.length} serverconfig=${serverConfig.length}` : ''}`);
+    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} procs=${procedureStats?.length ?? 'skip'} proc_stmts=${procedureStatements.length || 'skip'} deadlocks=${deadlocks.length} perf=${perfCounters?.length ?? 'first-run'} mem_clerks=${memoryClerks.length || 'skip'} permissions=${permissions.length || 'skip'}${needsHostInfo ? ` hostinfo=${osHostInfo.length} serverconfig=${serverConfig.length}` : ''}`);
 
     // Collect query plans (estimated + actual) on query stats cycles — non-blocking
     if (isQueryStatsCycle && queryStats && queryStats.length > 0 && pgPool) {
@@ -299,6 +305,7 @@ async function collectFromInstance(
       deadlocks,
       perfCounters,
       memoryClerks,
+      permissions,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -329,11 +336,12 @@ export async function collectAll(
   cycleCount++;
   const isDiskCycle = cycleCount % 10 === 0;
   const isQueryStatsCycle = cycleCount % 2 === 0;
+  const isPermissionsCycle = cycleCount === 1 || cycleCount % 2880 === 0;
 
   const results = await runWithConcurrency(
     instances,
     concurrency,
-    (inst) => collectFromInstance(inst, encryptionKey, isDiskCycle, isQueryStatsCycle, log, pgPool),
+    (inst) => collectFromInstance(inst, encryptionKey, isDiskCycle, isQueryStatsCycle, isPermissionsCycle, log, pgPool),
   );
 
   // Update statuses FIRST — even if batch inserts fail, we want status to reflect reality
@@ -356,6 +364,7 @@ export async function collectAll(
     ['deadlocks', () => batchInsertDeadlocks(pgPool, results)],
     ['perf_counters', () => batchInsertPerfCounters(pgPool, results)],
     ['memory_clerks', () => batchInsertMemoryClerks(pgPool, results)],
+    ['permissions', () => batchInsertPermissions(pgPool, results)],
   ] as const) {
     try {
       await insertFn();
@@ -878,6 +887,31 @@ async function batchInsertMemoryClerks(pgPool: pg.Pool, results: InstanceResult[
     ) VALUES ${placeholders.join(', ')}`,
     values,
   );
+}
+
+async function batchInsertPermissions(pgPool: pg.Pool, results: InstanceResult[]): Promise<void> {
+  for (const r of results) {
+    if (r.permissions.length === 0) continue;
+
+    // Full replace: delete old data then insert new snapshot
+    await pgPool.query(`DELETE FROM server_role_members WHERE instance_id = $1`, [r.instanceId]);
+
+    const values: unknown[] = [];
+    const placeholders: string[] = [];
+    let idx = 1;
+
+    for (const row of r.permissions) {
+      placeholders.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++})`);
+      values.push(r.instanceId, row.role_name, row.login_name, row.login_type);
+    }
+
+    await pgPool.query(
+      `INSERT INTO server_role_members (
+        instance_id, role_name, login_name, login_type
+      ) VALUES ${placeholders.join(', ')}`,
+      values,
+    );
+  }
 }
 
 async function updateStatuses(pgPool: pg.Pool, results: InstanceResult[], log: CollectorLog): Promise<void> {

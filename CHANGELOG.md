@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Permissions (server role members) tests: collector test and API route test for `/api/metrics/:id/permissions`
+- Permissions table component: expandable role-based permissions view showing Windows logins, AD accounts, and SQL logins per server role with drill-down member list
 - Current Activity tab: moved Top Waits, SQL Memory Breakdown, Disk Space, and Session Breakdown cards from History tab; all data now fetched live from SQL Server (not PostgreSQL)
 - Live API endpoints querying SQL Server directly: `/api/metrics/:id/live/sessions`, `/live/waits`, `/live/disk`, `/live/memory`, `/live/memory-clerks`
 - Auto-refresh header moved above live cards; all cards + sessions refresh every 15s (controlled by toggle)
@@ -19,20 +21,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Memory clerks collector (`server/src/collector/collectors/memory-clerks.ts`)
 - API endpoint: `GET /api/metrics/:id/memory-clerks` returns time-series data for clerks >100 MB
 - SQL reference file: `sql/memory_clerks.sql`
-
-### Changed
-- Current Activity tab cards query SQL Server live instead of reading from PostgreSQL
-- Memory Breakdown component accepts optional `refetchInterval` prop
-
-### Fixed
-- All metric API endpoints: fix PostgreSQL Date objects compared by reference in Set/Map by converting bucket timestamps to ISO strings (affected overview-chart, waits/chart, file-io/chart, disk, perf-counters)
-- Live waits endpoint: filter excluded waits in SQL query (NOT IN clause) instead of post-filter, fixing empty Top Waits card
-- All time-series charts show proportional gaps when data wasn't collected (e.g., backend offline overnight): OverviewTimeline, CPU, Memory, File I/O, Disk, Throughput, SQL Server Metrics, Wait Stats bar charts
-- OverviewTimeline x-axis spans full selected time range (1h/6h/24h/7d) with evenly spaced ticks
-- Chart line droop at edges fixed: switched from monotone to linear interpolation across all charts
-- Wait Stats bar charts (WaitsChart, WaitsMiniChart): fill empty time buckets so gaps render as proportional empty space
-
-### Added
 - Memory Grants chart in SQL Server Metrics: multi-line chart showing Memory Grants Pending and Memory Grants Outstanding counters
 - Memory Grants Outstanding perf counter: added to collection whitelist (cntr_type 65792, instantaneous)
 - Shared `generateTicks` helper in chart-utils for numeric x-axis tick generation across all time-series charts
@@ -105,6 +93,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Memory grant tracking from dm_exec_query_stats
 
 ### Changed
+- Current Activity tab cards query SQL Server live instead of reading from PostgreSQL
+- Memory Breakdown component accepts optional `refetchInterval` prop
 - Analysis section wrapped in CollapsibleSection (same style as SQL Server Metrics)
 - Top Procedures: data now served from PostgreSQL with time range filtering (was live SQL Server query)
 - Procedure statements: served from PostgreSQL history (was live SQL Server query)
@@ -121,6 +111,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Live SQL Server calls from History tab (all data now from PostgreSQL)
 
 ### Fixed
+- All metric API endpoints: fix PostgreSQL Date objects compared by reference in Set/Map by converting bucket timestamps to ISO strings (affected overview-chart, waits/chart, file-io/chart, disk, perf-counters)
+- Live waits endpoint: filter excluded waits in SQL query (NOT IN clause) instead of post-filter, fixing empty Top Waits card
+- All time-series charts show proportional gaps when data wasn't collected (e.g., backend offline overnight): OverviewTimeline, CPU, Memory, File I/O, Disk, Throughput, SQL Server Metrics, Wait Stats bar charts
+- OverviewTimeline x-axis spans full selected time range (1h/6h/24h/7d) with evenly spaced ticks
+- Chart line droop at edges fixed: switched from monotone to linear interpolation across all charts
+- Wait Stats bar charts (WaitsChart, WaitsMiniChart): fill empty time buckets so gaps render as proportional empty space
 - White screen crash in Top Procedures: null-safe formatNum and ISNULL in SQL for NULL schema names
 - Procedure statements returning no data: OBJECT_ID needs 3-part name for cross-database resolution
 - Numeric sort bug: SQL Server bigint values returned as strings caused alphabetic sorting

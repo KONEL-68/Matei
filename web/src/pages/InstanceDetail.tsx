@@ -15,6 +15,7 @@ import { OverviewTimeline, type TimeWindow } from '@/components/OverviewTimeline
 import { OverviewMetricCharts } from '@/components/OverviewMetricCharts';
 import { AnalysisSection } from '@/components/AnalysisSection';
 import { SqlServerMetrics } from '@/components/SqlServerMetrics';
+import { PermissionsTable } from '@/components/PermissionsTable';
 import { authFetch } from '@/lib/auth';
 
 type TimeRange = '1h' | '6h' | '24h' | '7d' | '30d' | '1y';
@@ -259,6 +260,11 @@ export function InstanceDetail() {
         />
         </div>
       )}
+
+      {/* Permissions */}
+      <div className="mt-6">
+        <PermissionsTable instanceId={id!} />
+      </div>
 
       {/* 5. Active Sessions (full width) */}
       <div className="mt-4">

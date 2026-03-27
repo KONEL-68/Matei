@@ -978,6 +978,54 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
     return reply.send(result.rows[0]);
   });
 
+  // GET /api/metrics/:id/permissions — server role members (latest snapshot)
+  app.get<{ Params: IdParam }>('/api/metrics/:id/permissions', async (req, reply) => {
+    const { id } = req.params;
+
+    // Single query: get all rows matching the latest collected_at (subquery avoids
+    // JS Date microsecond precision loss that breaks exact timestamp matching)
+    const result = await pool.query(
+      `SELECT role_name, login_name, login_type, collected_at
+       FROM server_role_members
+       WHERE instance_id = $1
+         AND collected_at = (SELECT MAX(collected_at) FROM server_role_members WHERE instance_id = $1)
+       ORDER BY role_name, login_type, login_name`,
+      [id],
+    );
+
+    if (result.rows.length === 0) {
+      return reply.send({ collected_at: null, roles: [] });
+    }
+
+    const collectedAt = result.rows[0].collected_at;
+
+    // Group by role
+    const roleMap: Record<string, { windows_logins: number; ad_accounts: number; sql_logins: number; members: Array<{ login_name: string; login_type: string }> }> = {};
+
+    for (const row of result.rows) {
+      if (!roleMap[row.role_name]) {
+        roleMap[row.role_name] = { windows_logins: 0, ad_accounts: 0, sql_logins: 0, members: [] };
+      }
+      const role = roleMap[row.role_name];
+      role.members.push({ login_name: row.login_name, login_type: row.login_type });
+      if (row.login_type === 'Windows login') role.windows_logins++;
+      else if (row.login_type === 'Active Directory account') role.ad_accounts++;
+      else if (row.login_type === 'SQL login') role.sql_logins++;
+    }
+
+    // Return all 8 roles even if empty
+    const ALL_ROLES = ['sysadmin', 'serveradmin', 'securityadmin', 'processadmin', 'setupadmin', 'bulkadmin', 'diskadmin', 'dbcreator'];
+    const roles = ALL_ROLES.map(name => ({
+      role_name: name,
+      windows_logins: roleMap[name]?.windows_logins ?? 0,
+      ad_accounts: roleMap[name]?.ad_accounts ?? 0,
+      sql_logins: roleMap[name]?.sql_logins ?? 0,
+      members: roleMap[name]?.members ?? [],
+    }));
+
+    return reply.send({ collected_at: collectedAt, roles });
+  });
+
   // =====================================================================
   // Live endpoints — query SQL Server directly for Current Activity tab
   // =====================================================================
