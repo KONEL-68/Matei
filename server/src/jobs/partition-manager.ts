@@ -18,6 +18,7 @@ const RAW_TABLES = [
   'query_stats_raw',
   'procedure_stats_raw',
   'procedure_statements_raw',
+  'memory_clerks_raw',
 ];
 
 /** Tables partitioned by month (aggregation rollups). */

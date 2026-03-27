@@ -7,6 +7,7 @@ import {
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
 import { CollapsibleSection } from '@/components/CollapsibleSection';
+import { MemoryClerksChart } from '@/components/MemoryClerksChart';
 import { generateTicks, insertGapBreaks } from '@/lib/chart-utils';
 
 // ── Types ──
@@ -51,6 +52,8 @@ interface ChartDef {
   counters: string[];
   /** Whether this is a ratio chart (counters[0] / counters[1]) */
   ratio?: boolean;
+  /** Whether to render each counter as a separate line on the same chart */
+  multiLine?: boolean;
   unit: string;
 }
 
@@ -65,6 +68,7 @@ interface TPayload {
 const CHART_HEIGHT = 140;
 const LINE_COLOR = '#3b82f6';
 const FILL_COLOR = '#3b82f620';
+const MULTI_LINE_COLORS = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6'];
 
 // ── Chart definitions ──
 
@@ -84,8 +88,10 @@ const LATCH_LOCK_CHARTS: ChartDef[] = [
   { title: 'Lock Waits/sec', counters: ['Lock Waits/sec'], unit: '/s' },
 ];
 
-const BUFFER_CHARTS: ChartDef[] = [
+const MEMORY_CHARTS: ChartDef[] = [
   { title: 'Page Life Expectancy', counters: ['Page life expectancy'], unit: ' s' },
+  { title: 'Memory Grants Pending', counters: ['Memory Grants Pending'], unit: '' },
+  { title: 'Memory Grants Outstanding', counters: ['Memory Grants Outstanding'], unit: '' },
 ];
 
 // ── Helpers ──
@@ -140,10 +146,34 @@ function buildChartData(
     }));
 }
 
+interface MultiLinePoint {
+  time: string;
+  ts: number;
+  [key: string]: number | string;
+}
+
+function buildMultiLineChartData(
+  series: PerfCounterSeries[],
+  counters: string[],
+): MultiLinePoint[] {
+  const bucketMap = new Map<string, MultiLinePoint>();
+  for (const pt of series) {
+    if (!counters.includes(pt.counter_name)) continue;
+    if (!bucketMap.has(pt.bucket)) {
+      bucketMap.set(pt.bucket, { time: formatTime(pt.bucket), ts: new Date(pt.bucket).getTime() });
+    }
+    const entry = bucketMap.get(pt.bucket)!;
+    entry[pt.counter_name] = pt.cntr_value;
+  }
+  return [...bucketMap.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, v]) => v);
+}
+
 // ── Tooltip ──
 
-function ChartTooltip({ active, payload, label, unit }: {
-  active?: boolean; payload?: TPayload[]; label?: string | number; unit: string;
+function ChartTooltip({ active, payload, label, unit, showLabels }: {
+  active?: boolean; payload?: TPayload[]; label?: string | number; unit: string; showLabels?: boolean;
 }) {
   if (!active || !payload?.length) return null;
   const displayLabel = label != null && typeof label === 'number'
@@ -155,6 +185,7 @@ function ChartTooltip({ active, payload, label, unit }: {
       {payload.map((p) => (
         <div key={p.dataKey} className="flex items-center gap-2">
           <span style={{ color: p.color }}>&#9632;</span>
+          {showLabels && <span className="text-gray-300">{p.dataKey}</span>}
           <span className="ml-auto font-mono text-white pl-3">{formatValue(Number(p.value), unit)}</span>
         </div>
       ))}
@@ -211,6 +242,52 @@ function MiniChart({ data, unit, dark, minTs, maxTs }: {
   );
 }
 
+// ── Multi-line mini chart ──
+
+function MultiLineMiniChart({ data, counters, unit, dark, minTs, maxTs }: {
+  data: MultiLinePoint[];
+  counters: string[];
+  unit: string;
+  dark: boolean;
+  minTs: number;
+  maxTs: number;
+}) {
+  if (data.length === 0) {
+    return (
+      <div
+        className="flex items-center justify-center text-xs text-gray-500 dark:text-gray-400"
+        style={{ height: CHART_HEIGHT }}
+      >
+        No data
+      </div>
+    );
+  }
+
+  const axisTicks = generateTicks(minTs, maxTs, 6);
+
+  return (
+    <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+      <LineChart data={data}>
+        <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
+        <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={9} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
+        <YAxis fontSize={9} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={40} tickFormatter={(v: number) => formatValue(v, '')} />
+        <Tooltip content={<ChartTooltip unit={unit} showLabels />} />
+        {counters.map((counter, i) => (
+          <Line
+            key={counter}
+            type="linear"
+            dataKey={counter}
+            stroke={MULTI_LINE_COLORS[i % MULTI_LINE_COLORS.length]}
+            strokeWidth={1.5}
+            dot={false}
+            connectNulls={false}
+          />
+        ))}
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
 // ── Chart panel ──
 
 function ChartPanel({ title, children }: { title: string; children: React.ReactNode }) {
@@ -234,6 +311,14 @@ function ChartGrid({ charts, series, dark, minTs, maxTs }: {
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
       {charts.map((chart) => {
+        if (chart.multiLine) {
+          const data = insertGapBreaks(buildMultiLineChartData(series, chart.counters), 'time');
+          return (
+            <ChartPanel key={chart.title} title={chart.title}>
+              <MultiLineMiniChart data={data} counters={chart.counters} unit={chart.unit} dark={dark} minTs={minTs} maxTs={maxTs} />
+            </ChartPanel>
+          );
+        }
         const data = insertGapBreaks(buildChartData(series, chart), 'time');
         return (
           <ChartPanel key={chart.title} title={chart.title}>
@@ -322,10 +407,13 @@ export function SqlServerMetrics({ instanceId, range, health }: SqlServerMetrics
           <ChartGrid charts={LATCH_LOCK_CHARTS} series={series} dark={dark} minTs={minTs} maxTs={maxTs} />
         </div>
 
-        {/* Buffer Cache */}
+        {/* Memory */}
         <div>
-          <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Buffer Cache</h3>
-          <ChartGrid charts={BUFFER_CHARTS} series={series} dark={dark} minTs={minTs} maxTs={maxTs} />
+          <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Memory</h3>
+          <ChartGrid charts={MEMORY_CHARTS} series={series} dark={dark} minTs={minTs} maxTs={maxTs} />
+          <div className="mt-3">
+            <MemoryClerksChart instanceId={instanceId} rangeParams={rangeParams} />
+          </div>
         </div>
 
         {/* Server Properties + Configuration side by side */}

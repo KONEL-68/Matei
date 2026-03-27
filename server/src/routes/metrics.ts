@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type pg from 'pg';
 import type { AppConfig } from '../config.js';
 import { EXCLUDED_WAITS } from '../collector/collectors/wait-stats.js';
+import { getSharedPool, type InstanceRecord } from '../lib/mssql.js';
 
 interface IdParam {
   id: string;
@@ -975,6 +976,211 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
     }
 
     return reply.send(result.rows[0]);
+  });
+
+  // =====================================================================
+  // Live endpoints — query SQL Server directly for Current Activity tab
+  // =====================================================================
+
+  /** Helper: get shared SQL Server connection for an instance */
+  async function getLivePool(instanceId: string) {
+    const instResult = await pool.query(
+      'SELECT id, host, port, auth_type, encrypted_credentials FROM instances WHERE id = $1',
+      [instanceId],
+    );
+    if (instResult.rows.length === 0) return null;
+    const row = instResult.rows[0];
+    const instance: InstanceRecord = {
+      id: row.id,
+      host: row.host,
+      port: row.port,
+      auth_type: row.auth_type,
+      encrypted_credentials: row.encrypted_credentials ? row.encrypted_credentials.toString('utf8') : null,
+    };
+    const sqlPool = await getSharedPool(instance, config!.encryptionKey);
+    return sqlPool;
+  }
+
+  // GET /api/metrics/:id/memory-clerks?from=&to= — memory clerks time series (>100 MB avg)
+  app.get<{ Params: IdParam; Querystring: RangeQuery }>('/api/metrics/:id/memory-clerks', async (req, reply) => {
+    const { id } = req.params;
+    const tf = resolveTimeFilter(req.query, 'collected_at', 2);
+
+    // Step 1: find clerk types averaging >100 MB in the range
+    const topResult = await pool.query(
+      `SELECT clerk_type, AVG(size_mb) AS avg_mb
+       FROM memory_clerks_raw
+       WHERE instance_id = $1 AND ${tf.condition}
+       GROUP BY clerk_type
+       HAVING AVG(size_mb) > 100
+       ORDER BY avg_mb DESC`,
+      [id, ...tf.params],
+    );
+    const topTypes = topResult.rows.map((r: { clerk_type: string }) => r.clerk_type);
+    if (topTypes.length === 0) return reply.send([]);
+
+    // Step 2: time series for those types (bucketed by minute)
+    const tf2 = resolveTimeFilter(req.query, 'collected_at', 2);
+    const result = await pool.query(
+      `SELECT date_trunc('minute', collected_at) AS bucket,
+              clerk_type,
+              AVG(size_mb)::float AS size_mb
+       FROM memory_clerks_raw
+       WHERE instance_id = $1 AND ${tf2.condition}
+         AND clerk_type = ANY($${2 + tf2.params.length})
+       GROUP BY bucket, clerk_type
+       ORDER BY bucket ASC`,
+      [id, ...tf2.params, topTypes],
+    );
+
+    return reply.send(result.rows.map((r: { bucket: string; clerk_type: string; size_mb: number }) => ({
+      bucket: new Date(r.bucket).toISOString(),
+      clerk_type: r.clerk_type,
+      size_mb: Number(r.size_mb),
+    })));
+  });
+
+  // GET /api/metrics/:id/live/sessions — live sessions from SQL Server
+  app.get<{ Params: IdParam }>('/api/metrics/:id/live/sessions', async (req, reply) => {
+    const { id } = req.params;
+    const sqlPool = await getLivePool(id);
+    if (!sqlPool) return reply.status(404).send({ error: 'Instance not found' });
+
+    const result = await sqlPool.request().query(`
+      SELECT
+        s.session_id,
+        r.request_id,
+        r.blocking_session_id,
+        s.status AS session_status,
+        r.status AS request_status,
+        s.login_name,
+        s.host_name,
+        s.program_name,
+        DB_NAME(r.database_id) AS database_name,
+        r.command,
+        r.wait_type,
+        r.wait_time AS wait_time_ms,
+        r.wait_resource,
+        r.total_elapsed_time AS elapsed_time_ms,
+        r.cpu_time AS cpu_time_ms,
+        r.logical_reads,
+        r.writes,
+        r.open_transaction_count,
+        r.granted_query_memory AS granted_memory_kb,
+        SUBSTRING(st.text, (r.statement_start_offset/2)+1,
+          ((CASE r.statement_end_offset
+              WHEN -1 THEN DATALENGTH(st.text)
+              ELSE r.statement_end_offset
+            END - r.statement_start_offset)/2)+1) AS current_statement
+      FROM sys.dm_exec_sessions s
+      LEFT JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
+      OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) st
+      WHERE s.is_user_process = 1
+        AND (r.session_id IS NOT NULL OR s.open_transaction_count > 0)
+      ORDER BY
+        CASE WHEN r.blocking_session_id > 0 THEN 0 ELSE 1 END,
+        r.total_elapsed_time DESC
+    `);
+    return reply.send(result.recordset);
+  });
+
+  // Build excluded waits NOT IN clause once at startup
+  const excludedWaitsList = [...EXCLUDED_WAITS].map((w) => `'${w.replace(/'/g, "''")}'`).join(',');
+
+  // GET /api/metrics/:id/live/waits — live top waits from SQL Server (cumulative snapshot)
+  app.get<{ Params: IdParam }>('/api/metrics/:id/live/waits', async (req, reply) => {
+    const { id } = req.params;
+    const sqlPool = await getLivePool(id);
+    if (!sqlPool) return reply.status(404).send({ error: 'Instance not found' });
+
+    const result = await sqlPool.request().query(`
+      SELECT TOP 5
+        w.wait_type,
+        w.wait_time_ms,
+        w.waiting_tasks_count,
+        w.signal_wait_time_ms,
+        DATEDIFF(SECOND, si.sqlserver_start_time, GETUTCDATE()) AS uptime_sec
+      FROM sys.dm_os_wait_stats w
+      CROSS JOIN sys.dm_os_sys_info si
+      WHERE w.wait_time_ms > 0
+        AND w.wait_type NOT IN (${excludedWaitsList})
+      ORDER BY w.wait_time_ms DESC
+    `);
+    const rows = result.recordset.map((r: { wait_type: string; wait_time_ms: number; uptime_sec: number }) => {
+      const uptimeSec = r.uptime_sec > 0 ? r.uptime_sec : 1;
+      return {
+        wait_type: r.wait_type,
+        wait_time_ms: r.wait_time_ms,
+        wait_ms_per_sec: Math.round((r.wait_time_ms / uptimeSec) * 10) / 10,
+      };
+    });
+    return reply.send(rows);
+  });
+
+  // GET /api/metrics/:id/live/disk — live disk space from SQL Server
+  app.get<{ Params: IdParam }>('/api/metrics/:id/live/disk', async (req, reply) => {
+    const { id } = req.params;
+    const sqlPool = await getLivePool(id);
+    if (!sqlPool) return reply.status(404).send({ error: 'Instance not found' });
+
+    const result = await sqlPool.request().query(`
+      SELECT DISTINCT
+        vs.volume_mount_point,
+        vs.logical_volume_name,
+        vs.total_bytes / 1048576 AS total_mb,
+        vs.available_bytes / 1048576 AS available_mb,
+        (vs.total_bytes - vs.available_bytes) / 1048576 AS used_mb,
+        CAST(100.0 * (vs.total_bytes - vs.available_bytes)
+          / NULLIF(vs.total_bytes, 0) AS DECIMAL(5,2)) AS used_pct
+      FROM sys.master_files mf
+      CROSS APPLY sys.dm_os_volume_stats(mf.database_id, mf.file_id) vs
+    `);
+    return reply.send(result.recordset);
+  });
+
+  // GET /api/metrics/:id/live/memory — live memory breakdown from SQL Server
+  app.get<{ Params: IdParam }>('/api/metrics/:id/live/memory', async (req, reply) => {
+    const { id } = req.params;
+    const sqlPool = await getLivePool(id);
+    if (!sqlPool) return reply.status(404).send({ error: 'Instance not found' });
+
+    const result = await sqlPool.request().query(`
+      SELECT
+        si.committed_kb / 1024 AS total_mb,
+        si.committed_target_kb / 1024 AS target_mb,
+        (SELECT SUM(pages_kb) / 1024 FROM sys.dm_os_memory_clerks
+         WHERE type IN ('MEMORYCLERK_SQLBUFFERPOOL')) AS database_cache_mb,
+        (SELECT SUM(pages_kb) / 1024 FROM sys.dm_os_memory_clerks
+         WHERE type NOT IN ('MEMORYCLERK_SQLBUFFERPOOL')) AS stolen_mb
+      FROM sys.dm_os_sys_info si
+    `);
+    if (result.recordset.length === 0) return reply.send(null);
+    const r = result.recordset[0];
+    return reply.send({
+      total_mb: r.total_mb,
+      target_mb: r.target_mb,
+      stolen_mb: r.stolen_mb ?? 0,
+      database_cache_mb: r.database_cache_mb ?? 0,
+      deficit_mb: (r.target_mb ?? 0) - (r.total_mb ?? 0),
+    });
+  });
+
+  // GET /api/metrics/:id/live/memory-clerks — top 15 memory clerks from SQL Server
+  app.get<{ Params: IdParam }>('/api/metrics/:id/live/memory-clerks', async (req, reply) => {
+    const { id } = req.params;
+    const sqlPool = await getLivePool(id);
+    if (!sqlPool) return reply.status(404).send({ error: 'Instance not found' });
+
+    const result = await sqlPool.request().query(`
+      SELECT TOP 15
+          type,
+          SUM(pages_kb) / 1024.0 AS size_mb
+      FROM sys.dm_os_memory_clerks
+      GROUP BY type
+      HAVING SUM(pages_kb) > 0
+      ORDER BY SUM(pages_kb) DESC
+    `);
+    return reply.send(result.recordset);
   });
 }
 

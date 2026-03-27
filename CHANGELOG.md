@@ -6,14 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Current Activity tab: moved Top Waits, SQL Memory Breakdown, Disk Space, and Session Breakdown cards from History tab; all data now fetched live from SQL Server (not PostgreSQL)
+- Live API endpoints querying SQL Server directly: `/api/metrics/:id/live/sessions`, `/live/waits`, `/live/disk`, `/live/memory`, `/live/memory-clerks`
+- Auto-refresh header moved above live cards; all cards + sessions refresh every 15s (controlled by toggle)
+- Memory Grants Pending and Memory Grants Outstanding charts in SQL Server Metrics Memory section
+- Memory Grants Outstanding perf counter added to collection whitelist
+- Page Life Expectancy moved from Buffer Cache to Memory section
+- Memory Clerks stacked bar chart (over time) in SQL Server Metrics Memory section: shows all clerks >100 MB with friendly names (e.g., "Buffer Pool", "Query Plans"), tooltip sorted by size
+- Memory clerks metric: historical collection from `sys.dm_os_memory_clerks` every 2nd cycle (60s), snapshot metric
+- Migration 018: `memory_clerks_raw` partitioned table for memory clerk data
+- Memory clerks collector (`server/src/collector/collectors/memory-clerks.ts`)
+- API endpoint: `GET /api/metrics/:id/memory-clerks` returns time-series data for clerks >100 MB
+- SQL reference file: `sql/memory_clerks.sql`
+
+### Changed
+- Current Activity tab cards query SQL Server live instead of reading from PostgreSQL
+- Memory Breakdown component accepts optional `refetchInterval` prop
+
 ### Fixed
 - All metric API endpoints: fix PostgreSQL Date objects compared by reference in Set/Map by converting bucket timestamps to ISO strings (affected overview-chart, waits/chart, file-io/chart, disk, perf-counters)
+- Live waits endpoint: filter excluded waits in SQL query (NOT IN clause) instead of post-filter, fixing empty Top Waits card
 - All time-series charts show proportional gaps when data wasn't collected (e.g., backend offline overnight): OverviewTimeline, CPU, Memory, File I/O, Disk, Throughput, SQL Server Metrics, Wait Stats bar charts
 - OverviewTimeline x-axis spans full selected time range (1h/6h/24h/7d) with evenly spaced ticks
 - Chart line droop at edges fixed: switched from monotone to linear interpolation across all charts
 - Wait Stats bar charts (WaitsChart, WaitsMiniChart): fill empty time buckets so gaps render as proportional empty space
 
 ### Added
+- Memory Grants chart in SQL Server Metrics: multi-line chart showing Memory Grants Pending and Memory Grants Outstanding counters
+- Memory Grants Outstanding perf counter: added to collection whitelist (cntr_type 65792, instantaneous)
 - Shared `generateTicks` helper in chart-utils for numeric x-axis tick generation across all time-series charts
 - Shared chart-utils library (`web/src/lib/chart-utils.ts`): extracted `insertGapBreaks` and `fillAllNulls` from OverviewTimeline for reuse across all time-series charts
 - Query detail panel: parse and display WaitStats from actual execution plan XML with wait type, description, time, and count

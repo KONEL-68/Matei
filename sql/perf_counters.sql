@@ -30,6 +30,7 @@ WHERE counter_name IN (
     'Target Server Memory (KB)',
     'Stolen Server Memory (KB)',
     'Memory Grants Pending',
+    'Memory Grants Outstanding',
     'Bytes Sent to Replica/sec',
     'Bytes Received from Replica/sec',
     'Page Splits/sec',

@@ -14,6 +14,9 @@ vi.mock('@/lib/theme', () => ({
 // Mock Recharts to avoid SVG rendering issues in jsdom
 vi.mock('recharts', () => ({
   LineChart: ({ children }: { children: React.ReactNode }) => <div data-testid="line-chart">{children}</div>,
+  BarChart: ({ children }: { children: React.ReactNode }) => <div data-testid="bar-chart">{children}</div>,
+  Bar: () => null,
+  Cell: () => null,
   Line: () => null,
   XAxis: () => null,
   YAxis: () => null,
@@ -63,6 +66,9 @@ function renderComponent(props = defaultProps) {
     if (url.includes('/server-config')) {
       return { ok: true, json: async () => mockServerConfig } as Response;
     }
+    if (url.includes('/memory-clerks')) {
+      return { ok: true, json: async () => [] } as Response;
+    }
     return { ok: true, json: async () => ({}) } as Response;
   });
 
@@ -87,7 +93,7 @@ describe('SqlServerMetrics', () => {
     expect(screen.getByText('SQL Server Metrics')).toBeInTheDocument();
     expect(screen.getByText('General')).toBeInTheDocument();
     expect(screen.getByText('Latches and Locks')).toBeInTheDocument();
-    expect(screen.getByText('Buffer Cache')).toBeInTheDocument();
+    expect(screen.getByText('Memory')).toBeInTheDocument();
     expect(screen.getByText('Server Properties')).toBeInTheDocument();
     expect(screen.getByText('Server Configuration Options')).toBeInTheDocument();
   });
@@ -128,6 +134,17 @@ describe('SqlServerMetrics', () => {
     expect(naValues.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('renders Memory Grants chart title', async () => {
+    renderComponent();
+    expect(await screen.findByText('Memory Grants Pending')).toBeInTheDocument();
+  });
+
+  it('renders Memory Clerks section', async () => {
+    renderComponent();
+    expect(await screen.findByText('Memory Clerks')).toBeInTheDocument();
+    expect(screen.getByTestId('memory-clerks-chart')).toBeInTheDocument();
+  });
+
   it('handles server-config fetch failure gracefully', async () => {
     mockAuthFetch.mockImplementation(async (url: string) => {
       if (url.includes('/perf-counters')) {
@@ -135,6 +152,9 @@ describe('SqlServerMetrics', () => {
       }
       if (url.includes('/server-config')) {
         return { ok: false, json: async () => ({ error: 'fail' }) } as Response;
+      }
+      if (url.includes('/memory-clerks')) {
+        return { ok: true, json: async () => [] } as Response;
       }
       return { ok: true, json: async () => ({}) } as Response;
     });

@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { CpuChart } from '@/components/CpuChart';
-import { MemoryBreakdown } from '@/components/MemoryBreakdown';
 import { WaitsChart } from '@/components/WaitsChart';
 import { SessionsTable } from '@/components/SessionsTable';
 import { DeadlocksTable } from '@/components/DeadlocksTable';
@@ -10,8 +9,6 @@ import { BlockingTree } from '@/components/BlockingTree';
 import { FileIoChart } from '@/components/FileIoChart';
 import { DiskChart } from '@/components/DiskChart';
 import { StatusBar } from '@/components/StatusBar';
-import { TopWaitsTable } from '@/components/TopWaitsTable';
-import { SessionBreakdown } from '@/components/SessionBreakdown';
 import { CollapsibleSection } from '@/components/CollapsibleSection';
 import { CurrentActivity } from '@/components/CurrentActivity';
 import { OverviewTimeline, type TimeWindow } from '@/components/OverviewTimeline';
@@ -46,15 +43,6 @@ interface HostInfo {
   host_service_pack_level: string;
 }
 
-interface DiskRow {
-  volume_mount_point: string;
-  logical_volume_name: string;
-  total_mb: number;
-  available_mb: number;
-  used_mb: number;
-  used_pct: number;
-}
-
 interface FileIoRow {
   database_name: string;
   file_name: string;
@@ -78,18 +66,6 @@ function formatUptime(seconds: number): string {
   if (days > 0) return `${days}d ${hours}h`;
   if (hours > 0) return `${hours}h ${mins}m`;
   return `${mins}m`;
-}
-
-function diskBarColor(pct: number): string {
-  if (pct > 90) return 'bg-red-500';
-  if (pct > 75) return 'bg-yellow-500';
-  return 'bg-blue-500';
-}
-
-function diskTextColor(pct: number): string {
-  if (pct > 90) return 'text-red-600 dark:text-red-400';
-  if (pct > 75) return 'text-yellow-600 dark:text-yellow-400';
-  return 'text-gray-600 dark:text-gray-400';
 }
 
 type Tab = 'history' | 'current';
@@ -167,12 +143,6 @@ export function InstanceDetail() {
     refetchInterval: hasFixedWindow ? false : 15000,
   });
 
-  const { data: waitsData = [] } = useQuery({
-    queryKey: ['metrics-waits', id, range, timeWindow],
-    queryFn: () => fetchJson<Array<Record<string, unknown>>>(`/api/metrics/${id}/waits?${rangeParams}`),
-    refetchInterval: hasFixedWindow ? false : 30000,
-  });
-
   const sessionsUrl = sessionAt
     ? `/api/metrics/${id}/sessions?at=${encodeURIComponent(sessionAt)}`
     : `/api/metrics/${id}/sessions`;
@@ -189,12 +159,6 @@ export function InstanceDetail() {
     queryKey: ['session-history', id, sessionHistoryRange],
     queryFn: () => fetchJson<string[]>(`/api/metrics/${id}/sessions/history?range=${sessionHistoryRange}`),
     refetchInterval: 30000,
-  });
-
-  const { data: diskData = [] } = useQuery<DiskRow[]>({
-    queryKey: ['metrics-disk', id],
-    queryFn: () => fetchJson<DiskRow[]>(`/api/metrics/${id}/disk`),
-    refetchInterval: 60000,
   });
 
   const { data: fileIoData = [] } = useQuery<FileIoRow[]>({
@@ -279,48 +243,6 @@ export function InstanceDetail() {
         <OverviewMetricCharts instanceId={id!} window={timeWindow} />
       </div>
 
-
-      {/* 3. Top Waits | Memory Breakdown | Disk Space | Session Breakdown */}
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-4 items-stretch">
-        <TopWaitsTable data={waitsData as Array<{ wait_type: string; wait_ms_per_sec: number; wait_time_ms: number }>} />
-        <MemoryBreakdown instanceId={id!} />
-        <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900 h-full">
-          <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">Disk Space</h3>
-          {diskData.length === 0 ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400">No disk data</p>
-          ) : (
-            <div className="space-y-2">
-              {[...diskData].sort((a, b) => Number(b.used_pct) - Number(a.used_pct)).map((d) => {
-                const pct = Number(d.used_pct);
-                return (
-                  <div key={d.volume_mount_point}>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-mono text-gray-700 dark:text-gray-300 truncate" title={`${d.volume_mount_point} ${d.logical_volume_name || ''}`}>
-                        {d.volume_mount_point}
-                      </span>
-                      <span className="ml-2 text-gray-500 dark:text-gray-400">
-                        {((d.total_mb - d.available_mb) / 1024).toFixed(0)} GB used of {(d.total_mb / 1024).toFixed(0)} GB
-                      </span>
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-2">
-                      <div className="h-2 flex-1 rounded-full bg-gray-100 dark:bg-gray-800">
-                        <div
-                          className={`h-2 rounded-full transition-all ${diskBarColor(pct)}`}
-                          style={{ width: `${Math.min(100, pct)}%` }}
-                        />
-                      </div>
-                      <span className={`text-xs font-medium w-10 text-right ${diskTextColor(pct)}`}>
-                        {pct.toFixed(0)}%
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        <SessionBreakdown data={sessionsData as Array<{ request_status: string | null; session_status: string; wait_type: string | null }>} />
-      </div>
 
       {/* Analysis section (Top Queries / Tracked Queries / Top Procedures) */}
       <div className="mt-4">

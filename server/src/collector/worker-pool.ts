@@ -15,6 +15,7 @@ import { collectOsHostInfo, type OsHostInfoRow } from './collectors/os-host-info
 import { collectDeadlocks, type DeadlockRow } from './collectors/deadlocks.js';
 import { collectPerfCounters, type PerfCounterResult } from './collectors/perf-counters.js';
 import { collectServerConfig, type ServerConfigRow } from './collectors/server-config.js';
+import { collectMemoryClerks, type MemoryClerkRow } from './collectors/memory-clerks.js';
 import { evaluateAlerts, writeAlerts } from '../alerts/engine.js';
 import { fireWebhook } from '../alerts/webhook.js';
 
@@ -42,6 +43,7 @@ export interface InstanceResult {
   serverConfig: ServerConfigRow[];
   deadlocks: DeadlockRow[];
   perfCounters: PerfCounterResult[] | null;
+  memoryClerks: MemoryClerkRow[];
 }
 
 // Track which instances support dm_exec_query_statistics_xml (avoid repeated errors)
@@ -210,6 +212,7 @@ async function collectFromInstance(
     serverConfig: [],
     deadlocks: [],
     perfCounters: null,
+    memoryClerks: [],
   };
 
   let pool: sql.ConnectionPool | null = null;
@@ -242,6 +245,7 @@ async function collectFromInstance(
       Promise<ServerConfigRow[]>,
       Promise<DeadlockRow[]>,
       Promise<PerfCounterResult[] | null>,
+      Promise<MemoryClerkRow[]>,
     ] = [
       collectWaitStats(pool.request(), instance.id, startTime),
       collectActiveSessions(pool.request()),
@@ -256,15 +260,16 @@ async function collectFromInstance(
       needsHostInfo ? collectServerConfig(pool.request()) : Promise.resolve([]),
       isQueryStatsCycle ? collectDeadlocks(pool.request(), instance.id) : Promise.resolve([]),
       collectPerfCounters(pool.request(), instance.id, startTime),
+      isQueryStatsCycle ? collectMemoryClerks(pool.request()) : Promise.resolve([]),
     ];
 
-    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, procedureStats, procedureStatements, osHostInfo, serverConfig, deadlocks, perfCounters] = await Promise.all(collectorsPromise);
+    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, procedureStats, procedureStatements, osHostInfo, serverConfig, deadlocks, perfCounters, memoryClerks] = await Promise.all(collectorsPromise);
 
     if (needsHostInfo && osHostInfo.length > 0) {
       hostInfoCollected.add(instance.id);
     }
 
-    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} procs=${procedureStats?.length ?? 'skip'} proc_stmts=${procedureStatements.length || 'skip'} deadlocks=${deadlocks.length} perf=${perfCounters?.length ?? 'first-run'}${needsHostInfo ? ` hostinfo=${osHostInfo.length} serverconfig=${serverConfig.length}` : ''}`);
+    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} procs=${procedureStats?.length ?? 'skip'} proc_stmts=${procedureStatements.length || 'skip'} deadlocks=${deadlocks.length} perf=${perfCounters?.length ?? 'first-run'} mem_clerks=${memoryClerks.length || 'skip'}${needsHostInfo ? ` hostinfo=${osHostInfo.length} serverconfig=${serverConfig.length}` : ''}`);
 
     // Collect query plans (estimated + actual) on query stats cycles — non-blocking
     if (isQueryStatsCycle && queryStats && queryStats.length > 0 && pgPool) {
@@ -293,6 +298,7 @@ async function collectFromInstance(
       serverConfig,
       deadlocks,
       perfCounters,
+      memoryClerks,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -349,6 +355,7 @@ export async function collectAll(
     ['server_config', () => batchInsertServerConfig(pgPool, results)],
     ['deadlocks', () => batchInsertDeadlocks(pgPool, results)],
     ['perf_counters', () => batchInsertPerfCounters(pgPool, results)],
+    ['memory_clerks', () => batchInsertMemoryClerks(pgPool, results)],
   ] as const) {
     try {
       await insertFn();
@@ -846,6 +853,28 @@ async function batchInsertPerfCounters(pgPool: pg.Pool, results: InstanceResult[
   await pgPool.query(
     `INSERT INTO perf_counters_raw (
       instance_id, counter_name, cntr_value, collected_at
+    ) VALUES ${placeholders.join(', ')}`,
+    values,
+  );
+}
+
+async function batchInsertMemoryClerks(pgPool: pg.Pool, results: InstanceResult[]): Promise<void> {
+  const values: unknown[] = [];
+  const placeholders: string[] = [];
+  let idx = 1;
+
+  for (const r of results) {
+    for (const row of r.memoryClerks) {
+      placeholders.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++})`);
+      values.push(r.instanceId, row.clerk_type, row.size_mb, new Date());
+    }
+  }
+
+  if (placeholders.length === 0) return;
+
+  await pgPool.query(
+    `INSERT INTO memory_clerks_raw (
+      instance_id, clerk_type, size_mb, collected_at
     ) VALUES ${placeholders.join(', ')}`,
     values,
   );

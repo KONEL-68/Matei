@@ -37,15 +37,15 @@ function ProgressBar({ label, valueMb, maxMb, color = 'bg-blue-500' }: {
   );
 }
 
-export function MemoryBreakdown({ instanceId }: { instanceId: string }) {
+export function MemoryBreakdown({ instanceId, refetchInterval = 30_000 }: { instanceId: string; refetchInterval?: number | false }) {
   const { data, isLoading } = useQuery<BreakdownData | null>({
     queryKey: ['memory-breakdown', instanceId],
     queryFn: async () => {
-      const res = await authFetch(`/api/metrics/${instanceId}/memory/breakdown`);
+      const res = await authFetch(`/api/metrics/${instanceId}/live/memory`);
       if (!res.ok) return null;
       return res.json();
     },
-    refetchInterval: 30_000,
+    refetchInterval,
   });
 
   const deficitLabel = data && data.deficit_mb <= 0 ? 'Memory Surplus' : 'Memory Deficit';
