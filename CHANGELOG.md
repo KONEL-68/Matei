@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Overview timeline metrics (memory, waits, disk I/O) now use independent Y-axes instead of sharing one, so each scales correctly
+
 ### Changed
 - Wait Stats (ms/sec) chart moved out of 2x2 grid to full-width placement before Analysis section for better visibility
 - New Signal vs Resource Wait (ms/s) stacked bar chart in the 2x2 grid replacing the old wait stats slot
