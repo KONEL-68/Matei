@@ -217,7 +217,7 @@ export async function blockingRoutes(app: FastifyInstance, pool: pg.Pool, config
       // Step 2: Fall back to PostgreSQL cache — find query_hash by SQL prefix, then plan
       const hashResult = await pool.query(
         `SELECT DISTINCT query_hash FROM query_stats_raw
-         WHERE instance_id = $1 AND query_text LIKE $2
+         WHERE instance_id = $1 AND statement_text LIKE $2
          LIMIT 1`,
         [id, sqlPrefix + '%'],
       );
@@ -244,7 +244,7 @@ export async function blockingRoutes(app: FastifyInstance, pool: pg.Pool, config
     // Step 1: Check PostgreSQL — look up query_hash by SQL text prefix
     const hashResult = await pool.query(
       `SELECT DISTINCT query_hash FROM query_stats_raw
-       WHERE instance_id = $1 AND query_text LIKE $2
+       WHERE instance_id = $1 AND statement_text LIKE $2
        LIMIT 1`,
       [id, sqlPrefix + '%'],
     );
