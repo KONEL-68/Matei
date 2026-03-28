@@ -112,7 +112,7 @@ export function StatusBar({ instanceId }: StatusBarProps) {
 
   const { data: fileIoData = [] } = useQuery<FileIoRow[]>({
     queryKey: ['statusbar-fileio', instanceId],
-    queryFn: () => fetchJson(`/api/metrics/${instanceId}/file-io?range=1h`),
+    queryFn: () => fetchJson(`/api/metrics/${instanceId}/file-io/latest`),
     refetchInterval: 15_000,
   });
 

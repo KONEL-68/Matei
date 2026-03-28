@@ -649,6 +649,33 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
     return reply.send(result.rows);
   });
 
+  // GET /api/metrics/:instanceId/file-io/latest — latest cycle's file I/O latency (for live StatusBar)
+  app.get<{ Params: IdParam }>('/api/metrics/:id/file-io/latest', async (req, reply) => {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `SELECT database_name, file_name, file_type,
+              CASE WHEN num_of_reads_delta > 0
+                   THEN io_stall_read_ms_delta::float / num_of_reads_delta ELSE 0 END AS avg_read_latency_ms,
+              CASE WHEN num_of_writes_delta > 0
+                   THEN io_stall_write_ms_delta::float / num_of_writes_delta ELSE 0 END AS avg_write_latency_ms
+       FROM file_io_stats
+       WHERE instance_id = $1
+         AND collected_at = (SELECT MAX(collected_at) FROM file_io_stats WHERE instance_id = $1)
+       ORDER BY (io_stall_read_ms_delta + io_stall_write_ms_delta) DESC
+       LIMIT 10`,
+      [id],
+    );
+
+    return reply.send(result.rows.map((r: Record<string, unknown>) => ({
+      database_name: r.database_name,
+      file_name: r.file_name,
+      file_type: r.file_type,
+      avg_read_latency_ms: Number(r.avg_read_latency_ms),
+      avg_write_latency_ms: Number(r.avg_write_latency_ms),
+    })));
+  });
+
   // GET /api/metrics/:instanceId/file-io?range=1h|6h|24h|7d&from=&to=&mode=table|chart
   app.get<{ Params: IdParam; Querystring: RangeQuery & { mode?: string } }>('/api/metrics/:id/file-io', async (req, reply) => {
     const { id } = req.params;
