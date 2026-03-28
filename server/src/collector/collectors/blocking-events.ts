@@ -71,29 +71,31 @@ const FIRST_RUN_LOOKBACK_MS = 5 * 60 * 1000;
 const GROUP_WINDOW_MS = 10_000;
 
 // Query from /sql/blocking_events.sql — server-side XML parsing for efficiency
+// Uses .value() directly on the event node instead of CROSS APPLY for blocked/blocking
+// process details, since CROSS APPLY silently drops rows when XPath doesn't match.
 const QUERY = `
 SELECT
     xed.value('(@timestamp)[1]', 'DATETIMEOFFSET') AT TIME ZONE 'UTC' AS event_time_utc,
     xed.value('(data[@name="duration"]/value)[1]', 'BIGINT') / 1000 AS duration_ms,
 
-    -- Blocked process details
-    blocked.value('(process/@spid)[1]', 'INT') AS blocked_spid,
-    blocked.value('(process/@loginname)[1]', 'NVARCHAR(128)') AS blocked_login,
-    blocked.value('(process/@hostname)[1]', 'NVARCHAR(128)') AS blocked_hostname,
-    DB_NAME(blocked.value('(process/@currentdb)[1]', 'INT')) AS blocked_database,
-    blocked.value('(process/@clientapp)[1]', 'NVARCHAR(256)') AS blocked_app,
-    blocked.value('(process/@waittype)[1]', 'NVARCHAR(128)') AS blocked_wait_type,
-    blocked.value('(process/@waittime)[1]', 'BIGINT') AS blocked_wait_time_ms,
-    blocked.value('(process/@waitresource)[1]', 'NVARCHAR(256)') AS blocked_wait_resource,
-    blocked.value('(process/inputbuf)[1]', 'NVARCHAR(MAX)') AS blocked_inputbuf,
+    -- Blocked process details (direct XPath from event node)
+    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process/process/@spid)[1]', 'INT') AS blocked_spid,
+    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process/process/@loginname)[1]', 'NVARCHAR(128)') AS blocked_login,
+    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process/process/@hostname)[1]', 'NVARCHAR(128)') AS blocked_hostname,
+    DB_NAME(xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process/process/@currentdb)[1]', 'INT')) AS blocked_database,
+    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process/process/@clientapp)[1]', 'NVARCHAR(256)') AS blocked_app,
+    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process/process/@waittype)[1]', 'NVARCHAR(128)') AS blocked_wait_type,
+    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process/process/@waittime)[1]', 'BIGINT') AS blocked_wait_time_ms,
+    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process/process/@waitresource)[1]', 'NVARCHAR(256)') AS blocked_wait_resource,
+    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process/process/inputbuf)[1]', 'NVARCHAR(MAX)') AS blocked_inputbuf,
 
-    -- Blocking process details
-    blocker.value('(process/@spid)[1]', 'INT') AS blocker_spid,
-    blocker.value('(process/@loginname)[1]', 'NVARCHAR(128)') AS blocker_login,
-    blocker.value('(process/@hostname)[1]', 'NVARCHAR(128)') AS blocker_hostname,
-    DB_NAME(blocker.value('(process/@currentdb)[1]', 'INT')) AS blocker_database,
-    blocker.value('(process/@clientapp)[1]', 'NVARCHAR(256)') AS blocker_app,
-    blocker.value('(process/inputbuf)[1]', 'NVARCHAR(MAX)') AS blocker_inputbuf
+    -- Blocking process details (direct XPath from event node)
+    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocking-process/process/@spid)[1]', 'INT') AS blocker_spid,
+    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocking-process/process/@loginname)[1]', 'NVARCHAR(128)') AS blocker_login,
+    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocking-process/process/@hostname)[1]', 'NVARCHAR(128)') AS blocker_hostname,
+    DB_NAME(xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocking-process/process/@currentdb)[1]', 'INT')) AS blocker_database,
+    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocking-process/process/@clientapp)[1]', 'NVARCHAR(256)') AS blocker_app,
+    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocking-process/process/inputbuf)[1]', 'NVARCHAR(MAX)') AS blocker_inputbuf
 FROM (
     SELECT CAST(target_data AS XML) AS target_data
     FROM sys.dm_xe_session_targets st
@@ -102,8 +104,6 @@ FROM (
       AND st.target_name = 'ring_buffer'
 ) AS data
 CROSS APPLY target_data.nodes('RingBufferTarget/event[@name="blocked_process_report"]') AS xev(xed)
-CROSS APPLY xed.nodes('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process)') AS bp(blocked)
-CROSS APPLY xed.nodes('(data[@name="blocked_process"]/value/blocked-process-report/blocking-process)') AS bk(blocker)
 WHERE xed.value('(@timestamp)[1]', 'DATETIMEOFFSET') > @since
 ORDER BY event_time_utc DESC
 `;
@@ -331,31 +331,52 @@ export async function ensureBlockingXeSession(
   }
 
   try {
-    // Check if the session is already running
-    const checkResult = await request.query(
-      `SELECT 1 AS found FROM sys.dm_xe_sessions WHERE name = 'matei_blocking'`,
-    );
+    // Check if the session is running with the correct event and target
+    const checkResult = await request.query(`
+      SELECT
+        CASE WHEN EXISTS (
+          SELECT 1 FROM sys.dm_xe_sessions WHERE name = 'matei_blocking'
+        ) THEN 1 ELSE 0 END AS is_running,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM sys.server_event_sessions s
+          JOIN sys.server_event_session_events e ON e.event_session_id = s.event_session_id
+          JOIN sys.server_event_session_targets t ON t.event_session_id = s.event_session_id
+          WHERE s.name = 'matei_blocking'
+            AND e.name = 'blocked_process_report'
+            AND t.name = 'ring_buffer'
+        ) THEN 1 ELSE 0 END AS is_valid,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM sys.server_event_sessions WHERE name = 'matei_blocking'
+        ) THEN 1 ELSE 0 END AS session_exists
+    `);
 
-    if (checkResult.recordset.length > 0) {
-      // Session exists and is running
+    const row = checkResult.recordset[0];
+    const isRunning = row?.is_running === 1;
+    const isValid = row?.is_valid === 1;
+    const sessionExists = row?.session_exists === 1;
+
+    if (isRunning && isValid) {
+      // Session exists, is running, and has the correct config
       xeSessionEnsured.set(instanceId, startTimeKey);
       return true;
     }
 
-    // Session not running — create if it doesn't exist, then start it
-    await request.query(`
-      IF NOT EXISTS (SELECT 1 FROM sys.server_event_sessions WHERE name = 'matei_blocking')
-      BEGIN
-          CREATE EVENT SESSION [matei_blocking] ON SERVER
-          ADD EVENT sqlserver.blocked_process_report
-          ADD TARGET package0.ring_buffer (SET max_memory = 4096)
-          WITH (MAX_DISPATCH_LATENCY = 5 SECONDS, STARTUP_STATE = ON);
-      END
+    // Session exists but misconfigured — drop and recreate
+    if (sessionExists && !isValid) {
+      if (isRunning) {
+        await request.query(`ALTER EVENT SESSION [matei_blocking] ON SERVER STATE = STOP`);
+      }
+      await request.query(`DROP EVENT SESSION [matei_blocking] ON SERVER`);
+    }
 
-      IF NOT EXISTS (SELECT 1 FROM sys.dm_xe_sessions WHERE name = 'matei_blocking')
-      BEGIN
-          ALTER EVENT SESSION [matei_blocking] ON SERVER STATE = START;
-      END
+    // Create and start the session
+    await request.query(`
+      CREATE EVENT SESSION [matei_blocking] ON SERVER
+      ADD EVENT sqlserver.blocked_process_report
+      ADD TARGET package0.ring_buffer (SET max_memory = 4096)
+      WITH (MAX_DISPATCH_LATENCY = 5 SECONDS, STARTUP_STATE = ON);
+
+      ALTER EVENT SESSION [matei_blocking] ON SERVER STATE = START;
     `);
 
     xeSessionEnsured.set(instanceId, startTimeKey);

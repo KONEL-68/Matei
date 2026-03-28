@@ -356,23 +356,27 @@ describe('ensureBlockingXeSession', () => {
     resetBlockingEventsState();
   });
 
-  it('returns true when session is already running', async () => {
+  const validSessionRow = { is_running: 1, is_valid: 1, session_exists: 1 };
+  const noSessionRow = { is_running: 0, is_valid: 0, session_exists: 0 };
+  const misconfiguredRow = { is_running: 1, is_valid: 0, session_exists: 1 };
+
+  it('returns true when session is already running and valid', async () => {
     const mockRequest = {
-      query: async () => ({ recordset: [{ found: 1 }] }),
+      query: async () => ({ recordset: [validSessionRow] }),
     } as never;
 
     const result = await ensureBlockingXeSession(mockRequest, 1, new Date('2026-03-28T00:00:00Z'));
     expect(result).toBe(true);
   });
 
-  it('creates and starts session when not running', async () => {
+  it('creates and starts session when not present', async () => {
     const queries: string[] = [];
     const mockRequest = {
       query: async (sql: string) => {
         queries.push(sql);
-        // First call: check dm_xe_sessions — not found
-        if (queries.length === 1) return { recordset: [] };
-        // Second call: CREATE + ALTER
+        // First call: combined check — not found
+        if (queries.length === 1) return { recordset: [noSessionRow] };
+        // Second call: CREATE + START
         return { recordset: [] };
       },
     } as never;
@@ -383,10 +387,29 @@ describe('ensureBlockingXeSession', () => {
     expect(queries[1]).toContain('CREATE EVENT SESSION');
   });
 
+  it('drops and recreates misconfigured session', async () => {
+    const queries: string[] = [];
+    const mockRequest = {
+      query: async (sql: string) => {
+        queries.push(sql);
+        if (queries.length === 1) return { recordset: [misconfiguredRow] };
+        return { recordset: [] };
+      },
+    } as never;
+
+    const result = await ensureBlockingXeSession(mockRequest, 1, new Date('2026-03-28T00:00:00Z'));
+    expect(result).toBe(true);
+    // check + STOP + DROP + CREATE+START = 4 queries
+    expect(queries).toHaveLength(4);
+    expect(queries[1]).toContain('STOP');
+    expect(queries[2]).toContain('DROP');
+    expect(queries[3]).toContain('CREATE EVENT SESSION');
+  });
+
   it('skips check on subsequent calls with same start time', async () => {
     let queryCount = 0;
     const mockRequest = {
-      query: async () => { queryCount++; return { recordset: [{ found: 1 }] }; },
+      query: async () => { queryCount++; return { recordset: [validSessionRow] }; },
     } as never;
 
     const startTime = new Date('2026-03-28T00:00:00Z');
@@ -401,13 +424,13 @@ describe('ensureBlockingXeSession', () => {
   it('resets tracking on SQL Server restart (start time change)', async () => {
     let queryCount = 0;
     const mockRequest = {
-      query: async () => { queryCount++; return { recordset: [{ found: 1 }] }; },
+      query: async () => { queryCount++; return { recordset: [validSessionRow] }; },
     } as never;
 
     await ensureBlockingXeSession(mockRequest, 1, new Date('2026-03-28T00:00:00Z'));
     expect(queryCount).toBe(1);
 
-    // SQL Server restarted — different start time
+    // SQL Server restarted — different start time, should re-check
     await ensureBlockingXeSession(mockRequest, 1, new Date('2026-03-28T06:00:00Z'));
     expect(queryCount).toBe(2);
   });
@@ -417,8 +440,8 @@ describe('ensureBlockingXeSession', () => {
     const mockRequest = {
       query: async () => {
         queryCount++;
-        // First call: check — not found
-        if (queryCount === 1) return { recordset: [] };
+        // First call: combined check — not found
+        if (queryCount === 1) return { recordset: [noSessionRow] };
         // Second call: CREATE — fails
         throw new Error('ALTER EVENT SESSION permission was denied');
       },
@@ -432,7 +455,7 @@ describe('ensureBlockingXeSession', () => {
     // Should not retry
     const result2 = await ensureBlockingXeSession(mockRequest, 1, startTime);
     expect(result2).toBe(false);
-    expect(queryCount).toBe(2); // no new queries
+    expect(queryCount).toBe(2);
   });
 
   it('retries after SQL Server restart even if previously failed', async () => {
@@ -440,7 +463,7 @@ describe('ensureBlockingXeSession', () => {
     const failRequest = {
       query: async () => {
         queryCount++;
-        if (queryCount === 1) return { recordset: [] };
+        if (queryCount === 1) return { recordset: [noSessionRow] };
         throw new Error('permission denied');
       },
     } as never;
@@ -450,7 +473,7 @@ describe('ensureBlockingXeSession', () => {
 
     // SQL Server restarted — should retry
     const successRequest = {
-      query: async () => { queryCount++; return { recordset: [{ found: 1 }] }; },
+      query: async () => { queryCount++; return { recordset: [validSessionRow] }; },
     } as never;
 
     const result = await ensureBlockingXeSession(successRequest, 1, new Date('2026-03-28T06:00:00Z'));
