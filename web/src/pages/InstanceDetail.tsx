@@ -3,9 +3,6 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { CpuChart } from '@/components/CpuChart';
 import { WaitsChart } from '@/components/WaitsChart';
-import { DeadlocksTable } from '@/components/DeadlocksTable';
-import { BlockingTree } from '@/components/BlockingTree';
-import { FileIoChart } from '@/components/FileIoChart';
 import { DiskChart } from '@/components/DiskChart';
 import { StatusBar } from '@/components/StatusBar';
 import { CollapsibleSection } from '@/components/CollapsibleSection';
@@ -42,16 +39,6 @@ interface HostInfo {
   host_distribution: string;
   host_release: string;
   host_service_pack_level: string;
-}
-
-interface FileIoRow {
-  database_name: string;
-  file_name: string;
-  file_type: string;
-  total_reads: number;
-  total_writes: number;
-  avg_read_latency_ms: number;
-  avg_write_latency_ms: number;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -135,12 +122,6 @@ export function InstanceDetail() {
     queryKey: ['metrics-cpu', id, range, timeWindow],
     queryFn: () => fetchJson<Array<Record<string, unknown>>>(`/api/metrics/${id}/cpu?${rangeParams}`),
     refetchInterval: hasFixedWindow ? false : 15000,
-  });
-
-  const { data: fileIoData = [] } = useQuery<FileIoRow[]>({
-    queryKey: ['metrics-file-io', id, range, timeWindow],
-    queryFn: () => fetchJson<FileIoRow[]>(`/api/metrics/${id}/file-io?${rangeParams}`),
-    refetchInterval: hasFixedWindow ? false : 30000,
   });
 
   const instance = health?.instance;
@@ -251,58 +232,6 @@ export function InstanceDetail() {
         </CollapsibleSection>
       </div>
 
-      {/* 7. Blocking chains (only visible when data, collapsible) */}
-      <div className="mt-4">
-        <BlockingTree instanceId={id!} />
-      </div>
-
-      {/* 8. Deadlocks (collapsible) */}
-      <div className="mt-4">
-        <CollapsibleSection title="Deadlocks" badge={0}>
-          <DeadlocksTable instanceId={id!} range={range} />
-        </CollapsibleSection>
-      </div>
-
-      {/* 9. File I/O chart + table (collapsible) */}
-      <div className="mt-4">
-        <CollapsibleSection title="File I/O">
-          <FileIoChart instanceId={id!} range={range} />
-          {fileIoData.length > 0 && (
-            <div className="mt-3">
-              <table className="w-full text-left text-sm">
-                <thead className="text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
-                  <tr>
-                    <th className="py-1 pr-3">File</th>
-                    <th className="py-1 pr-3 text-right">Avg Read ms</th>
-                    <th className="py-1 text-right">Avg Write ms</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...fileIoData]
-                    .sort((a, b) => (b.avg_read_latency_ms + b.avg_write_latency_ms) / 2 - (a.avg_read_latency_ms + a.avg_write_latency_ms) / 2)
-                    .slice(0, 10)
-                    .map((f) => {
-                      const basename = f.file_name.split(/[/\\]/).pop() || f.file_name;
-                      return (
-                        <tr key={`${f.database_name}-${f.file_name}`}>
-                          <td className="py-1 pr-3 font-mono text-xs text-gray-900 dark:text-gray-100" title={`${f.database_name}/${f.file_name}`}>
-                            {basename}
-                          </td>
-                          <td className={`py-1 pr-3 text-right font-medium ${f.avg_read_latency_ms > 50 ? 'text-red-600 dark:text-red-400' : f.avg_read_latency_ms > 20 ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-700 dark:text-gray-300'}`}>
-                            {f.avg_read_latency_ms.toFixed(1)}
-                          </td>
-                          <td className={`py-1 text-right font-medium ${f.avg_write_latency_ms > 50 ? 'text-red-600 dark:text-red-400' : f.avg_write_latency_ms > 20 ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-700 dark:text-gray-300'}`}>
-                            {f.avg_write_latency_ms.toFixed(1)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CollapsibleSection>
-      </div>
 
       </>}
     </div>
