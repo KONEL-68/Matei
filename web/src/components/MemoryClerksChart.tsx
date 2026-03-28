@@ -6,6 +6,7 @@ import {
 } from 'recharts';
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
+import { generateTicks } from '@/lib/chart-utils';
 
 // ── Types ──
 
@@ -154,14 +155,14 @@ function formatMb(value: number): string {
 function ClerkTooltip({ active, payload, label }: {
   active?: boolean;
   payload?: Array<{ dataKey: string; value: number; color: string }>;
-  label?: string;
+  label?: number;
 }) {
   if (!active || !payload?.length) return null;
   const visible = [...payload.filter(p => p.value != null && p.value > 0)]
     .sort((a, b) => b.value - a.value);
   return (
     <div className="rounded border border-gray-700 bg-gray-900 p-2 text-xs shadow-lg max-h-64 overflow-y-auto">
-      <p className="mb-1 text-gray-400">{label ? formatTime(label) : ''}</p>
+      <p className="mb-1 text-gray-400">{label != null ? formatTime(new Date(label).toISOString()) : ''}</p>
       {visible.map((p) => (
         <div key={p.dataKey} className="flex items-center gap-2">
           <span className="inline-block h-2 w-2 rounded-full" style={{ background: p.color }} />
@@ -178,6 +179,9 @@ function ClerkTooltip({ active, payload, label }: {
 export function MemoryClerksChart({ instanceId, rangeParams, syncId }: MemoryClerksChartProps) {
   const { theme } = useTheme();
   const dark = theme === 'dark';
+  const params = new URLSearchParams(rangeParams);
+  const fromParam = params.get('from');
+  const toParam = params.get('to');
   const [hiddenClerks, setHiddenClerks] = useState<Set<string>>(new Set());
 
   const { data: rawData = [] } = useQuery<ClerkRow[]>({
@@ -209,9 +213,14 @@ export function MemoryClerksChart({ instanceId, rangeParams, syncId }: MemoryCle
     bucketMap.get(pt.bucket)![friendlyName(pt.clerk_type)] = Math.round(pt.size_mb);
   }
 
-  const chartData = [...bucketMap.values()].sort((a, b) =>
-    new Date(a.bucket as string).getTime() - new Date(b.bucket as string).getTime()
-  );
+  const chartData = [...bucketMap.values()]
+    .sort((a, b) => new Date(a.bucket as string).getTime() - new Date(b.bucket as string).getTime())
+    .map(d => ({ ...d, ts: new Date(d.bucket as string).getTime() }));
+
+  const allTs = chartData.map(d => d.ts);
+  const minTs = fromParam && toParam ? new Date(fromParam).getTime() : Math.min(...allTs);
+  const maxTs = fromParam && toParam ? new Date(toParam).getTime() : Math.max(...allTs);
+  const axisTicks = generateTicks(minTs, maxTs, 10);
 
   const toggleClerk = (dataKey: string) => {
     setHiddenClerks(prev => {
@@ -228,7 +237,7 @@ export function MemoryClerksChart({ instanceId, rangeParams, syncId }: MemoryCle
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={chartData} syncId={syncId}>
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
-          <XAxis dataKey="bucket" fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={formatTime} />
+          <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
           <YAxis fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={50} tickFormatter={(v: number) => formatMb(v)} />
           <Tooltip content={<ClerkTooltip />} />
           <Legend

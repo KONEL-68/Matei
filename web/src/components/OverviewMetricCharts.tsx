@@ -74,8 +74,8 @@ function CpuMiniChart({ instanceId, rangeParams, dark, timeWindow, syncId }: { i
 
   // Clip x-axis domain to actual data bounds so lines don't droop into empty space
   const timestamps = mapped.map((d) => d.ts);
-  const minTs = timestamps.length > 0 ? Math.min(...timestamps) : (timeWindow ? new Date(timeWindow.from).getTime() : 0);
-  const maxTs = timestamps.length > 0 ? Math.max(...timestamps) : (timeWindow ? new Date(timeWindow.to).getTime() : 0);
+  const minTs = timeWindow ? new Date(timeWindow.from).getTime() : (timestamps.length > 0 ? Math.min(...timestamps) : 0);
+  const maxTs = timeWindow ? new Date(timeWindow.to).getTime() : (timestamps.length > 0 ? Math.max(...timestamps) : 0);
   const axisTicks = generateTicks(minTs, maxTs, 8);
 
   if (chartData.length === 0) return <EmptyPanel title="CPU Utilization (%)" />;
@@ -127,8 +127,8 @@ function MemoryMiniChart({ instanceId, rangeParams, dark, timeWindow, syncId }: 
 
   // Clip x-axis domain to actual data bounds so lines don't droop into empty space
   const timestamps = mapped.map((d) => d.ts);
-  const minTs = timestamps.length > 0 ? Math.min(...timestamps) : (timeWindow ? new Date(timeWindow.from).getTime() : 0);
-  const maxTs = timestamps.length > 0 ? Math.max(...timestamps) : (timeWindow ? new Date(timeWindow.to).getTime() : 0);
+  const minTs = timeWindow ? new Date(timeWindow.from).getTime() : (timestamps.length > 0 ? Math.min(...timestamps) : 0);
+  const maxTs = timeWindow ? new Date(timeWindow.to).getTime() : (timestamps.length > 0 ? Math.max(...timestamps) : 0);
   const axisTicks = generateTicks(minTs, maxTs, 8);
 
   if (chartData.length === 0) return <EmptyPanel title="SQL Memory (GB)" />;
@@ -193,8 +193,8 @@ function SignalResourceMiniChart({ instanceId, rangeParams, dark, timeWindow, sy
   const chartData = insertGapBreaks(mapped, 'time');
 
   const timestamps = mapped.map(d => d.ts);
-  const minTs = timestamps.length > 0 ? Math.min(...timestamps) : (timeWindow ? new Date(timeWindow.from).getTime() : 0);
-  const maxTs = timestamps.length > 0 ? Math.max(...timestamps) : (timeWindow ? new Date(timeWindow.to).getTime() : 0);
+  const minTs = timeWindow ? new Date(timeWindow.from).getTime() : (timestamps.length > 0 ? Math.min(...timestamps) : 0);
+  const maxTs = timeWindow ? new Date(timeWindow.to).getTime() : (timestamps.length > 0 ? Math.max(...timestamps) : 0);
   const axisTicks = generateTicks(minTs, maxTs, 8);
 
   if (chartData.length === 0) return <EmptyPanel title="Signal vs Resource Wait (ms/s)" />;
@@ -243,8 +243,8 @@ function DiskIoMiniChart({ instanceId, rangeParams, dark, timeWindow, syncId }: 
 
   // Clip x-axis domain to actual data bounds so lines don't droop into empty space
   const timestamps = mapped.map((d) => d.ts);
-  const minTs = timestamps.length > 0 ? Math.min(...timestamps) : (timeWindow ? new Date(timeWindow.from).getTime() : 0);
-  const maxTs = timestamps.length > 0 ? Math.max(...timestamps) : (timeWindow ? new Date(timeWindow.to).getTime() : 0);
+  const minTs = timeWindow ? new Date(timeWindow.from).getTime() : (timestamps.length > 0 ? Math.min(...timestamps) : 0);
+  const maxTs = timeWindow ? new Date(timeWindow.to).getTime() : (timestamps.length > 0 ? Math.max(...timestamps) : 0);
   const axisTicks = generateTicks(minTs, maxTs, 8);
 
   if (chartData.length === 0) return <EmptyPanel title="Throughput (MB/s)" />;

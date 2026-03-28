@@ -247,9 +247,9 @@ export function InstanceDetail() {
       {/* Disks: usage table + growth trend chart */}
       <div className="mt-4">
         <CollapsibleSection title="Disks" defaultOpen>
-          <DiskUsage instanceId={id!} timeWindow={timeWindow} syncId={CHART_SYNC_ID} />
+          <DiskUsage instanceId={id!} timeWindow={timeWindow} />
           <div className="mt-4">
-            <DiskChart instanceId={id!} range={range} syncId={CHART_SYNC_ID} />
+            <DiskChart instanceId={id!} range={range} />
           </div>
         </CollapsibleSection>
       </div>
