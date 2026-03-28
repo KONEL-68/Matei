@@ -62,11 +62,11 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
       params.push(interval);
     }
 
-    // Optional database filter
+    // Optional database filter (case-insensitive to handle SQL Server name variations)
     let dbCondition = '';
     if (req.query.db) {
       const dbIdx = params.length + 1;
-      dbCondition = ` AND database_name = $${dbIdx}`;
+      dbCondition = ` AND LOWER(database_name) = LOWER($${dbIdx})`;
       params.push(req.query.db);
     }
 

@@ -20,7 +20,7 @@ SELECT TOP 50
     qs.total_rows,
     qs.creation_time,
     qs.last_execution_time,
-    DB_NAME(st.dbid)               AS database_name,
+    COALESCE(DB_NAME(st.dbid), DB_NAME(CONVERT(INT, pa.value))) AS database_name,
     SUBSTRING(
         st.text,
         (qs.statement_start_offset / 2) + 1,
@@ -35,4 +35,9 @@ SELECT TOP 50
     GETUTCDATE()                    AS collected_at_utc
 FROM sys.dm_exec_query_stats qs
 CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
+OUTER APPLY (
+    SELECT TOP 1 CAST(value AS SQL_VARIANT) AS value
+    FROM sys.dm_exec_plan_attributes(qs.plan_handle)
+    WHERE attribute = 'dbid'
+) pa
 ORDER BY qs.total_worker_time DESC
