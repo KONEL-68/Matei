@@ -11,7 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Physical reads columns in Top Queries and Tracked Queries tables (avg/total/per-sec modes) with sort support and expanded row detail
 
 ### Changed
-- Blocking section moved before Analysis on instance detail page and expanded by default for better visibility
+- Blocking section moved between Wait Stats and Analysis on instance detail page, expanded by default for better visibility
 - Database detail top queries now reuses the full AnalysisSection TopQueriesTab with sorting, view modes (Totals/Avg per execution/Impact), search, and configurable result limit
 - TopQueriesTab accepts optional `db` prop to filter by database (hides Database column when filtering)
 
