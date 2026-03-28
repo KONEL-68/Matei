@@ -13,6 +13,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - WaitsChart component now supports `from`/`to` time window props
 
 ### Added
+- Per-database metrics collector: collects database-level performance counters (size, transactions, log activity) every 60s from `sys.dm_os_performance_counters` Databases object
+  - Migration 022: `database_metrics_raw` partitioned table with database_name column
+  - Collector with delta computation for rate counters (Transactions/sec, Log Flushes/sec, etc.) and snapshot for instantaneous (Data File Size, Active Transactions)
+  - Partition manager support for automatic daily partition creation/cleanup
 - Blocking History section: full-stack blocking monitoring using Extended Events `blocked_process_report`
   - Auto-creates `matei_blocking` XE session on target servers; validates and recreates if misconfigured
   - Collector reads ring buffer XML in Node.js (avoids SQL Server XPath timeouts), builds directed blocking chains with head blocker determination
