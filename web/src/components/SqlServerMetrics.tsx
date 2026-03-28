@@ -2,9 +2,10 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer,
+  Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
 import { useTheme } from '@/lib/theme';
+import { useCrosshair } from '@/lib/crosshair';
 import { authFetch } from '@/lib/auth';
 import { CollapsibleSection } from '@/components/CollapsibleSection';
 import { MemoryClerksChart } from '@/components/MemoryClerksChart';
@@ -16,7 +17,6 @@ interface SqlServerMetricsProps {
   instanceId: string;
   range: { from: string; to: string };
   health?: { version?: string; edition?: string };
-  syncId?: string;
 }
 
 interface PerfCounterSeries {
@@ -196,14 +196,15 @@ function ChartTooltip({ active, payload, label, unit, showLabels }: {
 
 // ── Mini chart ──
 
-function MiniChart({ data, unit, dark, minTs, maxTs, syncId }: {
+function MiniChart({ data, unit, dark, minTs, maxTs }: {
   data: Array<{ time: string; ts: number; value: number }>;
   unit: string;
   dark: boolean;
   minTs: number;
   maxTs: number;
-  syncId?: string;
 }) {
+  const { onMouseMove, onMouseLeave, crosshairTs } = useCrosshair();
+
   if (data.length === 0) {
     return (
       <div
@@ -219,7 +220,7 @@ function MiniChart({ data, unit, dark, minTs, maxTs, syncId }: {
 
   return (
     <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-      <LineChart data={data} syncId={syncId} syncMethod="value">
+      <LineChart data={data} onMouseMove={onMouseMove} onMouseLeave={onMouseLeave}>
         <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
         <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={9} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
         <YAxis fontSize={9} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={40} tickFormatter={(v: number) => formatValue(v, '')} />
@@ -239,6 +240,7 @@ function MiniChart({ data, unit, dark, minTs, maxTs, syncId }: {
           connectNulls={false}
           fill="url(#areaFill)"
         />
+        {crosshairTs != null && <ReferenceLine x={crosshairTs} stroke="#3b82f6" strokeDasharray="4 4" strokeWidth={1} />}
       </LineChart>
     </ResponsiveContainer>
   );
@@ -246,15 +248,16 @@ function MiniChart({ data, unit, dark, minTs, maxTs, syncId }: {
 
 // ── Multi-line mini chart ──
 
-function MultiLineMiniChart({ data, counters, unit, dark, minTs, maxTs, syncId }: {
+function MultiLineMiniChart({ data, counters, unit, dark, minTs, maxTs }: {
   data: MultiLinePoint[];
   counters: string[];
   unit: string;
   dark: boolean;
   minTs: number;
   maxTs: number;
-  syncId?: string;
 }) {
+  const { onMouseMove, onMouseLeave, crosshairTs } = useCrosshair();
+
   if (data.length === 0) {
     return (
       <div
@@ -270,7 +273,7 @@ function MultiLineMiniChart({ data, counters, unit, dark, minTs, maxTs, syncId }
 
   return (
     <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-      <LineChart data={data} syncId={syncId} syncMethod="value">
+      <LineChart data={data} onMouseMove={onMouseMove} onMouseLeave={onMouseLeave}>
         <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
         <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={9} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
         <YAxis fontSize={9} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={40} tickFormatter={(v: number) => formatValue(v, '')} />
@@ -286,6 +289,7 @@ function MultiLineMiniChart({ data, counters, unit, dark, minTs, maxTs, syncId }
             connectNulls={false}
           />
         ))}
+        {crosshairTs != null && <ReferenceLine x={crosshairTs} stroke="#3b82f6" strokeDasharray="4 4" strokeWidth={1} />}
       </LineChart>
     </ResponsiveContainer>
   );
@@ -304,13 +308,12 @@ function ChartPanel({ title, children }: { title: string; children: React.ReactN
 
 // ── Chart grid ──
 
-function ChartGrid({ charts, series, dark, minTs, maxTs, syncId }: {
+function ChartGrid({ charts, series, dark, minTs, maxTs }: {
   charts: ChartDef[];
   series: PerfCounterSeries[];
   dark: boolean;
   minTs: number;
   maxTs: number;
-  syncId?: string;
 }) {
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -319,14 +322,14 @@ function ChartGrid({ charts, series, dark, minTs, maxTs, syncId }: {
           const data = insertGapBreaks(buildMultiLineChartData(series, chart.counters), 'time');
           return (
             <ChartPanel key={chart.title} title={chart.title}>
-              <MultiLineMiniChart data={data} counters={chart.counters} unit={chart.unit} dark={dark} minTs={minTs} maxTs={maxTs} syncId={syncId} />
+              <MultiLineMiniChart data={data} counters={chart.counters} unit={chart.unit} dark={dark} minTs={minTs} maxTs={maxTs} />
             </ChartPanel>
           );
         }
         const data = insertGapBreaks(buildChartData(series, chart), 'time');
         return (
           <ChartPanel key={chart.title} title={chart.title}>
-            <MiniChart data={data} unit={chart.unit} dark={dark} minTs={minTs} maxTs={maxTs} syncId={syncId} />
+            <MiniChart data={data} unit={chart.unit} dark={dark} minTs={minTs} maxTs={maxTs} />
           </ChartPanel>
         );
       })}
@@ -364,7 +367,7 @@ function BoolRow({ label, value }: { label: string; value: number | null | undef
 
 // ── Main component ──
 
-export function SqlServerMetrics({ instanceId, range, health, syncId }: SqlServerMetricsProps) {
+export function SqlServerMetrics({ instanceId, range, health }: SqlServerMetricsProps) {
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
@@ -402,21 +405,21 @@ export function SqlServerMetrics({ instanceId, range, health, syncId }: SqlServe
         {/* General */}
         <div>
           <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">General</h3>
-          <ChartGrid charts={GENERAL_CHARTS} series={series} dark={dark} minTs={minTs} maxTs={maxTs} syncId={syncId} />
+          <ChartGrid charts={GENERAL_CHARTS} series={series} dark={dark} minTs={minTs} maxTs={maxTs} />
         </div>
 
         {/* Latches and Locks */}
         <div>
           <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Latches and Locks</h3>
-          <ChartGrid charts={LATCH_LOCK_CHARTS} series={series} dark={dark} minTs={minTs} maxTs={maxTs} syncId={syncId} />
+          <ChartGrid charts={LATCH_LOCK_CHARTS} series={series} dark={dark} minTs={minTs} maxTs={maxTs} />
         </div>
 
         {/* Memory */}
         <div>
           <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Memory</h3>
-          <ChartGrid charts={MEMORY_CHARTS} series={series} dark={dark} minTs={minTs} maxTs={maxTs} syncId={syncId} />
+          <ChartGrid charts={MEMORY_CHARTS} series={series} dark={dark} minTs={minTs} maxTs={maxTs} />
           <div className="mt-3">
-            <MemoryClerksChart instanceId={instanceId} rangeParams={rangeParams} syncId={syncId} />
+            <MemoryClerksChart instanceId={instanceId} rangeParams={rangeParams} />
           </div>
         </div>
 

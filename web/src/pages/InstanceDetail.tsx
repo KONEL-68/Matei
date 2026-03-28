@@ -16,6 +16,7 @@ import { DiskUsage } from '@/components/DiskUsage';
 import { BlockingHistory } from '@/components/BlockingHistory';
 import { DatabasesList } from '@/components/DatabasesList';
 import { authFetch } from '@/lib/auth';
+import { CrosshairProvider } from '@/lib/crosshair';
 
 type TimeRange = '1h' | '6h' | '24h' | '7d' | '30d' | '1y';
 
@@ -74,8 +75,6 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
     </button>
   );
 }
-
-const CHART_SYNC_ID = 'instance-detail';
 
 export function InstanceDetail() {
   const { id } = useParams<{ id: string }>();
@@ -189,7 +188,7 @@ export function InstanceDetail() {
       )}
 
       {/* History tab */}
-      {tab === 'history' && <>
+      {tab === 'history' && <CrosshairProvider>
       {/* Overview Timeline with drag selection */}
       <div className="mt-4">
         <OverviewTimeline
@@ -201,7 +200,7 @@ export function InstanceDetail() {
 
       {/* 2. Metric detail charts (2x2 grid) */}
       <div className="mt-4">
-        <OverviewMetricCharts instanceId={id!} window={timeWindow} syncId={CHART_SYNC_ID} />
+        <OverviewMetricCharts instanceId={id!} window={timeWindow} />
       </div>
 
       {/* Wait Stats full-width chart */}
@@ -211,7 +210,6 @@ export function InstanceDetail() {
           range={range}
           from={timeWindow?.from}
           to={timeWindow?.to}
-          syncId={CHART_SYNC_ID}
         />
       </div>
 
@@ -224,7 +222,7 @@ export function InstanceDetail() {
 
       {/* Analysis section (Top Queries / Tracked Queries / Top Procedures) */}
       <div className="mt-4">
-        <AnalysisSection instanceId={id!} range={range} timeWindow={timeWindow} syncId={CHART_SYNC_ID} />
+        <AnalysisSection instanceId={id!} range={range} timeWindow={timeWindow} />
       </div>
 
       {/* SQL Server Metrics (perf counters + server config) */}
@@ -234,7 +232,6 @@ export function InstanceDetail() {
           instanceId={id!}
           range={{ from: timeWindow.from, to: timeWindow.to }}
           health={health ? { version: health.version, edition: health.edition } : undefined}
-          syncId={CHART_SYNC_ID}
         />
         </div>
       )}
@@ -261,7 +258,7 @@ export function InstanceDetail() {
         </CollapsibleSection>
       </div>
 
-      </>}
+      </CrosshairProvider>}
     </div>
   );
 }

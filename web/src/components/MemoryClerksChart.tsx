@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Legend,
+  Tooltip, ResponsiveContainer, Legend, ReferenceLine,
 } from 'recharts';
 import { useTheme } from '@/lib/theme';
+import { useCrosshair } from '@/lib/crosshair';
 import { authFetch } from '@/lib/auth';
 import { generateTicks } from '@/lib/chart-utils';
 
@@ -13,7 +14,6 @@ import { generateTicks } from '@/lib/chart-utils';
 interface MemoryClerksChartProps {
   instanceId: string;
   rangeParams: string;
-  syncId?: string;
 }
 
 interface ClerkRow {
@@ -176,9 +176,10 @@ function ClerkTooltip({ active, payload, label }: {
 
 // ── Component ──
 
-export function MemoryClerksChart({ instanceId, rangeParams, syncId }: MemoryClerksChartProps) {
+export function MemoryClerksChart({ instanceId, rangeParams }: MemoryClerksChartProps) {
   const { theme } = useTheme();
   const dark = theme === 'dark';
+  const { onMouseMove, onMouseLeave, crosshairTs } = useCrosshair();
   const params = new URLSearchParams(rangeParams);
   const fromParam = params.get('from');
   const toParam = params.get('to');
@@ -235,7 +236,7 @@ export function MemoryClerksChart({ instanceId, rangeParams, syncId }: MemoryCle
     <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900" data-testid="memory-clerks-chart">
       <h4 className="mb-3 text-xs font-semibold text-gray-900 dark:text-gray-100">Memory Clerks (MB)</h4>
       <ResponsiveContainer width="100%" height={220}>
-        <BarChart data={chartData} syncId={syncId} syncMethod="value">
+        <BarChart data={chartData} onMouseMove={onMouseMove} onMouseLeave={onMouseLeave}>
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
           <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
           <YAxis fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={50} tickFormatter={(v: number) => formatMb(v)} />
@@ -258,6 +259,7 @@ export function MemoryClerksChart({ instanceId, rangeParams, syncId }: MemoryCle
               hide={hiddenClerks.has(ct)}
             />
           ))}
+          {crosshairTs != null && <ReferenceLine x={crosshairTs} stroke="#3b82f6" strokeDasharray="4 4" strokeWidth={1} />}
         </BarChart>
       </ResponsiveContainer>
     </div>

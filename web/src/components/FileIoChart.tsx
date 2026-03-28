@@ -7,7 +7,6 @@ import { insertGapBreaks, generateTicks } from '@/lib/chart-utils';
 interface FileIoChartProps {
   instanceId: string;
   range: string;
-  syncId?: string;
 }
 
 interface RawPoint {
@@ -68,7 +67,7 @@ function FileIoTooltip({ active, payload, label, range, fileKeyMap }: {
   );
 }
 
-export function FileIoChart({ instanceId, range, syncId }: FileIoChartProps) {
+export function FileIoChart({ instanceId, range }: FileIoChartProps) {
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
@@ -115,7 +114,7 @@ export function FileIoChart({ instanceId, range, syncId }: FileIoChartProps) {
   return (
     <div>
       <ResponsiveContainer width="100%" height={280}>
-        <LineChart data={chartData} syncId={syncId} syncMethod="value">
+        <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
           <XAxis
             dataKey="ts"

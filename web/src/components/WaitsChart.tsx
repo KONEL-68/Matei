@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
 import { generateTicks } from '@/lib/chart-utils';
+import { useCrosshair } from '@/lib/crosshair';
 
 interface WaitsChartProps {
   instanceId: string;
@@ -11,7 +12,6 @@ interface WaitsChartProps {
   from?: string;
   to?: string;
   enabled?: boolean;
-  syncId?: string;
 }
 
 interface RawPoint {
@@ -58,10 +58,11 @@ function WaitsTooltip({ active, payload, label, range }: {
   );
 }
 
-export function WaitsChart({ instanceId, range, from, to, enabled = true, syncId }: WaitsChartProps) {
+export function WaitsChart({ instanceId, range, from, to, enabled = true }: WaitsChartProps) {
   const { theme } = useTheme();
   const dark = theme === 'dark';
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const { onMouseMove, onMouseLeave, crosshairTs } = useCrosshair();
 
   const handleLegendClick = (e: { dataKey?: string }) => {
     if (!e.dataKey) return;
@@ -142,7 +143,7 @@ export function WaitsChart({ instanceId, range, from, to, enabled = true, syncId
     <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
       <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">Wait Stats Over Time (ms/sec)</h3>
       <ResponsiveContainer width="100%" height={280}>
-        <BarChart data={chartData} syncId={syncId} syncMethod="value">
+        <BarChart data={chartData} onMouseMove={onMouseMove} onMouseLeave={onMouseLeave}>
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
           <XAxis
             dataKey="ts"
@@ -171,6 +172,7 @@ export function WaitsChart({ instanceId, range, from, to, enabled = true, syncId
               hide={hidden.has(wt)}
             />
           ))}
+          {crosshairTs != null && <ReferenceLine x={crosshairTs} stroke="#3b82f6" strokeDasharray="4 4" strokeWidth={1} />}
         </BarChart>
       </ResponsiveContainer>
     </div>

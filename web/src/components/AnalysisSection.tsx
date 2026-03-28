@@ -13,7 +13,6 @@ interface AnalysisSectionProps {
   instanceId: string;
   range: string;
   timeWindow: TimeWindow | null;
-  syncId?: string;
 }
 
 export interface QueryRow {
@@ -274,7 +273,7 @@ interface QueryWaitsData {
 }
 
 // --- Query Detail Panel (shown below the row when expanded) ---
-export function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack, onUntrack, isTracked, syncId }: {
+export function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack, onUntrack, isTracked }: {
   instanceId: string;
   query: QueryRow;
   range: string;
@@ -282,7 +281,6 @@ export function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack
   onTrack?: (q: QueryRow) => void;
   onUntrack?: (hash: string) => void;
   isTracked?: boolean;
-  syncId?: string;
 }) {
   const [planXml, setPlanXml] = useState<string | null>(null);
   const [planLoading, setPlanLoading] = useState(false);
@@ -508,7 +506,7 @@ export function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack
             <div className="text-[10px] font-medium uppercase text-gray-500 dark:text-gray-400 mb-1">Performance over time</div>
             <div className="h-32 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} syncId={syncId} syncMethod="value">
+                <LineChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
                   <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#9CA3AF' }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 9, fill: '#9CA3AF' }} width={40} />
@@ -524,7 +522,7 @@ export function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack
             <div className="text-[10px] font-medium uppercase text-gray-500 dark:text-gray-400 mb-1">Executions per minute</div>
             <div className="h-24 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} syncId={syncId} syncMethod="value">
+                <LineChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
                   <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#9CA3AF' }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 9, fill: '#9CA3AF' }} width={40} />
@@ -541,7 +539,7 @@ export function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack
 }
 
 // --- Top Queries Tab ---
-export function TopQueriesTab({ instanceId, range, timeWindow, onTrack, db, syncId }: { instanceId: string; range: string; timeWindow: TimeWindow | null; onTrack?: (q: QueryRow) => void; db?: string; syncId?: string }) {
+export function TopQueriesTab({ instanceId, range, timeWindow, onTrack, db }: { instanceId: string; range: string; timeWindow: TimeWindow | null; onTrack?: (q: QueryRow) => void; db?: string }) {
   const [mode, setMode] = useState<QueryMode>('totals');
   const [search, setSearch] = useState('');
   const [limit, setLimit] = useState(25);
@@ -652,7 +650,7 @@ export function TopQueriesTab({ instanceId, range, timeWindow, onTrack, db, sync
                     {isExpanded && (
                       <tr key={`${q.query_hash}-detail`}>
                         <td colSpan={colCount} className="p-0">
-                          <QueryDetailPanel instanceId={instanceId} query={q} range={range} timeWindow={timeWindow} onTrack={onTrack} syncId={syncId} />
+                          <QueryDetailPanel instanceId={instanceId} query={q} range={range} timeWindow={timeWindow} onTrack={onTrack} />
                         </td>
                       </tr>
                     )}
@@ -668,7 +666,7 @@ export function TopQueriesTab({ instanceId, range, timeWindow, onTrack, db, sync
 }
 
 // --- Tracked Queries Tab ---
-function TrackedQueriesTab({ instanceId, range, timeWindow, syncId }: { instanceId: string; range: string; timeWindow: TimeWindow | null; syncId?: string }) {
+function TrackedQueriesTab({ instanceId, range, timeWindow }: { instanceId: string; range: string; timeWindow: TimeWindow | null }) {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<QueryMode>('totals');
   const [expandedHash, setExpandedHash] = useState<string | null>(null);
@@ -765,7 +763,7 @@ function TrackedQueriesTab({ instanceId, range, timeWindow, syncId }: { instance
                           <td colSpan={8} className="p-0">
                             <QueryDetailPanel
                               instanceId={instanceId} query={q} range={range} timeWindow={timeWindow}
-                              onUntrack={(hash) => { untrack(hash); setExpandedHash(null); }} isTracked syncId={syncId}
+                              onUntrack={(hash) => { untrack(hash); setExpandedHash(null); }} isTracked
                             />
                           </td>
                         </tr>
@@ -996,7 +994,7 @@ function TopProceduresTab({ instanceId, range, timeWindow }: { instanceId: strin
 }
 
 // --- Main Analysis Section ---
-export function AnalysisSection({ instanceId, range, timeWindow, syncId }: AnalysisSectionProps) {
+export function AnalysisSection({ instanceId, range, timeWindow }: AnalysisSectionProps) {
   const [tab, setTab] = useState<AnalysisTab>('top-queries');
   const queryClient = useQueryClient();
 
@@ -1023,8 +1021,8 @@ export function AnalysisSection({ instanceId, range, timeWindow, syncId }: Analy
         </div>
 
         <div className="rounded-b-lg border border-t-0 border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-          {tab === 'top-queries' && <TopQueriesTab instanceId={instanceId} range={range} timeWindow={timeWindow} onTrack={trackQuery} syncId={syncId} />}
-          {tab === 'tracked-queries' && <TrackedQueriesTab instanceId={instanceId} range={range} timeWindow={timeWindow} syncId={syncId} />}
+          {tab === 'top-queries' && <TopQueriesTab instanceId={instanceId} range={range} timeWindow={timeWindow} onTrack={trackQuery} />}
+          {tab === 'tracked-queries' && <TrackedQueriesTab instanceId={instanceId} range={range} timeWindow={timeWindow} />}
           {tab === 'top-procedures' && <TopProceduresTab instanceId={instanceId} range={range} timeWindow={timeWindow} />}
         </div>
       </div>
