@@ -92,7 +92,7 @@ export async function collectDatabaseProperties(
     try {
       const safeName = dbName.replace(/]/g, ']]');
       const usedResult = await request.query(
-        `SELECT file_id, name, FILEPROPERTY(name, 'SpaceUsed') AS pages_used FROM [${safeName}].sys.database_files`,
+        `EXEC [${safeName}].sys.sp_executesql N'SELECT file_id, name, FILEPROPERTY(name, ''SpaceUsed'') AS pages_used FROM sys.database_files'`,
       );
       for (const row of usedResult.recordset) {
         const file = files.find(f => f.database_name === dbName && f.file_name === row.name);
