@@ -12,6 +12,7 @@ vi.mock('recharts', () => ({
     <div data-testid="composed-chart">{children}</div>
   ),
   Line: () => null,
+  Area: () => null,
   XAxis: () => null,
   YAxis: () => null,
   ReferenceArea: () => <div data-testid="reference-area" />,
@@ -19,14 +20,23 @@ vi.mock('recharts', () => ({
   Tooltip: () => null,
 }));
 
+const MOCK_OVERVIEW_DATA = [
+  { bucket: '2026-03-22T09:00:00Z', cpu_pct: 50, memory_gb: 8, waits_ms_per_sec: 200, disk_io_mb_per_sec: 5 },
+  { bucket: '2026-03-22T10:00:00Z', cpu_pct: 70, memory_gb: 10, waits_ms_per_sec: 300, disk_io_mb_per_sec: 8 },
+];
+
+const MOCK_BASELINE_DATA = [
+  { hour_of_day: 9, baseline_min: 10.2, baseline_avg: 23.4, baseline_max: 67.8 },
+  { hour_of_day: 10, baseline_min: 15.0, baseline_avg: 30.0, baseline_max: 72.0 },
+];
+
 vi.mock('@/lib/auth', () => ({
-  authFetch: vi.fn(async () => ({
-    ok: true,
-    json: async () => [
-      { bucket: '2026-03-22T09:00:00Z', cpu_pct: 50, memory_gb: 8, waits_ms_per_sec: 200, disk_io_mb_per_sec: 5 },
-      { bucket: '2026-03-22T10:00:00Z', cpu_pct: 70, memory_gb: 10, waits_ms_per_sec: 300, disk_io_mb_per_sec: 8 },
-    ],
-  })),
+  authFetch: vi.fn(async (url: string) => {
+    if (url.includes('overview-baseline')) {
+      return { ok: true, json: async () => MOCK_BASELINE_DATA };
+    }
+    return { ok: true, json: async () => MOCK_OVERVIEW_DATA };
+  }),
 }));
 
 function renderTimeline(props: { window?: TimeWindow | null; onWindowChange?: (w: TimeWindow | null) => void } = {}) {
@@ -190,5 +200,55 @@ describe('OverviewTimeline', () => {
     document.dispatchEvent(new MouseEvent('mouseup', { clientX: 55, clientY: 10 }));
 
     expect(onWindowChange).not.toHaveBeenCalled();
+  });
+
+  it('shows baseline toggle checkbox', async () => {
+    renderTimeline();
+    await screen.findByTestId('overview-timeline');
+    const toggle = screen.getByTestId('toggle-baseline');
+    expect(toggle).toBeInTheDocument();
+    expect(screen.getByText('Baseline')).toBeInTheDocument();
+  });
+
+  it('baseline metric dropdown is hidden when baseline is disabled', async () => {
+    renderTimeline();
+    await screen.findByTestId('overview-timeline');
+    expect(screen.queryByTestId('baseline-metric-select')).not.toBeInTheDocument();
+  });
+
+  it('baseline metric dropdown appears when baseline is enabled', async () => {
+    renderTimeline();
+    await screen.findByTestId('overview-timeline');
+    const toggle = screen.getByTestId('toggle-baseline');
+    fireEvent.click(toggle);
+    expect(screen.getByTestId('baseline-metric-select')).toBeInTheDocument();
+  });
+
+  it('baseline metric dropdown has all 4 metric options', async () => {
+    renderTimeline();
+    await screen.findByTestId('overview-timeline');
+    fireEvent.click(screen.getByTestId('toggle-baseline'));
+    const select = screen.getByTestId('baseline-metric-select') as HTMLSelectElement;
+    const options = Array.from(select.options).map(o => o.value);
+    expect(options).toEqual(['cpu', 'memory', 'waits', 'disk_io']);
+  });
+
+  it('baseline metric dropdown can be changed', async () => {
+    renderTimeline();
+    await screen.findByTestId('overview-timeline');
+    fireEvent.click(screen.getByTestId('toggle-baseline'));
+    const select = screen.getByTestId('baseline-metric-select');
+    fireEvent.change(select, { target: { value: 'memory' } });
+    expect((select as HTMLSelectElement).value).toBe('memory');
+  });
+
+  it('toggling baseline off hides the dropdown', async () => {
+    renderTimeline();
+    await screen.findByTestId('overview-timeline');
+    const toggle = screen.getByTestId('toggle-baseline');
+    fireEvent.click(toggle); // enable
+    expect(screen.getByTestId('baseline-metric-select')).toBeInTheDocument();
+    fireEvent.click(toggle); // disable
+    expect(screen.queryByTestId('baseline-metric-select')).not.toBeInTheDocument();
   });
 });

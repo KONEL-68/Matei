@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ComposedChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
+import { ComposedChart, Line, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
 import { insertGapBreaks as insertGapBreaksGeneric, fillAllNulls as fillAllNullsGeneric } from '@/lib/chart-utils';
@@ -33,6 +33,18 @@ interface ChartPoint {
   memory: number | null;
   waits: number | null;
   disk_io: number | null;
+  baseline_min?: number | null;
+  baseline_avg?: number | null;
+  baseline_max?: number | null;
+}
+
+type BaselineMetric = 'cpu' | 'memory' | 'waits' | 'disk_io';
+
+interface BaselinePoint {
+  hour_of_day: number;
+  baseline_min: number;
+  baseline_avg: number;
+  baseline_max: number;
 }
 
 function formatTime(ts: string): string {
@@ -75,6 +87,20 @@ const METRICS = [
   { key: 'disk_io', label: 'Disk I/O', color: '#10b981', dotClass: 'bg-emerald-500' },
 ] as const;
 
+const BASELINE_AXIS_MAP: Record<BaselineMetric, string> = {
+  cpu: 'pct',
+  memory: 'memory',
+  waits: 'waits',
+  disk_io: 'disk_io',
+};
+
+const BASELINE_METRICS: { value: BaselineMetric; label: string }[] = [
+  { value: 'cpu', label: 'CPU' },
+  { value: 'memory', label: 'Memory' },
+  { value: 'waits', label: 'Waits' },
+  { value: 'disk_io', label: 'Disk I/O' },
+];
+
 const CHART_MARGIN = { left: 0, right: 0, top: 4, bottom: 0 };
 const CHART_PADDING_LEFT = 5;
 const CHART_PADDING_RIGHT = 5;
@@ -98,6 +124,8 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
   const [overviewRange, setOverviewRange] = useState<OverviewRange>('24h');
   const [activeMetrics, setActiveMetrics] = useState<Set<string>>(new Set(['cpu', 'memory', 'waits', 'disk_io']));
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [baselineEnabled, setBaselineEnabled] = useState(false);
+  const [baselineMetric, setBaselineMetric] = useState<BaselineMetric>('cpu');
 
   const chartWrapRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -117,14 +145,40 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
     refetchInterval: autoRefresh ? 30_000 : false,
   });
 
-  const mapped: ChartPoint[] = rawData.map(pt => ({
-    bucket: pt.bucket,
-    ts: new Date(pt.bucket).getTime(),
-    cpu: pt.cpu_pct,
-    memory: pt.memory_gb,
-    waits: pt.waits_ms_per_sec,
-    disk_io: pt.disk_io_mb_per_sec,
-  }));
+  const { data: baselineData = [] } = useQuery<BaselinePoint[]>({
+    queryKey: ['overview-baseline', instanceId, baselineMetric],
+    queryFn: async () => {
+      const res = await authFetch(`/api/metrics/${instanceId}/overview-baseline?metric=${baselineMetric}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: baselineEnabled,
+    staleTime: 60 * 60_000,
+  });
+
+  const baselineMap = new Map<number, BaselinePoint>();
+  for (const bp of baselineData) {
+    baselineMap.set(bp.hour_of_day, bp);
+  }
+
+  const mapped: ChartPoint[] = rawData.map(pt => {
+    const base: ChartPoint = {
+      bucket: pt.bucket,
+      ts: new Date(pt.bucket).getTime(),
+      cpu: pt.cpu_pct,
+      memory: pt.memory_gb,
+      waits: pt.waits_ms_per_sec,
+      disk_io: pt.disk_io_mb_per_sec,
+    };
+    if (baselineEnabled && baselineMap.size > 0) {
+      const hour = new Date(pt.bucket).getUTCHours();
+      const bp = baselineMap.get(hour);
+      base.baseline_min = bp?.baseline_min ?? null;
+      base.baseline_avg = bp?.baseline_avg ?? null;
+      base.baseline_max = bp?.baseline_max ?? null;
+    }
+    return base;
+  });
   const chartData: ChartPoint[] = insertGapBreaks(fillAllNulls(mapped));
 
   const chartDataRef = useRef(chartData);
@@ -431,8 +485,8 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
         </div>
       </div>
 
-      {/* Metric toggles */}
-      <div className="flex items-center gap-3 mb-2" data-testid="metric-toggles">
+      {/* Metric toggles + baseline controls */}
+      <div className="flex items-center gap-3 mb-2 flex-wrap" data-testid="metric-toggles">
         {METRICS.map(m => (
           <label key={m.key} className="flex items-center gap-1.5 cursor-pointer text-[11px] text-gray-600 dark:text-gray-400 select-none">
             <input
@@ -456,6 +510,43 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
             {m.label}
           </label>
         ))}
+
+        <span className="w-px h-4 bg-gray-300 dark:bg-gray-600" />
+
+        <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-gray-600 dark:text-gray-400 select-none">
+          <input
+            type="checkbox"
+            checked={baselineEnabled}
+            onChange={() => setBaselineEnabled(prev => !prev)}
+            className="sr-only"
+            data-testid="toggle-baseline"
+          />
+          <span className={`inline-block w-3 h-3 rounded-sm border-2 flex items-center justify-center ${
+            baselineEnabled
+              ? 'border-transparent bg-blue-500'
+              : 'border-gray-300 dark:border-gray-600'
+          }`}>
+            {baselineEnabled && (
+              <svg className="w-2 h-2 text-white" viewBox="0 0 12 12" fill="none">
+                <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </span>
+          Baseline
+        </label>
+
+        {baselineEnabled && (
+          <select
+            value={baselineMetric}
+            onChange={e => setBaselineMetric(e.target.value as BaselineMetric)}
+            data-testid="baseline-metric-select"
+            className="rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[11px] text-gray-600 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400"
+          >
+            {BASELINE_METRICS.map(bm => (
+              <option key={bm.value} value={bm.value}>{bm.label}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Chart — mouseDown on wrapper captures drag, Recharts handles tooltip natively */}
@@ -511,6 +602,47 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
                 );
               }}
             />
+            {/* Baseline band (rendered behind live metrics) */}
+            {baselineEnabled && baselineData.length > 0 && (
+              <>
+                <Area
+                  yAxisId={BASELINE_AXIS_MAP[baselineMetric]}
+                  type="linear"
+                  dataKey="baseline_max"
+                  stroke="none"
+                  fill="#3b82f6"
+                  fillOpacity={0.15}
+                  dot={false}
+                  connectNulls
+                  isAnimationActive={false}
+                  legendType="none"
+                />
+                <Area
+                  yAxisId={BASELINE_AXIS_MAP[baselineMetric]}
+                  type="linear"
+                  dataKey="baseline_min"
+                  stroke="none"
+                  fill={dark ? '#111827' : '#ffffff'}
+                  fillOpacity={1}
+                  dot={false}
+                  connectNulls
+                  isAnimationActive={false}
+                  legendType="none"
+                />
+                <Line
+                  yAxisId={BASELINE_AXIS_MAP[baselineMetric]}
+                  type="linear"
+                  dataKey="baseline_avg"
+                  stroke="#3b82f6"
+                  strokeWidth={1}
+                  strokeDasharray="3 3"
+                  dot={false}
+                  connectNulls
+                  isAnimationActive={false}
+                  legendType="none"
+                />
+              </>
+            )}
             {activeMetrics.has('cpu') && <Line yAxisId="pct" type="linear" dataKey="cpu" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
             {activeMetrics.has('memory') && <Line yAxisId="memory" type="linear" dataKey="memory" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
             {activeMetrics.has('waits') && <Line yAxisId="waits" type="linear" dataKey="waits" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}

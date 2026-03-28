@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-- Overview baseline backend: migration 025 (`overview_baseline` table), background job computing min/avg/max per hour-of-day from 7 days of hourly data, API endpoint `GET /api/metrics/:id/overview-baseline?metric=cpu|memory|waits|disk_io`
+- RedGate-style baseline overlay for OverviewTimeline: filled min/max band + dashed median line computed from 7 days of hourly data, with toggle checkbox + metric dropdown (cpu/memory/waits/disk_io), dark mode support, and background recompute every 6 hours
 - Physical reads metric (`total_physical_reads`) in query stats pipeline: collector, delta computation, batch insert, API endpoint, and migration 024
 - Physical reads columns in Top Queries and Tracked Queries tables (avg/total/per-sec modes) with sort support and expanded row detail
 
