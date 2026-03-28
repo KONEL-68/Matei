@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - Overview timeline metrics (memory, waits, disk I/O) now use independent Y-axes instead of sharing one, so each scales correctly
+- Fix 31 failing tests (8 files) to match current source implementations: blocking plan lookup, memory-clerks query, permissions query, and frontend component changes
 
 ### Changed
 - Wait Stats (ms/sec) chart moved out of 2x2 grid to full-width placement before Analysis section for better visibility
