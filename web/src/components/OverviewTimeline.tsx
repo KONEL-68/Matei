@@ -469,7 +469,9 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
               height={XAXIS_HEIGHT}
             />
             <YAxis yAxisId="pct" domain={[0, 100]} hide />
-            <YAxis yAxisId="auto" orientation="right" hide />
+            <YAxis yAxisId="memory" hide />
+            <YAxis yAxisId="waits" hide />
+            <YAxis yAxisId="disk_io" hide />
             <Tooltip
               wrapperStyle={{ zIndex: 20 }}
               content={({ active, payload, label }: { active?: boolean; payload?: any[]; label?: string }) => { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -497,9 +499,9 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
               }}
             />
             {activeMetrics.has('cpu') && <Line yAxisId="pct" type="linear" dataKey="cpu" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
-            {activeMetrics.has('memory') && <Line yAxisId="auto" type="linear" dataKey="memory" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
-            {activeMetrics.has('waits') && <Line yAxisId="auto" type="linear" dataKey="waits" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
-            {activeMetrics.has('disk_io') && <Line yAxisId="auto" type="linear" dataKey="disk_io" stroke="#10b981" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
+            {activeMetrics.has('memory') && <Line yAxisId="memory" type="linear" dataKey="memory" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
+            {activeMetrics.has('waits') && <Line yAxisId="waits" type="linear" dataKey="waits" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
+            {activeMetrics.has('disk_io') && <Line yAxisId="disk_io" type="linear" dataKey="disk_io" stroke="#10b981" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
           </ComposedChart>
         </ResponsiveContainer>
 
