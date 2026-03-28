@@ -6,12 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Physical reads metric (`total_physical_reads`) in query stats pipeline: collector, delta computation, batch insert, API endpoint, and migration 024
+
 ### Changed
 - Blocking section moved before Analysis on instance detail page and expanded by default for better visibility
 - Database detail top queries now reuses the full AnalysisSection TopQueriesTab with sorting, view modes (Totals/Avg per execution/Impact), search, and configurable result limit
 - TopQueriesTab accepts optional `db` prop to filter by database (hides Database column when filtering)
 
 ### Fixed
+- WaitsChart legend click now toggles individual wait type bars on/off with dimmed legend items for hidden series
+- DatabaseDetail Files table now shows real USED and USED% values by collecting `FILEPROPERTY(name, 'SpaceUsed')` per database
 - Permissions table now hides server roles with zero members instead of showing empty rows
 - Databases list now uses `database_properties` as the authoritative base list, preventing databases with no counter data from being silently dropped
 - Database metrics now collected every 30s (every cycle) instead of every 60s, matching the frontend refetch interval

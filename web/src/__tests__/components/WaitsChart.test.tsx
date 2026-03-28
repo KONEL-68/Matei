@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WaitsChart } from '../../components/WaitsChart';
 
@@ -13,12 +13,18 @@ vi.mock('@/lib/theme', () => ({
 
 vi.mock('recharts', () => ({
   BarChart: ({ children }: { children: React.ReactNode }) => <div data-testid="bar-chart">{children}</div>,
-  Bar: () => <div data-testid="bar" />,
+  Bar: ({ hide, dataKey }: { hide?: boolean; dataKey: string }) => (
+    <div data-testid="bar" data-datakey={dataKey} data-hide={hide ? 'true' : 'false'} />
+  ),
   XAxis: () => null,
   YAxis: () => null,
   CartesianGrid: () => null,
   Tooltip: () => null,
-  Legend: () => null,
+  Legend: ({ onClick, formatter }: { onClick?: (e: { dataKey?: string }) => void; formatter?: (value: string) => React.ReactNode }) => (
+    <div data-testid="legend">
+      {formatter && <span data-testid="legend-item" onClick={() => onClick?.({ dataKey: 'CXPACKET' })}>{formatter('CXPACKET')}</span>}
+    </div>
+  ),
   ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
@@ -55,5 +61,40 @@ describe('WaitsChart', () => {
     const { container } = renderWithQuery(<WaitsChart instanceId="1" range="1h" enabled={false} />);
     expect(container.querySelector('[data-testid="bar-chart"]')).toBeNull();
     expect(mockAuthFetch).not.toHaveBeenCalled();
+  });
+
+  it('clicking legend item hides the corresponding bar', async () => {
+    const data = [
+      { bucket: '2026-03-22T10:00:00Z', wait_type: 'CXPACKET', wait_ms_per_sec: 12.5 },
+      { bucket: '2026-03-22T10:01:00Z', wait_type: 'CXPACKET', wait_ms_per_sec: 8.0 },
+    ];
+    mockAuthFetch.mockResolvedValueOnce({ ok: true, json: async () => data });
+    renderWithQuery(<WaitsChart instanceId="1" range="1h" />);
+
+    await screen.findByText('Wait Stats Over Time (ms/sec)');
+    const legendItem = screen.getByTestId('legend-item');
+    fireEvent.click(legendItem);
+
+    const bars = screen.getAllByTestId('bar');
+    const cxBar = bars.find(b => b.getAttribute('data-datakey') === 'CXPACKET');
+    expect(cxBar).toHaveAttribute('data-hide', 'true');
+  });
+
+  it('clicking legend item again restores the bar', async () => {
+    const data = [
+      { bucket: '2026-03-22T10:00:00Z', wait_type: 'CXPACKET', wait_ms_per_sec: 12.5 },
+      { bucket: '2026-03-22T10:01:00Z', wait_type: 'CXPACKET', wait_ms_per_sec: 8.0 },
+    ];
+    mockAuthFetch.mockResolvedValueOnce({ ok: true, json: async () => data });
+    renderWithQuery(<WaitsChart instanceId="1" range="1h" />);
+
+    await screen.findByText('Wait Stats Over Time (ms/sec)');
+    const legendItem = screen.getByTestId('legend-item');
+    fireEvent.click(legendItem);
+    fireEvent.click(legendItem);
+
+    const bars = screen.getAllByTestId('bar');
+    const cxBar = bars.find(b => b.getAttribute('data-datakey') === 'CXPACKET');
+    expect(cxBar).toHaveAttribute('data-hide', 'false');
   });
 });

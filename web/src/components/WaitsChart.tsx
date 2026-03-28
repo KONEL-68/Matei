@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useTheme } from '@/lib/theme';
@@ -58,6 +59,17 @@ function WaitsTooltip({ active, payload, label, range }: {
 export function WaitsChart({ instanceId, range, from, to, enabled = true }: WaitsChartProps) {
   const { theme } = useTheme();
   const dark = theme === 'dark';
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+
+  const handleLegendClick = (e: { dataKey?: string }) => {
+    if (!e.dataKey) return;
+    setHidden(prev => {
+      const next = new Set(prev);
+      if (next.has(e.dataKey!)) next.delete(e.dataKey!);
+      else next.add(e.dataKey!);
+      return next;
+    });
+  };
 
   const queryParams = from && to
     ? `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
@@ -128,13 +140,20 @@ export function WaitsChart({ instanceId, range, from, to, enabled = true }: Wait
           />
           <YAxis fontSize={11} tick={{ fill: dark ? '#9ca3af' : '#6b7280' }} />
           <Tooltip content={<WaitsTooltip range={range} />} />
-          <Legend wrapperStyle={{ fontSize: 11, color: dark ? '#d1d5db' : undefined }} />
+          <Legend
+            wrapperStyle={{ fontSize: 11, color: dark ? '#d1d5db' : undefined }}
+            onClick={handleLegendClick}
+            formatter={(value: string) => (
+              <span style={{ opacity: hidden.has(value) ? 0.4 : 1, cursor: 'pointer' }}>{value}</span>
+            )}
+          />
           {waitTypes.map((wt, i) => (
             <Bar
               key={wt}
               dataKey={wt}
               stackId="a"
               fill={COLORS[i % COLORS.length]}
+              hide={hidden.has(wt)}
             />
           ))}
         </BarChart>
