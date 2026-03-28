@@ -16,6 +16,7 @@ import { registerAuthHook } from './middleware/auth.js';
 import { CollectorScheduler } from './collector/scheduler.js';
 import { startPartitionManager } from './jobs/partition-manager.js';
 import { startAggregator } from './jobs/aggregator.js';
+import { startBaselineJob } from './jobs/baseline-job.js';
 import { runMigrations } from './migrations/run.js';
 
 const config = loadConfig();
@@ -82,13 +83,15 @@ try {
   scheduler.start();
   const partitionTimer = startPartitionManager(pool, app.log);
   const aggregatorTimer = startAggregator(pool, app.log);
-  app.log.info('Partition manager and aggregator started');
+  const baselineTimer = startBaselineJob(pool, app.log);
+  app.log.info('Partition manager, aggregator, and baseline job started');
 
   // Cleanup timers on shutdown
   const originalShutdown = shutdown;
   const extendedShutdown = async () => {
     clearInterval(partitionTimer);
     clearInterval(aggregatorTimer);
+    clearInterval(baselineTimer);
     await originalShutdown();
   };
   process.removeListener('SIGINT', shutdown);

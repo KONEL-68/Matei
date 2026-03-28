@@ -1164,6 +1164,33 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
     return reply.send(merged);
   });
 
+  // GET /api/metrics/:instanceId/overview-baseline?metric=cpu|memory|waits|disk_io
+  // Returns 24 baseline points (one per hour-of-day) computed from last 7 days of hourly data
+  app.get<{ Params: IdParam; Querystring: { metric?: string } }>('/api/metrics/:id/overview-baseline', async (req, reply) => {
+    const { id } = req.params;
+    const metric = req.query.metric;
+
+    const validMetrics = ['cpu', 'memory', 'waits', 'disk_io'];
+    if (!metric || !validMetrics.includes(metric)) {
+      return reply.status(400).send({ error: 'metric query parameter required: cpu, memory, waits, or disk_io' });
+    }
+
+    const result = await pool.query(
+      `SELECT hour_of_day, baseline_min, baseline_avg, baseline_max
+       FROM overview_baseline
+       WHERE instance_id = $1 AND metric = $2
+       ORDER BY hour_of_day`,
+      [id, metric],
+    );
+
+    return reply.send(result.rows.map((r: { hour_of_day: number; baseline_min: number; baseline_avg: number; baseline_max: number }) => ({
+      hour_of_day: Number(r.hour_of_day),
+      baseline_min: r.baseline_min != null ? Number(r.baseline_min) : null,
+      baseline_avg: r.baseline_avg != null ? Number(r.baseline_avg) : null,
+      baseline_max: r.baseline_max != null ? Number(r.baseline_max) : null,
+    })));
+  });
+
   // GET /api/metrics/:instanceId/server-config — read from PostgreSQL server_config table
   app.get<{ Params: IdParam }>('/api/metrics/:id/server-config', async (req, reply) => {
     const { id } = req.params;
