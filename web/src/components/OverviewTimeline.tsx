@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ComposedChart, Line, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
+import { ComposedChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, Customized } from 'recharts';
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
 import { insertGapBreaks as insertGapBreaksGeneric, fillAllNulls as fillAllNullsGeneric } from '@/lib/chart-utils';
@@ -36,7 +36,6 @@ interface ChartPoint {
   baseline_min?: number | null;
   baseline_avg?: number | null;
   baseline_max?: number | null;
-  baseline_band?: number | null;
 }
 
 type BaselineMetric = 'cpu' | 'memory' | 'waits' | 'disk_io';
@@ -177,9 +176,6 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
       base.baseline_min = bp?.baseline_min ?? null;
       base.baseline_avg = bp?.baseline_avg ?? null;
       base.baseline_max = bp?.baseline_max ?? null;
-      base.baseline_band = (bp?.baseline_max != null && bp?.baseline_min != null)
-        ? bp.baseline_max - bp.baseline_min
-        : null;
     }
     return base;
   });
@@ -606,47 +602,48 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
                 );
               }}
             />
-            {/* Baseline band: stacked areas (invisible base + colored band) rendered behind live metrics */}
+            {/* Baseline band + avg line rendered as raw SVG via Customized */}
             {baselineEnabled && baselineData.length > 0 && (
-              <>
-                <Area
-                  yAxisId={BASELINE_AXIS_MAP[baselineMetric]}
-                  type="linear"
-                  dataKey="baseline_min"
-                  stackId="baseline"
-                  stroke="none"
-                  fill="transparent"
-                  dot={false}
-                  connectNulls
-                  isAnimationActive={false}
-                  legendType="none"
-                />
-                <Area
-                  yAxisId={BASELINE_AXIS_MAP[baselineMetric]}
-                  type="linear"
-                  dataKey="baseline_band"
-                  stackId="baseline"
-                  stroke="none"
-                  fill="#3b82f6"
-                  fillOpacity={0.15}
-                  dot={false}
-                  connectNulls
-                  isAnimationActive={false}
-                  legendType="none"
-                />
-                <Line
-                  yAxisId={BASELINE_AXIS_MAP[baselineMetric]}
-                  type="linear"
-                  dataKey="baseline_avg"
-                  stroke="#3b82f6"
-                  strokeWidth={1}
-                  strokeDasharray="3 3"
-                  dot={false}
-                  connectNulls
-                  isAnimationActive={false}
-                  legendType="none"
-                />
-              </>
+              <Customized
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                component={(props: any) => {
+                  const { xAxisMap, yAxisMap } = props;
+                  if (!xAxisMap || !yAxisMap) return null;
+                  const xAxis = Object.values(xAxisMap)[0] as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+                  const yAxis = (yAxisMap as Record<string, any>)[BASELINE_AXIS_MAP[baselineMetric]]; // eslint-disable-line @typescript-eslint/no-explicit-any
+                  if (!xAxis || !yAxis) return null;
+                  const { scale: xScale } = xAxis;
+                  const { scale: yScale } = yAxis;
+                  if (!xScale || !yScale) return null;
+
+                  // Build band polygon + avg line from chartData points that have baseline values
+                  const bandPoints: { x: number; yMin: number; yMax: number; yAvg: number }[] = [];
+                  for (const pt of chartData) {
+                    if (pt.baseline_min != null && pt.baseline_max != null) {
+                      const x = xScale(pt.ts);
+                      const yMin = yScale(pt.baseline_min);
+                      const yMax = yScale(pt.baseline_max);
+                      const yAvg = pt.baseline_avg != null ? yScale(pt.baseline_avg) : (yMin + yMax) / 2;
+                      if (typeof x === 'number' && typeof yMin === 'number' && typeof yMax === 'number') {
+                        bandPoints.push({ x, yMin, yMax, yAvg });
+                      }
+                    }
+                  }
+                  if (bandPoints.length < 2) return null;
+
+                  // Band polygon: top edge (max) left-to-right, then bottom edge (min) right-to-left
+                  const topEdge = bandPoints.map(p => `${p.x},${p.yMax}`).join(' ');
+                  const bottomEdge = bandPoints.slice().reverse().map(p => `${p.x},${p.yMin}`).join(' ');
+                  const avgPath = bandPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.yAvg}`).join(' ');
+
+                  return (
+                    <g>
+                      <polygon points={`${topEdge} ${bottomEdge}`} fill="#3b82f6" fillOpacity={0.15} stroke="none" />
+                      <path d={avgPath} fill="none" stroke="#3b82f6" strokeWidth={1} strokeDasharray="3 3" />
+                    </g>
+                  );
+                }}
+              />
             )}
             {activeMetrics.has('cpu') && <Line yAxisId="pct" type="linear" dataKey="cpu" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
             {activeMetrics.has('memory') && <Line yAxisId="memory" type="linear" dataKey="memory" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls={false} isAnimationActive={false} />}
