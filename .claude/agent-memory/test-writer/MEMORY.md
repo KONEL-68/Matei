@@ -1,0 +1,3 @@
+- [Always write tests](feedback_always_write_tests.md) — every new component/page must have tests, no exceptions
+- [Always update docs](feedback_update_docs.md) — update CHANGELOG.md and CLAUDE.md with every commit
+- [Test coverage audit](project_test_coverage_audit.md) — 2026-03-28 audit: webhook.ts and web auth.ts are top gaps
