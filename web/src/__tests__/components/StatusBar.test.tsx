@@ -215,6 +215,10 @@ describe('StatusBar', () => {
         expect(url).not.toContain('range=');
       } else if (url.includes('/health')) {
         // health has no range param
+      } else if (url.includes('/waits/latest')) {
+        // waits/latest has no range param
+      } else if (url.includes('/file-io/latest')) {
+        // file-io/latest has no range param
       } else {
         expect(url).toContain('range=1h');
       }

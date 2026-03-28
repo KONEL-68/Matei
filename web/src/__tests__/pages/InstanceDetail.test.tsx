@@ -59,14 +59,25 @@ vi.mock('@/lib/auth', () => ({
         }),
       };
     }
-    if (url.includes('/disk')) {
+    if (url.includes('/disk-usage')) {
       return {
         ok: true,
         json: async () => [
-          { volume_mount_point: 'C:\\', logical_volume_name: 'OS', total_mb: 512000, available_mb: 200000, used_mb: 312000, used_pct: 60.9 },
-          { volume_mount_point: 'D:\\', logical_volume_name: 'Data', total_mb: 1024000, available_mb: 50000, used_mb: 974000, used_pct: 95.1 },
+          {
+            volume_mount_point: 'C:\\', logical_volume_name: 'OS', total_mb: 512000, available_mb: 200000, used_mb: 312000, used_pct: 60.9,
+            avg_read_latency_ms: 1.2, avg_write_latency_ms: 2.5, transfers_per_sec: 100,
+            sparklines: { read_latency: [], write_latency: [], transfers: [] },
+          },
+          {
+            volume_mount_point: 'D:\\', logical_volume_name: 'Data', total_mb: 1024000, available_mb: 50000, used_mb: 974000, used_pct: 95.1,
+            avg_read_latency_ms: 5.0, avg_write_latency_ms: 10.0, transfers_per_sec: 200,
+            sparklines: { read_latency: [], write_latency: [], transfers: [] },
+          },
         ],
       };
+    }
+    if (url.includes('/disk')) {
+      return { ok: true, json: async () => [] };
     }
     if (url.includes('/file-io')) {
       return {
@@ -152,17 +163,15 @@ describe('InstanceDetail', () => {
 
   it('renders compact disk card in grid', async () => {
     renderDetail();
-    expect(await screen.findByText('Disk Space')).toBeInTheDocument();
+    expect(await screen.findByText('Disks')).toBeInTheDocument();
   });
 
-  it('disk card shows used GB instead of free GB', async () => {
+  it('disk card shows free GB of total GB', async () => {
     renderDetail();
-    // C:\ mock: total_mb=512000, available_mb=200000 → used=(512000-200000)/1024=305 GB of 500 GB
-    expect(await screen.findByText(/305 GB used of 500 GB/)).toBeInTheDocument();
-    // D:\ mock: total_mb=1024000, available_mb=50000 → used=(1024000-50000)/1024=951 GB of 1000 GB
-    expect(screen.getByText(/951 GB used of 1000 GB/)).toBeInTheDocument();
-    // Should NOT show the old free/total format
-    expect(screen.queryByText(/195\/500 GB/)).not.toBeInTheDocument();
+    // C:\ mock: available_mb=200000 → 200000/1024=195.31 GB free of 512000/1024=500.00 GB
+    expect(await screen.findByText(/195\.31 GB free of 500\.00 GB/)).toBeInTheDocument();
+    // D:\ mock: available_mb=50000 → 50000/1024=48.83 GB free of 1024000/1024=1000.00 GB
+    expect(screen.getByText(/48\.83 GB free of 1000\.00 GB/)).toBeInTheDocument();
   });
 
   it('renders instance header with name and version', async () => {
@@ -175,14 +184,14 @@ describe('InstanceDetail', () => {
   it('renders collapsible sections in correct order on History tab', async () => {
     renderDetail();
     expect(await screen.findByTestId('analysis-section')).toBeInTheDocument();
-    expect(screen.getByText('Active Sessions')).toBeInTheDocument();
-    expect(screen.getByText('Deadlocks')).toBeInTheDocument();
-    expect(screen.getByText('File I/O')).toBeInTheDocument();
+    expect(screen.getByText('Disks')).toBeInTheDocument();
+    expect(screen.getByText('Blocking')).toBeInTheDocument();
+    expect(screen.getByText('Databases')).toBeInTheDocument();
   });
 
-  it('renders SQL Memory Breakdown section', async () => {
+  it('renders overview metric charts section', async () => {
     renderDetail();
-    expect(await screen.findByText('SQL Memory Breakdown')).toBeInTheDocument();
+    expect(await screen.findByTestId('overview-metric-charts')).toBeInTheDocument();
   });
 
   it('Query Explorer button is in header, not a standalone link', async () => {
@@ -192,9 +201,9 @@ describe('InstanceDetail', () => {
     expect(btn.tagName).toBe('BUTTON');
   });
 
-  it('renders Session Breakdown card', async () => {
+  it('renders Databases section', async () => {
     renderDetail();
-    expect(await screen.findByText('Session Breakdown')).toBeInTheDocument();
+    expect(await screen.findByText('Databases')).toBeInTheDocument();
   });
 
   // Tab tests

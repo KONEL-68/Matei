@@ -17,11 +17,19 @@ describe('memory-clerks endpoint', () => {
     await app.ready();
   });
 
-  it('GET /memory-clerks returns latest memory clerk snapshot', async () => {
+  it('GET /memory-clerks returns memory clerk time series', async () => {
+    // Step 1: top clerk types query
     mockPool.query.mockResolvedValueOnce({
       rows: [
-        { clerk_type: 'MEMORYCLERK_SQLBUFFERPOOL', size_mb: 4096.5, collected_at: '2026-03-27T10:00:00Z' },
-        { clerk_type: 'CACHESTORE_SQLCP', size_mb: 512.25, collected_at: '2026-03-27T10:00:00Z' },
+        { clerk_type: 'MEMORYCLERK_SQLBUFFERPOOL', avg_mb: 4096.5 },
+        { clerk_type: 'CACHESTORE_SQLCP', avg_mb: 512.25 },
+      ],
+    });
+    // Step 2: time series query
+    mockPool.query.mockResolvedValueOnce({
+      rows: [
+        { bucket: '2026-03-27T10:00:00Z', clerk_type: 'MEMORYCLERK_SQLBUFFERPOOL', size_mb: 4096.5 },
+        { bucket: '2026-03-27T10:00:00Z', clerk_type: 'CACHESTORE_SQLCP', size_mb: 512.25 },
       ],
     });
 
@@ -35,18 +43,20 @@ describe('memory-clerks endpoint', () => {
     expect(body[1].size_mb).toBe(512.25);
   });
 
-  it('query filters by instance_id and recent collected_at', async () => {
+  it('query filters by instance_id and uses parameterized interval', async () => {
     mockPool.query.mockResolvedValueOnce({ rows: [] });
 
     await app.inject({ method: 'GET', url: '/api/metrics/42/memory-clerks' });
 
     const sql = mockPool.query.mock.calls[0][0] as string;
     expect(sql).toContain('instance_id = $1');
-    expect(sql).toContain("INTERVAL '5 minutes'");
-    expect(sql).toContain('DISTINCT ON (clerk_type)');
+    expect(sql).toContain('$2::interval');
+    expect(sql).toContain('AVG(size_mb)');
+    expect(sql).toContain('GROUP BY clerk_type');
 
     const params = mockPool.query.mock.calls[0][1] as string[];
     expect(params[0]).toBe('42');
+    expect(params[1]).toBe('1 hour');
   });
 
   it('returns empty array when no data', async () => {
@@ -59,9 +69,16 @@ describe('memory-clerks endpoint', () => {
   });
 
   it('converts size_mb to number', async () => {
+    // Step 1: top clerk types query
     mockPool.query.mockResolvedValueOnce({
       rows: [
-        { clerk_type: 'MEMORYCLERK_SQLBUFFERPOOL', size_mb: '4096.5', collected_at: '2026-03-27T10:00:00Z' },
+        { clerk_type: 'MEMORYCLERK_SQLBUFFERPOOL', avg_mb: 4096.5 },
+      ],
+    });
+    // Step 2: time series query
+    mockPool.query.mockResolvedValueOnce({
+      rows: [
+        { bucket: '2026-03-27T10:00:00Z', clerk_type: 'MEMORYCLERK_SQLBUFFERPOOL', size_mb: '4096.5' },
       ],
     });
 

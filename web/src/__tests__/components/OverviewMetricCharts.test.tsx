@@ -49,7 +49,7 @@ describe('OverviewMetricCharts', () => {
     renderWithQuery(<OverviewMetricCharts instanceId="1" window={null} />);
     expect(await screen.findByText('CPU Utilization (%)')).toBeInTheDocument();
     expect(screen.getByText('SQL Memory (GB)')).toBeInTheDocument();
-    expect(screen.getByText('Wait Stats (ms/sec)')).toBeInTheDocument();
+    expect(screen.getByText('Signal vs Resource Wait (ms/s)')).toBeInTheDocument();
     expect(screen.getByText('Throughput (MB/s)')).toBeInTheDocument();
   });
 

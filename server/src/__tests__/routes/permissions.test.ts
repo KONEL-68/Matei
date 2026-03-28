@@ -18,17 +18,12 @@ describe('GET /api/metrics/:id/permissions', () => {
   });
 
   it('returns grouped role members for an instance', async () => {
-    // First query: get latest collected_at
-    mockPool.query.mockResolvedValueOnce({
-      rows: [{ collected_at: '2026-03-27T00:00:00.000Z' }],
-    });
-
-    // Second query: get role members at that timestamp
+    // Single query: get all rows matching the latest collected_at via subquery
     mockPool.query.mockResolvedValueOnce({
       rows: [
-        { role_name: 'sysadmin', login_name: 'sa', login_type: 'SQL login' },
-        { role_name: 'sysadmin', login_name: 'DOMAIN\\Admin', login_type: 'Windows login' },
-        { role_name: 'dbcreator', login_name: 'DOMAIN\\AppGroup', login_type: 'Active Directory account' },
+        { role_name: 'sysadmin', login_name: 'sa', login_type: 'SQL login', collected_at: '2026-03-27T00:00:00.000Z' },
+        { role_name: 'sysadmin', login_name: 'DOMAIN\\Admin', login_type: 'Windows login', collected_at: '2026-03-27T00:00:00.000Z' },
+        { role_name: 'dbcreator', login_name: 'DOMAIN\\AppGroup', login_type: 'Active Directory account', collected_at: '2026-03-27T00:00:00.000Z' },
       ],
     });
 

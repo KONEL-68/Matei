@@ -141,7 +141,7 @@ describe('SqlServerMetrics', () => {
 
   it('renders Memory Clerks section', async () => {
     renderComponent();
-    expect(await screen.findByText('Memory Clerks')).toBeInTheDocument();
+    expect(await screen.findByText('Memory Clerks (MB)')).toBeInTheDocument();
     expect(screen.getByTestId('memory-clerks-chart')).toBeInTheDocument();
   });
 

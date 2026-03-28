@@ -19,6 +19,7 @@ vi.mock('recharts', () => ({
   YAxis: () => null,
   CartesianGrid: () => null,
   Tooltip: () => null,
+  Legend: () => null,
   Cell: () => null,
   ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
@@ -27,10 +28,10 @@ import { authFetch } from '@/lib/auth';
 const mockAuthFetch = vi.mocked(authFetch);
 
 const mockClerks = [
-  { type: 'MEMORYCLERK_SQLBUFFERPOOL', size_mb: 4096 },
-  { type: 'CACHESTORE_SQLCP', size_mb: 512 },
-  { type: 'OBJECTSTORE_LOCK_MANAGER', size_mb: 128 },
-  { type: 'MEMORYCLERK_SQLQUERYPLAN', size_mb: 256 },
+  { bucket: '2026-03-25T10:00:00Z', clerk_type: 'MEMORYCLERK_SQLBUFFERPOOL', size_mb: 4096 },
+  { bucket: '2026-03-25T10:00:00Z', clerk_type: 'CACHESTORE_SQLCP', size_mb: 512 },
+  { bucket: '2026-03-25T10:00:00Z', clerk_type: 'OBJECTSTORE_LOCK_MANAGER', size_mb: 128 },
+  { bucket: '2026-03-25T10:00:00Z', clerk_type: 'MEMORYCLERK_SQLQUERYPLAN', size_mb: 256 },
 ];
 
 function renderWithQuery(ui: React.ReactElement) {
@@ -47,14 +48,14 @@ describe('MemoryClerksChart', () => {
     vi.clearAllMocks();
   });
 
-  it('renders the title', () => {
+  it('renders the title', async () => {
     mockAuthFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => mockClerks,
     } as Response);
 
-    renderWithQuery(<MemoryClerksChart instanceId="1" />);
-    expect(screen.getByText('Memory Clerks')).toBeInTheDocument();
+    renderWithQuery(<MemoryClerksChart instanceId="1" rangeParams="range=1h" />);
+    expect(await screen.findByText('Memory Clerks (MB)')).toBeInTheDocument();
   });
 
   it('renders the bar chart when data is loaded', async () => {
@@ -63,23 +64,8 @@ describe('MemoryClerksChart', () => {
       json: async () => mockClerks,
     } as Response);
 
-    renderWithQuery(<MemoryClerksChart instanceId="1" />);
+    renderWithQuery(<MemoryClerksChart instanceId="1" rangeParams="range=1h" />);
     expect(await screen.findByTestId('bar-chart')).toBeInTheDocument();
-  });
-
-  it('shows loading state initially', () => {
-    // Never resolve to keep loading state
-    mockAuthFetch.mockReturnValueOnce(new Promise(() => {}));
-
-    renderWithQuery(<MemoryClerksChart instanceId="1" />);
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
-  });
-
-  it('shows error message on fetch failure', async () => {
-    mockAuthFetch.mockRejectedValueOnce(new Error('Network error'));
-
-    renderWithQuery(<MemoryClerksChart instanceId="1" />);
-    expect(await screen.findByText('Failed to load memory clerks')).toBeInTheDocument();
   });
 
   it('shows "No data" when API returns empty array', async () => {
@@ -88,7 +74,17 @@ describe('MemoryClerksChart', () => {
       json: async () => [],
     } as Response);
 
-    renderWithQuery(<MemoryClerksChart instanceId="1" />);
+    renderWithQuery(<MemoryClerksChart instanceId="1" rangeParams="range=1h" />);
+    expect(await screen.findByText('No data')).toBeInTheDocument();
+  });
+
+  it('shows "No data" on fetch failure (returns empty on !ok)', async () => {
+    mockAuthFetch.mockResolvedValueOnce({
+      ok: false,
+      json: async () => [],
+    } as Response);
+
+    renderWithQuery(<MemoryClerksChart instanceId="1" rangeParams="range=1h" />);
     expect(await screen.findByText('No data')).toBeInTheDocument();
   });
 
@@ -98,17 +94,17 @@ describe('MemoryClerksChart', () => {
       json: async () => mockClerks,
     } as Response);
 
-    renderWithQuery(<MemoryClerksChart instanceId="42" />);
-    expect(mockAuthFetch).toHaveBeenCalledWith('/api/metrics/42/live/memory-clerks');
+    renderWithQuery(<MemoryClerksChart instanceId="42" rangeParams="range=1h" />);
+    expect(mockAuthFetch).toHaveBeenCalledWith('/api/metrics/42/memory-clerks?range=1h');
   });
 
-  it('has the data-testid attribute on container', () => {
+  it('has the data-testid attribute on container', async () => {
     mockAuthFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => mockClerks,
+      json: async () => [],
     } as Response);
 
-    renderWithQuery(<MemoryClerksChart instanceId="1" />);
-    expect(screen.getByTestId('memory-clerks-chart')).toBeInTheDocument();
+    renderWithQuery(<MemoryClerksChart instanceId="1" rangeParams="range=1h" />);
+    expect(await screen.findByTestId('memory-clerks-chart')).toBeInTheDocument();
   });
 });

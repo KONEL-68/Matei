@@ -213,11 +213,13 @@ describe('blocking routes', () => {
   });
 
   it('GET /api/metrics/:id/blocking/plan (estimated) returns cached plan from PostgreSQL', async () => {
-    // Step 1: query_stats_raw lookup returns a query_hash
+    // Step 1a: query_plans by blocking_spid_55 — no match
+    mockPool.query.mockResolvedValueOnce({ rows: [] });
+    // Step 1b: query_stats_raw lookup returns a query_hash
     mockPool.query.mockResolvedValueOnce({
       rows: [{ query_hash: '0xABC123' }],
     });
-    // Step 2: query_plans lookup returns the plan
+    // Step 1b continued: query_plans lookup returns the plan
     mockPool.query.mockResolvedValueOnce({
       rows: [{ plan_xml: '<ShowPlanXML>estimated</ShowPlanXML>' }],
     });
@@ -233,7 +235,9 @@ describe('blocking routes', () => {
   });
 
   it('GET /api/metrics/:id/blocking/plan (estimated) falls back to live SQL Server when not in PostgreSQL', async () => {
-    // Step 1: query_stats_raw returns no match
+    // Step 1a: query_plans by blocking_spid_55 — no match
+    mockPool.query.mockResolvedValueOnce({ rows: [] });
+    // Step 1b: query_stats_raw returns no match
     mockPool.query.mockResolvedValueOnce({ rows: [] });
     // Step 2: instance lookup
     mockPool.query.mockResolvedValueOnce({
@@ -262,7 +266,9 @@ describe('blocking routes', () => {
   });
 
   it('GET /api/metrics/:id/blocking/plan (estimated) falls back to plan cache when SPID not active', async () => {
-    // Step 1: query_stats_raw returns no match
+    // Step 1a: query_plans by blocking_spid_55 — no match
+    mockPool.query.mockResolvedValueOnce({ rows: [] });
+    // Step 1b: query_stats_raw returns no match
     mockPool.query.mockResolvedValueOnce({ rows: [] });
     // Step 2: instance lookup
     mockPool.query.mockResolvedValueOnce({
@@ -293,7 +299,9 @@ describe('blocking routes', () => {
   });
 
   it('GET /api/metrics/:id/blocking/plan (estimated) returns 404 when plan not found anywhere', async () => {
-    // Step 1: query_stats_raw returns no match
+    // Step 1a: query_plans by blocking_spid_55 — no match
+    mockPool.query.mockResolvedValueOnce({ rows: [] });
+    // Step 1b: query_stats_raw returns no match
     mockPool.query.mockResolvedValueOnce({ rows: [] });
     // Step 2: instance lookup
     mockPool.query.mockResolvedValueOnce({
@@ -318,7 +326,9 @@ describe('blocking routes', () => {
   });
 
   it('GET /api/metrics/:id/blocking/plan (estimated) returns 404 for unknown instance', async () => {
-    // Step 1: query_stats_raw returns no match
+    // Step 1a: query_plans by blocking_spid_55 — no match
+    mockPool.query.mockResolvedValueOnce({ rows: [] });
+    // Step 1b: query_stats_raw returns no match
     mockPool.query.mockResolvedValueOnce({ rows: [] });
     // Step 2: instance lookup returns empty
     mockPool.query.mockResolvedValueOnce({ rows: [] });
@@ -332,7 +342,9 @@ describe('blocking routes', () => {
   });
 
   it('GET /api/metrics/:id/blocking/plan (estimated) returns 502 on SQL Server connection error', async () => {
-    // Step 1: query_stats_raw returns no match
+    // Step 1a: query_plans by blocking_spid_55 — no match
+    mockPool.query.mockResolvedValueOnce({ rows: [] });
+    // Step 1b: query_stats_raw returns no match
     mockPool.query.mockResolvedValueOnce({ rows: [] });
     // Step 2: instance lookup
     mockPool.query.mockResolvedValueOnce({
@@ -387,11 +399,13 @@ describe('blocking routes', () => {
     const mockSqlPool = { request: () => mockSqlRequest };
     mockedGetSharedPool.mockResolvedValueOnce(mockSqlPool as never);
 
-    // Step 2: query_stats_raw hash lookup
+    // Step 2a: query_plans by blocking_spid_55 — no match
+    mockPool.query.mockResolvedValueOnce({ rows: [] });
+    // Step 2b: query_stats_raw hash lookup
     mockPool.query.mockResolvedValueOnce({
       rows: [{ query_hash: '0xDEF456' }],
     });
-    // Step 3: query_plans lookup
+    // Step 2b continued: query_plans lookup
     mockPool.query.mockResolvedValueOnce({
       rows: [{ plan_xml: '<ShowPlanXML>actual-cached</ShowPlanXML>' }],
     });
@@ -419,7 +433,9 @@ describe('blocking routes', () => {
     const mockSqlPool = { request: () => mockSqlRequest };
     mockedGetSharedPool.mockResolvedValueOnce(mockSqlPool as never);
 
-    // Step 2: query_stats_raw hash lookup — no match
+    // Step 2a: query_plans by blocking_spid_55 — no match
+    mockPool.query.mockResolvedValueOnce({ rows: [] });
+    // Step 2b: query_stats_raw hash lookup — no match
     mockPool.query.mockResolvedValueOnce({ rows: [] });
 
     const res = await app.inject({
