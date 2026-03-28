@@ -58,7 +58,7 @@ export async function blockingRoutes(app: FastifyInstance, pool: pg.Pool, config
               head_blocker_login,
               (array_agg(head_blocker_host ORDER BY collected_at DESC))[1] AS head_blocker_host,
               (array_agg(head_blocker_app ORDER BY collected_at DESC))[1] AS head_blocker_app,
-              head_blocker_db,
+              (array_agg(head_blocker_db ORDER BY collected_at DESC))[1] AS head_blocker_db,
               (array_agg(head_blocker_sql ORDER BY collected_at DESC))[1] AS head_blocker_sql,
               (array_agg(chain_json ORDER BY collected_at DESC))[1] AS chain_json,
               MAX(total_blocked_count) AS total_blocked_count,
@@ -66,7 +66,7 @@ export async function blockingRoutes(app: FastifyInstance, pool: pg.Pool, config
               MAX(collected_at) AS collected_at
        FROM blocking_events
        WHERE instance_id = $1 AND ${condition}
-       GROUP BY head_blocker_spid, head_blocker_login, head_blocker_db,
+       GROUP BY head_blocker_spid, head_blocker_login,
                 LEFT(head_blocker_sql, 100)
        ORDER BY event_time DESC
        LIMIT 200`,
