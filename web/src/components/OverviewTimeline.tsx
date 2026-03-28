@@ -97,6 +97,7 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
   const dark = theme === 'dark';
   const [overviewRange, setOverviewRange] = useState<OverviewRange>('24h');
   const [activeMetrics, setActiveMetrics] = useState<Set<string>>(new Set(['cpu', 'memory', 'waits', 'disk_io']));
+  const [autoRefresh, setAutoRefresh] = useState(true);
 
   const chartWrapRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -113,7 +114,7 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
       if (!res.ok) return [];
       return res.json();
     },
-    refetchInterval: 30_000,
+    refetchInterval: autoRefresh ? 30_000 : false,
   });
 
   const mapped: ChartPoint[] = rawData.map(pt => ({
@@ -391,6 +392,18 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
               {r}
             </button>
           ))}
+          <button
+            onClick={() => setAutoRefresh(prev => !prev)}
+            title={autoRefresh ? 'Pause auto-refresh' : 'Resume auto-refresh'}
+            data-testid="auto-refresh-toggle"
+            className={`rounded px-2 py-0.5 text-xs font-medium transition-colors flex items-center gap-1 ${
+              autoRefresh
+                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300'
+                : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
+            }`}
+          >
+            {autoRefresh ? '⏸ Live' : '▶ Paused'}
+          </button>
         </div>
         <div className="flex items-center gap-1">
           <span className="text-xs font-medium text-gray-500 dark:text-gray-400 mr-1">Window:</span>
@@ -456,7 +469,7 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMoveForCursor}
       >
-        <ResponsiveContainer width="100%" height={150}>
+        <ResponsiveContainer width="100%" height={300}>
           <ComposedChart data={chartData} margin={CHART_MARGIN}>
             <XAxis
               dataKey="ts"

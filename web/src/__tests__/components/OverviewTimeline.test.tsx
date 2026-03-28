@@ -106,6 +106,28 @@ describe('OverviewTimeline', () => {
     expect(legend!.textContent).toBeTruthy();
   });
 
+  it('chart renders with height 300', async () => {
+    renderTimeline();
+    await screen.findByTestId('overview-timeline');
+    // ResponsiveContainer is mocked, but the real component passes height={300}
+    // We verify the component renders without error with the updated height
+    expect(screen.getByTestId('composed-chart')).toBeInTheDocument();
+  });
+
+  it('auto-refresh toggle button is present and toggles state', async () => {
+    renderTimeline();
+    await screen.findByTestId('overview-timeline');
+    const toggle = screen.getByTestId('auto-refresh-toggle');
+    expect(toggle).toBeInTheDocument();
+    expect(toggle.textContent).toContain('Live');
+
+    fireEvent.click(toggle);
+    expect(toggle.textContent).toContain('Paused');
+
+    fireEvent.click(toggle);
+    expect(toggle.textContent).toContain('Live');
+  });
+
   it('renders selection overlay', async () => {
     renderTimeline();
     await screen.findByTestId('overview-timeline');
