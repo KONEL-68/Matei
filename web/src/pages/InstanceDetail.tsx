@@ -75,6 +75,8 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
   );
 }
 
+const CHART_SYNC_ID = 'instance-detail';
+
 export function InstanceDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -199,7 +201,7 @@ export function InstanceDetail() {
 
       {/* 2. Metric detail charts (2x2 grid) */}
       <div className="mt-4">
-        <OverviewMetricCharts instanceId={id!} window={timeWindow} />
+        <OverviewMetricCharts instanceId={id!} window={timeWindow} syncId={CHART_SYNC_ID} />
       </div>
 
       {/* Wait Stats full-width chart */}
@@ -209,6 +211,7 @@ export function InstanceDetail() {
           range={range}
           from={timeWindow?.from}
           to={timeWindow?.to}
+          syncId={CHART_SYNC_ID}
         />
       </div>
 
@@ -221,7 +224,7 @@ export function InstanceDetail() {
 
       {/* Analysis section (Top Queries / Tracked Queries / Top Procedures) */}
       <div className="mt-4">
-        <AnalysisSection instanceId={id!} range={range} timeWindow={timeWindow} />
+        <AnalysisSection instanceId={id!} range={range} timeWindow={timeWindow} syncId={CHART_SYNC_ID} />
       </div>
 
       {/* SQL Server Metrics (perf counters + server config) */}
@@ -231,6 +234,7 @@ export function InstanceDetail() {
           instanceId={id!}
           range={{ from: timeWindow.from, to: timeWindow.to }}
           health={health ? { version: health.version, edition: health.edition } : undefined}
+          syncId={CHART_SYNC_ID}
         />
         </div>
       )}
@@ -243,9 +247,9 @@ export function InstanceDetail() {
       {/* Disks: usage table + growth trend chart */}
       <div className="mt-4">
         <CollapsibleSection title="Disks" defaultOpen>
-          <DiskUsage instanceId={id!} timeWindow={timeWindow} />
+          <DiskUsage instanceId={id!} timeWindow={timeWindow} syncId={CHART_SYNC_ID} />
           <div className="mt-4">
-            <DiskChart instanceId={id!} range={range} />
+            <DiskChart instanceId={id!} range={range} syncId={CHART_SYNC_ID} />
           </div>
         </CollapsibleSection>
       </div>

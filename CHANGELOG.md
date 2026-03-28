@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Synchronized vertical crosshair cursor across all charts on InstanceDetail page — hover any chart to see a dashed blue line at the same timestamp on every other chart (via Recharts `syncId`)
 - Physical reads metric (`total_physical_reads`) in query stats pipeline: collector, delta computation, batch insert, API endpoint, and migration 024
 - Physical reads columns in Top Queries and Tracked Queries tables (avg/total/per-sec modes) with sort support and expanded row detail
 

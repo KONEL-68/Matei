@@ -29,6 +29,7 @@ interface DiskVolume {
 interface DiskUsageProps {
   instanceId: string;
   timeWindow: TimeWindow | null;
+  syncId?: string;
 }
 
 function formatSize(mb: number): string {
@@ -55,11 +56,12 @@ function formatMs(v: number): string {
 }
 
 // Interactive mini line chart with hover value
-function SparkCell({ data, color, unit, fallbackValue }: {
+function SparkCell({ data, color, unit, fallbackValue, syncId }: {
   data: SparkPoint[];
   color: string;
   unit: 'ms' | 'num';
   fallbackValue: number;
+  syncId?: string;
 }) {
   const [hoverValue, setHoverValue] = useState<number | null>(null);
 
@@ -83,6 +85,7 @@ function SparkCell({ data, color, unit, fallbackValue }: {
           <ResponsiveContainer width="100%" height="100%">
             <LineChart
               data={data}
+              syncId={syncId}
               onMouseMove={handleMouseMove}
               onMouseLeave={handleMouseLeave}
               margin={{ top: 2, right: 0, bottom: 2, left: 0 }}
@@ -110,7 +113,7 @@ function SparkCell({ data, color, unit, fallbackValue }: {
   );
 }
 
-export function DiskUsage({ instanceId, timeWindow }: DiskUsageProps) {
+export function DiskUsage({ instanceId, timeWindow, syncId }: DiskUsageProps) {
   const { data: volumes = [], isLoading } = useQuery<DiskVolume[]>({
     queryKey: ['disk-usage', instanceId, timeWindow?.from, timeWindow?.to],
     queryFn: async () => {
@@ -178,6 +181,7 @@ export function DiskUsage({ instanceId, timeWindow }: DiskUsageProps) {
                         color="#3b82f6"
                         unit="ms"
                         fallbackValue={vol.avg_read_latency_ms}
+                        syncId={syncId}
                       />
                     </td>
                     <td className="py-3 pr-3">
@@ -186,6 +190,7 @@ export function DiskUsage({ instanceId, timeWindow }: DiskUsageProps) {
                         color="#f59e0b"
                         unit="ms"
                         fallbackValue={vol.avg_write_latency_ms}
+                        syncId={syncId}
                       />
                     </td>
                     <td className="py-3">
@@ -194,6 +199,7 @@ export function DiskUsage({ instanceId, timeWindow }: DiskUsageProps) {
                         color="#10b981"
                         unit="num"
                         fallbackValue={vol.transfers_per_sec}
+                        syncId={syncId}
                       />
                     </td>
                   </tr>

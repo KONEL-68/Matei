@@ -7,6 +7,7 @@ import { generateTicks } from '@/lib/chart-utils';
 interface DiskChartProps {
   instanceId: string;
   range: string;
+  syncId?: string;
 }
 
 interface RawPoint {
@@ -109,7 +110,7 @@ export function daysUntilFull(points: Array<{ x: number; y: number }>): { days: 
   return { days: Math.max(0, Math.round(daysRemaining)), growthPerDay };
 }
 
-export function DiskChart({ instanceId, range }: DiskChartProps) {
+export function DiskChart({ instanceId, range, syncId }: DiskChartProps) {
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
@@ -218,7 +219,7 @@ export function DiskChart({ instanceId, range }: DiskChartProps) {
   return (
     <div>
       <ResponsiveContainer width="100%" height={260}>
-        <ComposedChart data={chartData}>
+        <ComposedChart data={chartData} syncId={syncId}>
           <defs>
             {volumes.map((vol, i) => (
               <linearGradient key={`grad-${vol}`} id={`diskGrad-${i}`} x1="0" y1="0" x2="0" y2="1">
