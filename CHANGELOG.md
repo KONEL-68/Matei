@@ -17,6 +17,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Migration 022: `database_metrics_raw` partitioned table with database_name column
   - Collector with delta computation for rate counters (Transactions/sec, Log Flushes/sec, etc.) and snapshot for instantaneous (Data File Size, Active Transactions)
   - Partition manager support for automatic daily partition creation/cleanup
+  - `GET /api/metrics/:id/databases` endpoint: list all databases with latest metrics, transactions/sec sparkline, and size sparkline data
+  - `GET /api/metrics/:id/databases/:dbName` endpoint: time-series for all per-database counters plus on-demand live properties (recovery model, files, VLF count, backup dates) from SQL Server
 - Blocking History section: full-stack blocking monitoring using Extended Events `blocked_process_report`
   - Auto-creates `matei_blocking` XE session on target servers; validates and recreates if misconfigured
   - Collector reads ring buffer XML in Node.js (avoids SQL Server XPath timeouts), builds directed blocking chains with head blocker determination

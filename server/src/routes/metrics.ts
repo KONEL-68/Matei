@@ -1436,6 +1436,190 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
     `);
     return reply.send(result.recordset);
   });
+
+  // =====================================================================
+  // Database-level metrics
+  // =====================================================================
+
+  // GET /api/metrics/:id/databases — list all databases with latest metrics + sparklines
+  app.get<{ Params: IdParam; Querystring: RangeQuery }>('/api/metrics/:id/databases', async (req, reply) => {
+    const { id } = req.params;
+    const tf = resolveTimeFilter(req.query, 'collected_at', 2);
+
+    // Latest snapshot per database (most recent cycle)
+    const latestResult = await pool.query(
+      `SELECT database_name, counter_name, cntr_value
+       FROM database_metrics_raw
+       WHERE instance_id = $1
+         AND collected_at = (
+           SELECT MAX(collected_at) FROM database_metrics_raw WHERE instance_id = $1
+         )`,
+      [id],
+    );
+
+    // Build per-database summary from latest values
+    const dbMap = new Map<string, Record<string, number>>();
+    for (const row of latestResult.rows) {
+      if (!dbMap.has(row.database_name)) dbMap.set(row.database_name, {});
+      dbMap.get(row.database_name)![row.counter_name] = Number(row.cntr_value);
+    }
+
+    // Sparkline data: transactions/sec over time range, bucketed per minute
+    const sparkResult = await pool.query(
+      `SELECT database_name,
+              date_trunc('minute', collected_at) AS ts,
+              AVG(cntr_value)::float AS val
+       FROM database_metrics_raw
+       WHERE instance_id = $1 AND ${tf.condition}
+         AND counter_name = 'Transactions/sec'
+       GROUP BY database_name, date_trunc('minute', collected_at)
+       ORDER BY database_name, ts`,
+      [id, ...tf.params],
+    );
+
+    // Group sparkline data by database
+    const sparkMap = new Map<string, Array<{ ts: string; val: number }>>();
+    for (const row of sparkResult.rows) {
+      if (!sparkMap.has(row.database_name)) sparkMap.set(row.database_name, []);
+      sparkMap.get(row.database_name)!.push({ ts: row.ts, val: Number(row.val) });
+    }
+
+    // Size sparkline data
+    const sizeSparkResult = await pool.query(
+      `SELECT database_name,
+              date_trunc('minute', collected_at) AS ts,
+              AVG(cntr_value)::float AS val
+       FROM database_metrics_raw
+       WHERE instance_id = $1 AND ${tf.condition}
+         AND counter_name = 'Data File(s) Size (KB)'
+       GROUP BY database_name, date_trunc('minute', collected_at)
+       ORDER BY database_name, ts`,
+      [id, ...tf.params],
+    );
+    const sizeSparkMap = new Map<string, Array<{ ts: string; val: number }>>();
+    for (const row of sizeSparkResult.rows) {
+      if (!sizeSparkMap.has(row.database_name)) sizeSparkMap.set(row.database_name, []);
+      sizeSparkMap.get(row.database_name)!.push({ ts: row.ts, val: Number(row.val) });
+    }
+
+    const databases = Array.from(dbMap.entries()).map(([name, counters]) => ({
+      database_name: name,
+      data_size_kb: counters['Data File(s) Size (KB)'] ?? 0,
+      log_size_kb: counters['Log File(s) Size (KB)'] ?? 0,
+      log_used_size_kb: counters['Log File(s) Used Size (KB)'] ?? 0,
+      transactions_per_sec: counters['Transactions/sec'] ?? 0,
+      active_transactions: counters['Active Transactions'] ?? 0,
+      tps_sparkline: sparkMap.get(name) ?? [],
+      size_sparkline: sizeSparkMap.get(name) ?? [],
+    }));
+
+    // Sort by data size descending
+    databases.sort((a, b) => b.data_size_kb - a.data_size_kb);
+
+    return reply.send(databases);
+  });
+
+  // GET /api/metrics/:id/databases/:dbName — detail for one database
+  interface DbDetailParams {
+    id: string;
+    dbName: string;
+  }
+  app.get<{ Params: DbDetailParams; Querystring: RangeQuery }>('/api/metrics/:id/databases/:dbName', async (req, reply) => {
+    const { id, dbName } = req.params;
+    const tf = resolveTimeFilter(req.query, 'collected_at', 3);
+
+    // Time-series for all counters of this database, bucketed by minute
+    const seriesResult = await pool.query(
+      `SELECT counter_name,
+              date_trunc('minute', collected_at) AS ts,
+              AVG(cntr_value)::float AS val
+       FROM database_metrics_raw
+       WHERE instance_id = $1 AND database_name = $2 AND ${tf.condition}
+       GROUP BY counter_name, date_trunc('minute', collected_at)
+       ORDER BY counter_name, ts`,
+      [id, dbName, ...tf.params],
+    );
+
+    // Group by counter_name
+    const series: Record<string, Array<{ ts: string; val: number }>> = {};
+    for (const row of seriesResult.rows) {
+      if (!series[row.counter_name]) series[row.counter_name] = [];
+      series[row.counter_name].push({ ts: row.ts, val: Number(row.val) });
+    }
+
+    // Database properties — on-demand from SQL Server
+    let properties = null;
+    let files = null;
+    let vlf_count = null;
+    try {
+      const sqlPool = await getLivePool(id);
+      if (sqlPool) {
+        // Database properties
+        const propsResult = await sqlPool.request()
+          .input('dbName', dbName)
+          .query(`
+            SELECT
+              d.name,
+              d.state_desc,
+              d.recovery_model_desc,
+              d.compatibility_level,
+              d.collation_name,
+              SUSER_SNAME(d.owner_sid) AS owner,
+              d.create_date,
+              (SELECT MAX(bs.backup_finish_date)
+               FROM msdb.dbo.backupset bs
+               WHERE bs.database_name = d.name AND bs.type = 'D') AS last_full_backup,
+              (SELECT MAX(bs.backup_finish_date)
+               FROM msdb.dbo.backupset bs
+               WHERE bs.database_name = d.name AND bs.type = 'L') AS last_log_backup
+            FROM sys.databases d
+            WHERE d.name = @dbName
+          `);
+        properties = propsResult.recordset[0] ?? null;
+
+        // Database files (only if database is online)
+        if (properties && properties.state_desc === 'ONLINE') {
+          try {
+            const filesResult = await sqlPool.request()
+              .input('dbName', dbName)
+              .query(`
+                USE [${dbName.replace(/]/g, ']]')}];
+                SELECT
+                  f.name,
+                  f.type_desc,
+                  fg.name AS filegroup_name,
+                  f.physical_name,
+                  f.size * 8 / 1024.0 AS size_mb,
+                  FILEPROPERTY(f.name, 'SpaceUsed') * 8 / 1024.0 AS used_mb,
+                  f.max_size,
+                  f.growth,
+                  f.is_percent_growth
+                FROM sys.database_files f
+                LEFT JOIN sys.filegroups fg ON f.data_space_id = fg.data_space_id
+                ORDER BY f.type, f.file_id
+              `);
+            files = filesResult.recordset;
+          } catch {
+            // May fail if we can't switch context — non-fatal
+          }
+
+          // VLF count (SQL Server 2016 SP2+)
+          try {
+            const vlfResult = await sqlPool.request()
+              .input('dbName', dbName)
+              .query(`SELECT COUNT(*) AS vlf_count FROM sys.dm_db_log_info(DB_ID(@dbName))`);
+            vlf_count = vlfResult.recordset[0]?.vlf_count ?? null;
+          } catch {
+            // dm_db_log_info not available on older versions — non-fatal
+          }
+        }
+      }
+    } catch {
+      // SQL Server connection failed — return collected data without live properties
+    }
+
+    return reply.send({ series, properties, files, vlf_count });
+  });
 }
 
 // --- Blocking chain tree builder ---
