@@ -17,6 +17,7 @@ import { collectPerfCounters, type PerfCounterResult } from './collectors/perf-c
 import { collectServerConfig, type ServerConfigRow } from './collectors/server-config.js';
 import { collectMemoryClerks, type MemoryClerkRow } from './collectors/memory-clerks.js';
 import { collectPermissions, type PermissionsRow } from './collectors/permissions.js';
+import { collectBlockingEvents, ensureBlockingXeSession, type BlockingEventRow } from './collectors/blocking-events.js';
 import { evaluateAlerts, writeAlerts } from '../alerts/engine.js';
 import { fireWebhook } from '../alerts/webhook.js';
 
@@ -46,6 +47,7 @@ export interface InstanceResult {
   perfCounters: PerfCounterResult[] | null;
   memoryClerks: MemoryClerkRow[];
   permissions: PermissionsRow[];
+  blockingEvents: BlockingEventRow[];
 }
 
 // Track which instances support dm_exec_query_statistics_xml (avoid repeated errors)
@@ -217,6 +219,7 @@ async function collectFromInstance(
     perfCounters: null,
     memoryClerks: [],
     permissions: [],
+    blockingEvents: [],
   };
 
   let pool: sql.ConnectionPool | null = null;
@@ -233,6 +236,11 @@ async function collectFromInstance(
 
     // Collect os_host_info and server_config on first connect only (static data)
     const needsHostInfo = !hostInfoCollected.has(instance.id);
+
+    // Ensure the matei_blocking XE session exists before collecting blocking events
+    if (isQueryStatsCycle) {
+      await ensureBlockingXeSession(pool.request(), instance.id, startTime);
+    }
 
     // Run remaining collectors (file I/O always, os_disk only every 10th cycle)
     const collectorsPromise: [
@@ -251,6 +259,7 @@ async function collectFromInstance(
       Promise<PerfCounterResult[] | null>,
       Promise<MemoryClerkRow[]>,
       Promise<PermissionsRow[]>,
+      Promise<BlockingEventRow[]>,
     ] = [
       collectWaitStats(pool.request(), instance.id, startTime),
       collectActiveSessions(pool.request()),
@@ -267,15 +276,16 @@ async function collectFromInstance(
       collectPerfCounters(pool.request(), instance.id, startTime),
       isQueryStatsCycle ? collectMemoryClerks(pool.request()) : Promise.resolve([]),
       isPermissionsCycle ? collectPermissions(pool.request()) : Promise.resolve([]),
+      isQueryStatsCycle ? collectBlockingEvents(pool.request(), instance.id) : Promise.resolve([]),
     ];
 
-    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, procedureStats, procedureStatements, osHostInfo, serverConfig, deadlocks, perfCounters, memoryClerks, permissions] = await Promise.all(collectorsPromise);
+    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, procedureStats, procedureStatements, osHostInfo, serverConfig, deadlocks, perfCounters, memoryClerks, permissions, blockingEvents] = await Promise.all(collectorsPromise);
 
     if (needsHostInfo && osHostInfo.length > 0) {
       hostInfoCollected.add(instance.id);
     }
 
-    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} procs=${procedureStats?.length ?? 'skip'} proc_stmts=${procedureStatements.length || 'skip'} deadlocks=${deadlocks.length} perf=${perfCounters?.length ?? 'first-run'} mem_clerks=${memoryClerks.length || 'skip'} permissions=${permissions.length || 'skip'}${needsHostInfo ? ` hostinfo=${osHostInfo.length} serverconfig=${serverConfig.length}` : ''}`);
+    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} procs=${procedureStats?.length ?? 'skip'} proc_stmts=${procedureStatements.length || 'skip'} deadlocks=${deadlocks.length} blocking=${blockingEvents.length || 'skip'} perf=${perfCounters?.length ?? 'first-run'} mem_clerks=${memoryClerks.length || 'skip'} permissions=${permissions.length || 'skip'}${needsHostInfo ? ` hostinfo=${osHostInfo.length} serverconfig=${serverConfig.length}` : ''}`);
 
     // Collect query plans (estimated + actual) on query stats cycles — non-blocking
     if (isQueryStatsCycle && queryStats && queryStats.length > 0 && pgPool) {
@@ -306,6 +316,7 @@ async function collectFromInstance(
       perfCounters,
       memoryClerks,
       permissions,
+      blockingEvents,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -365,6 +376,7 @@ export async function collectAll(
     ['perf_counters', () => batchInsertPerfCounters(pgPool, results)],
     ['memory_clerks', () => batchInsertMemoryClerks(pgPool, results)],
     ['permissions', () => batchInsertPermissions(pgPool, results)],
+    ['blocking_events', () => batchInsertBlockingEvents(pgPool, results)],
   ] as const) {
     try {
       await insertFn();
@@ -840,6 +852,40 @@ async function batchInsertDeadlocks(pgPool: pg.Pool, results: InstanceResult[]):
       victim_query, deadlock_xml, collected_at
     ) VALUES ${placeholders.join(', ')}
     ON CONFLICT (instance_id, deadlock_time, collected_at) DO NOTHING`,
+    values,
+  );
+}
+
+async function batchInsertBlockingEvents(pgPool: pg.Pool, results: InstanceResult[]): Promise<void> {
+  const values: unknown[] = [];
+  const placeholders: string[] = [];
+  let idx = 1;
+
+  for (const r of results) {
+    for (const row of r.blockingEvents) {
+      placeholders.push(
+        `($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`,
+      );
+      values.push(
+        r.instanceId, row.event_time, row.head_blocker_spid,
+        row.head_blocker_login, row.head_blocker_host, row.head_blocker_app,
+        row.head_blocker_db, row.head_blocker_sql,
+        JSON.stringify(row.chain_json), row.total_blocked_count,
+        row.max_wait_time_ms, new Date(),
+      );
+    }
+  }
+
+  if (placeholders.length === 0) return;
+
+  await pgPool.query(
+    `INSERT INTO blocking_events (
+      instance_id, event_time, head_blocker_spid,
+      head_blocker_login, head_blocker_host, head_blocker_app,
+      head_blocker_db, head_blocker_sql,
+      chain_json, total_blocked_count,
+      max_wait_time_ms, collected_at
+    ) VALUES ${placeholders.join(', ')}`,
     values,
   );
 }

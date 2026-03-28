@@ -11,6 +11,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - DiskChart: auto-scaling Y-axis zooms into actual data range instead of fixed 0-100, area fills with gradients for visual weight, smart threshold lines only shown when relevant, improved tooltip with volume names and proper date/time, increased chart height, fixed locale to en-GB
 
 ### Added
+- Auto-create `matei_blocking` XE session: collector now ensures the Extended Events session exists and is running before querying for blocking events, with per-instance tracking, SQL Server restart detection, and graceful fallback on permission errors
+- Live blocking config endpoint: `GET /api/metrics/:id/blocking/config` queries `blocked process threshold` setting directly from the SQL Server instance
+- Blocking events backend: migration (021), collector, worker-pool integration, API routes, partition manager, and tests
+- Migration 021: `blocking_events` partitioned table for blocking chain data with JSONB chain storage
+- Blocking events collector (`server/src/collector/collectors/blocking-events.ts`): reads `matei_blocking` XE session, parses blocked process reports, builds directed blocking chains per head blocker
+- API endpoints: `GET /api/metrics/:id/blocking`, `GET /api/blocking/recent`, `GET /api/blocking/counts`
+- SQL reference file: `sql/blocking_events.sql` with server-side XML parsing of blocked_process_report events
+- BlockingHistory component: historical blocking events table with expandable blocking chain tree, severity coloring, SQL syntax highlighting, and estimated plan button
 - Permissions (server role members) tests: collector test and API route test for `/api/metrics/:id/permissions`
 - Permissions table component: expandable role-based permissions view showing Windows logins, AD accounts, and SQL logins per server role with drill-down member list
 - Current Activity tab: moved Top Waits, SQL Memory Breakdown, Disk Space, and Session Breakdown cards from History tab; all data now fetched live from SQL Server (not PostgreSQL)

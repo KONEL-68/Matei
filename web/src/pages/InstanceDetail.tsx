@@ -13,6 +13,7 @@ import { AnalysisSection } from '@/components/AnalysisSection';
 import { SqlServerMetrics } from '@/components/SqlServerMetrics';
 import { PermissionsTable } from '@/components/PermissionsTable';
 import { DiskUsage } from '@/components/DiskUsage';
+import { BlockingHistory } from '@/components/BlockingHistory';
 import { authFetch } from '@/lib/auth';
 
 type TimeRange = '1h' | '6h' | '24h' | '7d' | '30d' | '1y';
@@ -229,6 +230,13 @@ export function InstanceDetail() {
           <div className="mt-4">
             <DiskChart instanceId={id!} range={range} />
           </div>
+        </CollapsibleSection>
+      </div>
+
+      {/* Blocking History */}
+      <div className="mt-4">
+        <CollapsibleSection title="Blocking">
+          <BlockingHistory instanceId={id!} range={range} timeWindow={timeWindow} />
         </CollapsibleSection>
       </div>
 

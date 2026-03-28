@@ -27,18 +27,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   /src/index.ts        — Entry point: Fastify setup, route registration, scheduler start
   /src/config.ts       — AppConfig definition and environment variable loading
   /src/collector/      — scheduler.ts → worker-pool.ts → collectors/*.ts
-  /src/routes/         — auth.ts, instances.ts, metrics.ts, alerts.ts, queries.ts, groups.ts, deadlocks.ts, settings.ts, users.ts
+  /src/routes/         — auth.ts, instances.ts, metrics.ts, alerts.ts, queries.ts, groups.ts, deadlocks.ts, blocking.ts, settings.ts, users.ts
   /src/alerts/         — engine.ts (threshold eval), webhook.ts (Slack/Telegram)
   /src/jobs/           — aggregator.ts (5min/hourly rollups), partition-manager.ts
   /src/lib/            — crypto.ts (AES-256-GCM), mssql.ts (connection pool + shared pool cache for API routes), auth.ts
   /src/migrations/     — SQL files (###_description.sql, e.g. 001_initial.sql) + run.ts executor
 /web                 — React frontend (Vite)
   /src/pages/          — Dashboard, Instances, InstanceDetail, QueryExplorer, Alerts, Login, Settings
-  /src/components/     — StatusBar, CpuChart, MemoryChart, MemoryBreakdown, MemoryClerksChart, SessionBreakdown, SessionsTable, CurrentActivity, WaitsTable, TopWaitsTable, WaitsChart, DeadlocksTable, BlockingTree, FileIoChart, DiskChart, CollapsibleSection, InstanceForm, InstanceCard, AnalysisSection, OverviewTimeline, OverviewMetricCharts, SqlServerMetrics, PermissionsTable, Layout
+  /src/components/     — StatusBar, CpuChart, MemoryChart, MemoryBreakdown, MemoryClerksChart, SessionBreakdown, SessionsTable, CurrentActivity, WaitsTable, TopWaitsTable, WaitsChart, DeadlocksTable, BlockingTree, BlockingHistory, FileIoChart, DiskChart, CollapsibleSection, InstanceForm, InstanceCard, AnalysisSection, OverviewTimeline, OverviewMetricCharts, SqlServerMetrics, PermissionsTable, Layout
   /src/components/settings/ — GroupsSettings, AlertsSettings, RetentionSettings, UsersSettings, AboutSettings
   /src/lib/              — auth.ts, theme.ts, utils.ts, chart-utils.ts (insertGapBreaks, fillAllNulls, generateTicks)
 /docker              — Docker Compose stack + nginx config
-/sql                 — DMV query library (one .sql file per metric category), includes scheduler_stats.sql, procedure_stats.sql, procedure_statements.sql, server_config.sql, memory_clerks.sql, permissions.sql
+/sql                 — DMV query library (one .sql file per metric category), includes scheduler_stats.sql, procedure_stats.sql, procedure_statements.sql, server_config.sql, memory_clerks.sql, permissions.sql, blocking_events.sql
 /docs                — DECISIONS.md (architecture decisions), METRICS.md (metric specs)
 ```
 
@@ -134,6 +134,7 @@ Default cycle interval: 30s (COLLECTOR_INTERVAL_MS). Some metrics skip cycles:
 | query_plans | 60s (every 2nd cycle) | snapshot (estimated + actual) |
 | os_host_info | on connect | snapshot |
 | server_config | on connect | snapshot |
+| blocking_events | 60s (every 2nd cycle) | snapshot (event-based) |
 | permissions | daily (every 2880th cycle) + first cycle | snapshot |
 
 ## Data retention

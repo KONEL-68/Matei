@@ -9,6 +9,7 @@ import { authRoutes, ensureDefaultAdmin } from './routes/auth.js';
 import { queryRoutes } from './routes/queries.js';
 import { groupRoutes } from './routes/groups.js';
 import { deadlockRoutes } from './routes/deadlocks.js';
+import { blockingRoutes } from './routes/blocking.js';
 import { settingsRoutes } from './routes/settings.js';
 import { userRoutes } from './routes/users.js';
 import { registerAuthHook } from './middleware/auth.js';
@@ -40,6 +41,7 @@ await alertRoutes(app, pool);
 await queryRoutes(app, pool, config);
 await groupRoutes(app, pool);
 await deadlockRoutes(app, pool);
+await blockingRoutes(app, pool, config);
 await settingsRoutes(app, pool);
 await userRoutes(app, pool);
 
