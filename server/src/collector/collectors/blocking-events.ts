@@ -441,6 +441,7 @@ export function parseRingBuffer(xml: string, since: Date): Array<{ event_time_ut
 export async function collectBlockingEvents(
   request: sql.Request,
   instanceId: number,
+  dbNameRequest?: sql.Request,
 ): Promise<BlockingEventRow[]> {
   // Skip if we already know this instance doesn't have the session
   if (blockingSessionSupported.get(instanceId) === false) {
@@ -486,6 +487,27 @@ export async function collectBlockingEvents(
 
   if (pairs.length > 0) {
     lastCollectedTime.set(instanceId, latestTime);
+  }
+
+  // Resolve numeric database IDs to names
+  if (pairs.length > 0 && dbNameRequest) {
+    try {
+      const dbResult = await dbNameRequest.query(
+        `SELECT database_id, name FROM sys.databases`,
+      );
+      const dbMap = new Map<string, string>();
+      for (const row of dbResult.recordset) {
+        dbMap.set(String(row.database_id), row.name);
+      }
+      for (const pair of pairs) {
+        if (pair.blocked_database && /^\d+$/.test(pair.blocked_database)) {
+          pair.blocked_database = dbMap.get(pair.blocked_database) ?? pair.blocked_database;
+        }
+        if (pair.blocker_database && /^\d+$/.test(pair.blocker_database)) {
+          pair.blocker_database = dbMap.get(pair.blocker_database) ?? pair.blocker_database;
+        }
+      }
+    } catch { /* non-critical — keep numeric IDs */ }
   }
 
   // Build chains from pairs

@@ -276,7 +276,7 @@ async function collectFromInstance(
       collectPerfCounters(pool.request(), instance.id, startTime),
       isQueryStatsCycle ? collectMemoryClerks(pool.request()) : Promise.resolve([]),
       isPermissionsCycle ? collectPermissions(pool.request()) : Promise.resolve([]),
-      isQueryStatsCycle ? collectBlockingEvents(pool.request(), instance.id) : Promise.resolve([]),
+      isQueryStatsCycle ? collectBlockingEvents(pool.request(), instance.id, pool.request()) : Promise.resolve([]),
     ];
 
     const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, procedureStats, procedureStatements, osHostInfo, serverConfig, deadlocks, perfCounters, memoryClerks, permissions, blockingEvents] = await Promise.all(collectorsPromise);

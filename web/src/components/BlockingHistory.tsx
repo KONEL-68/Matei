@@ -404,7 +404,7 @@ export function BlockingHistory({ instanceId, range, timeWindow }: BlockingHisto
       <table className="w-full text-left text-sm">
         <thead className="border-b border-gray-200 bg-gray-50 text-xs font-medium uppercase text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">
           <tr>
-            <th className="px-4 py-2">Time</th>
+            <th className="px-4 py-2">Time First Occurs</th>
             <th className="px-4 py-2">Head Blocker</th>
             <th className="px-4 py-2">Database</th>
             <th className="px-4 py-2">Application</th>
