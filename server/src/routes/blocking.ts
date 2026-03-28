@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type pg from 'pg';
 import type { AppConfig } from '../config.js';
-import { getSharedPool, type InstanceRecord } from '../lib/mssql.js';
+import { getSharedPool, closeSharedPool, type InstanceRecord } from '../lib/mssql.js';
 
 interface IdParam {
   id: string;
@@ -145,6 +145,180 @@ export async function blockingRoutes(app: FastifyInstance, pool: pg.Pool, config
       return reply.send({ blocked_process_threshold: threshold });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      return reply.status(502).send({ error: `Failed to query SQL Server: ${message}` });
+    }
+  });
+
+  // GET /api/metrics/:id/blocking/plan — look up query plan for a blocking session by SQL text
+  app.get<{
+    Params: IdParam;
+    Querystring: { sql?: string; spid?: string; type?: 'estimated' | 'actual' };
+  }>('/api/metrics/:id/blocking/plan', async (req, reply) => {
+    if (!config) {
+      return reply.status(500).send({ error: 'Server configuration not available' });
+    }
+
+    const { id } = req.params;
+    const { sql: sqlText, spid: spidStr, type: planType = 'estimated' } = req.query;
+
+    if (!sqlText) {
+      return reply.status(400).send({ error: 'Missing required query parameter: sql' });
+    }
+    if (!spidStr) {
+      return reply.status(400).send({ error: 'Missing required query parameter: spid' });
+    }
+
+    const spid = parseInt(spidStr, 10);
+    if (isNaN(spid)) {
+      return reply.status(400).send({ error: 'spid must be a valid integer' });
+    }
+
+    // Truncate SQL text to first 100 chars for prefix matching
+    const sqlPrefix = sqlText.substring(0, 100);
+
+    // --- Actual plan ---
+    if (planType === 'actual') {
+      // Step 1: Try live actual plan via dm_exec_query_statistics_xml
+      const instResult = await pool.query(
+        'SELECT id, host, port, auth_type, encrypted_credentials FROM instances WHERE id = $1',
+        [id],
+      );
+      if (instResult.rows.length === 0) {
+        return reply.status(404).send({ error: 'Instance not found' });
+      }
+
+      const row = instResult.rows[0];
+      const instance: InstanceRecord = {
+        id: row.id,
+        host: row.host,
+        port: row.port,
+        auth_type: row.auth_type,
+        encrypted_credentials: row.encrypted_credentials ? row.encrypted_credentials.toString('utf8') : null,
+      };
+
+      try {
+        const sqlPool = await getSharedPool(instance, config.encryptionKey);
+        const result = await sqlPool.request()
+          .input('spid', spid)
+          .query(`
+            SELECT CAST(qsx.query_plan AS NVARCHAR(MAX)) AS query_plan
+            FROM sys.dm_exec_query_statistics_xml(@spid) qsx
+          `);
+
+        if (result.recordset.length > 0 && result.recordset[0].query_plan) {
+          return reply.send({ plan_xml: result.recordset[0].query_plan, source: 'live' });
+        }
+      } catch (err) {
+        // dm_exec_query_statistics_xml may not be available or session may have ended
+        const message = err instanceof Error ? err.message : String(err);
+        req.log.warn({ instanceId: id, spid, err: message }, 'Failed to get live actual plan for blocking session');
+      }
+
+      // Step 2: Fall back to PostgreSQL cache — find query_hash by SQL prefix, then plan
+      const hashResult = await pool.query(
+        `SELECT DISTINCT query_hash FROM query_stats_raw
+         WHERE instance_id = $1 AND query_text LIKE $2
+         LIMIT 1`,
+        [id, sqlPrefix + '%'],
+      );
+
+      if (hashResult.rows.length > 0) {
+        const queryHash = hashResult.rows[0].query_hash;
+        const planResult = await pool.query(
+          `SELECT plan_xml FROM query_plans
+           WHERE instance_id = $1 AND query_hash = $2 AND plan_type = 'actual'
+           ORDER BY collected_at DESC LIMIT 1`,
+          [id, queryHash],
+        );
+
+        if (planResult.rows.length > 0) {
+          return reply.send({ plan_xml: planResult.rows[0].plan_xml, source: 'cached' });
+        }
+      }
+
+      return reply.status(404).send({ error: 'Plan not found' });
+    }
+
+    // --- Estimated plan ---
+
+    // Step 1: Check PostgreSQL — look up query_hash by SQL text prefix
+    const hashResult = await pool.query(
+      `SELECT DISTINCT query_hash FROM query_stats_raw
+       WHERE instance_id = $1 AND query_text LIKE $2
+       LIMIT 1`,
+      [id, sqlPrefix + '%'],
+    );
+
+    if (hashResult.rows.length > 0) {
+      const queryHash = hashResult.rows[0].query_hash;
+      const planResult = await pool.query(
+        `SELECT plan_xml FROM query_plans
+         WHERE instance_id = $1 AND query_hash = $2 AND plan_type = 'estimated'
+         ORDER BY collected_at DESC LIMIT 1`,
+        [id, queryHash],
+      );
+
+      if (planResult.rows.length > 0) {
+        return reply.send({ plan_xml: planResult.rows[0].plan_xml, source: 'cached' });
+      }
+    }
+
+    // Step 2: Not in PostgreSQL — try live from SQL Server
+    const instResult = await pool.query(
+      'SELECT id, host, port, auth_type, encrypted_credentials FROM instances WHERE id = $1',
+      [id],
+    );
+    if (instResult.rows.length === 0) {
+      return reply.status(404).send({ error: 'Instance not found' });
+    }
+
+    const row = instResult.rows[0];
+    const instance: InstanceRecord = {
+      id: row.id,
+      host: row.host,
+      port: row.port,
+      auth_type: row.auth_type,
+      encrypted_credentials: row.encrypted_credentials ? row.encrypted_credentials.toString('utf8') : null,
+    };
+
+    try {
+      const sqlPool = await getSharedPool(instance, config.encryptionKey);
+
+      // Step 3: Try to get plan from the active request by SPID
+      const liveResult = await sqlPool.request()
+        .input('spid', spid)
+        .query(`
+          SELECT p.query_plan
+          FROM sys.dm_exec_requests r
+          CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) p
+          WHERE r.session_id = @spid
+        `);
+
+      if (liveResult.recordset.length > 0 && liveResult.recordset[0].query_plan) {
+        return reply.send({ plan_xml: liveResult.recordset[0].query_plan, source: 'live' });
+      }
+
+      // Step 4: SPID no longer running — search plan cache by SQL text prefix
+      const cacheResult = await sqlPool.request()
+        .input('sql_prefix', sqlPrefix)
+        .query(`
+          SELECT TOP 1 p.query_plan
+          FROM sys.dm_exec_query_stats qs
+          CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) t
+          CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) p
+          WHERE t.text LIKE @sql_prefix + '%'
+          ORDER BY qs.last_execution_time DESC
+        `);
+
+      if (cacheResult.recordset.length > 0 && cacheResult.recordset[0].query_plan) {
+        return reply.send({ plan_xml: cacheResult.recordset[0].query_plan, source: 'live' });
+      }
+
+      return reply.status(404).send({ error: 'Plan not found' });
+    } catch (err) {
+      closeSharedPool(instance.id);
+      const message = err instanceof Error ? err.message : String(err);
+      req.log.error({ instanceId: id, spid, err: message }, 'Failed to retrieve blocking session plan');
       return reply.status(502).send({ error: `Failed to query SQL Server: ${message}` });
     }
   });

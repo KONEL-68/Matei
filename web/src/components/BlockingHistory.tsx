@@ -167,38 +167,86 @@ function buildTree(chain: ChainNode[]): TreeNodeData[] {
   return roots;
 }
 
+interface PlanWaitStat {
+  waitType: string;
+  waitTimeMs: number;
+  waitCount: number;
+}
+
+function parseWaitStats(planXml: string): PlanWaitStat[] {
+  const results: PlanWaitStat[] = [];
+  const waitStatsRegex = /<[\w:]*WaitStats\b[^>]*>([\s\S]*?)<\/[\w:]*WaitStats>/gi;
+  let wsMatch: RegExpExecArray | null;
+  while ((wsMatch = waitStatsRegex.exec(planXml)) !== null) {
+    const block = wsMatch[1];
+    const waitRegex = /<[\w:]*Wait\b\s+([^>]*?)\/?\s*>/gi;
+    let wMatch: RegExpExecArray | null;
+    while ((wMatch = waitRegex.exec(block)) !== null) {
+      const attrs = wMatch[1];
+      const typeMatch = /WaitType\s*=\s*"([^"]*)"/i.exec(attrs);
+      const timeMatch = /WaitTimeMs\s*=\s*"([^"]*)"/i.exec(attrs);
+      const countMatch = /WaitCount\s*=\s*"([^"]*)"/i.exec(attrs);
+      if (typeMatch) {
+        results.push({
+          waitType: typeMatch[1],
+          waitTimeMs: timeMatch ? Number(timeMatch[1]) : 0,
+          waitCount: countMatch ? Number(countMatch[1]) : 0,
+        });
+      }
+    }
+  }
+  const merged = new Map<string, PlanWaitStat>();
+  for (const w of results) {
+    const existing = merged.get(w.waitType);
+    if (existing) {
+      existing.waitTimeMs += w.waitTimeMs;
+      existing.waitCount += w.waitCount;
+    } else {
+      merged.set(w.waitType, { ...w });
+    }
+  }
+  return Array.from(merged.values()).sort((a, b) => b.waitTimeMs - a.waitTimeMs);
+}
+
+function formatNum(v: number | null | undefined, decimals = 1): string {
+  const n = Number(v ?? 0);
+  if (!isFinite(n)) return '0';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(decimals)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(decimals)}k`;
+  return n.toFixed(decimals);
+}
+
+interface PlanState {
+  spid: number;
+  type: 'estimated' | 'actual';
+  xml: string | null;
+  source: string | null;
+  loading: boolean;
+  error: string | null;
+}
+
 function ChainTreeNode({
   treeNode,
   depth,
   isRoot,
   totalBlockingTime,
   instanceId,
+  planState,
+  onFetchPlan,
+  onClosePlan,
 }: {
   treeNode: TreeNodeData;
   depth: number;
   isRoot: boolean;
   totalBlockingTime: number | null;
   instanceId: string;
+  planState: PlanState | null;
+  onFetchPlan: (spid: number, sqlText: string, type: 'estimated' | 'actual') => void;
+  onClosePlan: () => void;
 }) {
-  const [planLoading, setPlanLoading] = useState(false);
-  const [planError, setPlanError] = useState<string | null>(null);
   const n = treeNode.node;
-
-  const handleViewPlan = async () => {
-    setPlanLoading(true);
-    setPlanError(null);
-    try {
-      const res = await authFetch(`/api/metrics/${instanceId}/plans?spid=${n.spid}`);
-      if (!res.ok) {
-        setPlanError('No plan available');
-      }
-      // Future: handle plan display
-    } catch {
-      setPlanError('No plan available');
-    } finally {
-      setPlanLoading(false);
-    }
-  };
+  const isThisNodePlan = planState?.spid === n.spid;
+  const loading = isThisNodePlan && planState.loading;
 
   return (
     <div style={{ marginLeft: depth * 24 }} className={depth > 0 ? 'border-l-2 border-gray-300 dark:border-gray-600 pl-3' : ''}>
@@ -281,19 +329,95 @@ function ChainTreeNode({
           </div>
         )}
 
-        {/* View Estimated Plan button */}
+        {/* Plan buttons */}
         <div className="mt-2 flex items-center gap-2">
           <button
-            onClick={handleViewPlan}
-            disabled={planLoading}
-            className="rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 disabled:opacity-50"
+            onClick={() => onFetchPlan(n.spid, n.sql_text ?? '', 'estimated')}
+            disabled={!!loading}
+            className="rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
           >
-            {planLoading ? 'Loading...' : 'View Estimated Plan'}
+            {loading && planState?.type === 'estimated' ? 'Loading...' : 'View Estimated Plan'}
           </button>
-          {planError && (
-            <span className="text-xs text-gray-500 dark:text-gray-400">{planError}</span>
-          )}
+          <button
+            onClick={() => onFetchPlan(n.spid, n.sql_text ?? '', 'actual')}
+            disabled={!!loading}
+            className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
+          >
+            {loading && planState?.type === 'actual' ? 'Loading...' : 'View Actual Plan'}
+          </button>
         </div>
+
+        {/* Plan XML display */}
+        {isThisNodePlan && !planState.loading && planState.error && (
+          <div className="mt-2 text-xs text-red-600 dark:text-red-400">{planState.error}</div>
+        )}
+
+        {isThisNodePlan && !planState.loading && planState.xml && !planState.error && (
+          <div className="mt-2 space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="text-[10px] font-medium uppercase text-gray-500 dark:text-gray-400">
+                {planState.type === 'actual' ? 'Actual' : 'Estimated'} Execution Plan (XML)
+              </div>
+              {planState.source === 'cached' && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">cached</span>
+              )}
+              {planState.source === 'live' && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">live</span>
+              )}
+              <button
+                onClick={() => { navigator.clipboard.writeText(planState.xml!); }}
+                className="text-[10px] text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300 ml-auto"
+                title="Copy plan XML to clipboard"
+              >
+                Copy XML
+              </button>
+              <button
+                onClick={onClosePlan}
+                className="text-[10px] text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                Close
+              </button>
+            </div>
+            <pre className="max-h-48 overflow-auto rounded bg-gray-100 dark:bg-gray-900 p-3 text-xs font-mono text-gray-700 dark:text-gray-400 whitespace-pre-wrap break-all border border-gray-200 dark:border-gray-700">
+              {planState.xml}
+            </pre>
+
+            {/* Wait stats from actual plan */}
+            {planState.type === 'actual' && (() => {
+              const waits = parseWaitStats(planState.xml);
+              if (waits.length === 0) return (
+                <div className="text-xs text-gray-500 dark:text-gray-400 py-2 text-center border border-gray-200 dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-800/30">
+                  No wait statistics recorded in this plan.
+                </div>
+              );
+              return (
+                <div className="border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
+                  <div className="text-[10px] font-medium uppercase text-gray-500 dark:text-gray-400 px-2 py-1 bg-gray-100 dark:bg-gray-800">
+                    Wait Statistics
+                  </div>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-left">
+                        <th className="py-1.5 px-2 font-medium">Wait Type</th>
+                        <th className="py-1.5 px-2 font-medium text-right">Wait Time (ms)</th>
+                        <th className="py-1.5 px-2 font-medium text-right">Wait Count</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {waits.map(w => (
+                        <tr key={w.waitType} className="border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                          <td className="py-1.5 px-2 font-mono font-bold text-gray-900 dark:text-gray-100">{w.waitType}</td>
+                          <td className="py-1.5 px-2 text-right font-medium text-gray-900 dark:text-gray-100">{formatNum(w.waitTimeMs, 1)}</td>
+                          <td className="py-1.5 px-2 text-right text-gray-700 dark:text-gray-300">{formatNum(w.waitCount, 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </div>
 
       {/* Children */}
@@ -305,6 +429,9 @@ function ChainTreeNode({
           isRoot={false}
           totalBlockingTime={null}
           instanceId={instanceId}
+          planState={planState}
+          onFetchPlan={onFetchPlan}
+          onClosePlan={onClosePlan}
         />
       ))}
     </div>
@@ -317,6 +444,7 @@ interface BlockingConfig {
 
 export function BlockingHistory({ instanceId, range, timeWindow }: BlockingHistoryProps) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [planState, setPlanState] = useState<PlanState | null>(null);
   const longRange = isLongRange(range, timeWindow);
 
   const queryParams = timeWindow
@@ -345,6 +473,34 @@ export function BlockingHistory({ instanceId, range, timeWindow }: BlockingHisto
   });
 
   const thresholdNotConfigured = blockingConfig != null && blockingConfig.blocked_process_threshold === 0;
+
+  async function fetchPlan(spid: number, sqlText: string, type: 'estimated' | 'actual') {
+    setPlanState({ spid, type, xml: null, source: null, loading: true, error: null });
+    try {
+      const res = await authFetch(
+        `/api/metrics/${instanceId}/blocking/plan?spid=${spid}&sql=${encodeURIComponent(sqlText)}&type=${type}`
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setPlanState({ spid, type, xml: null, source: null, loading: false, error: data.error ?? 'No plan available' });
+      } else {
+        setPlanState({
+          spid,
+          type,
+          xml: data.plan ?? data.message ?? 'No plan available',
+          source: data.source ?? null,
+          loading: false,
+          error: null,
+        });
+      }
+    } catch {
+      setPlanState({ spid, type, xml: null, source: null, loading: false, error: 'Failed to retrieve plan' });
+    }
+  }
+
+  function closePlan() {
+    setPlanState(null);
+  }
 
   const expandedEvent = useMemo(
     () => events.find((e) => e.id === expandedId) ?? null,
@@ -416,7 +572,7 @@ export function BlockingHistory({ instanceId, range, timeWindow }: BlockingHisto
           {events.map((evt) => (
             <tr
               key={evt.id}
-              onClick={() => setExpandedId(expandedId === evt.id ? null : evt.id)}
+              onClick={() => { setPlanState(null); setExpandedId(expandedId === evt.id ? null : evt.id); }}
               className={`cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 ${severityBorder(evt.max_wait_time_ms)} ${
                 expandedId === evt.id ? 'bg-gray-50 dark:bg-gray-800/30' : ''
               }`}
@@ -469,6 +625,9 @@ export function BlockingHistory({ instanceId, range, timeWindow }: BlockingHisto
                 isRoot={true}
                 totalBlockingTime={totalBlockingTime}
                 instanceId={instanceId}
+                planState={planState}
+                onFetchPlan={fetchPlan}
+                onClosePlan={closePlan}
               />
             ))}
           </div>

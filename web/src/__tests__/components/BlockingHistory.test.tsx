@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BlockingHistory } from '../../components/BlockingHistory';
 
@@ -115,7 +115,7 @@ describe('BlockingHistory', () => {
     mockFetch(sampleEvents);
     renderWithQuery(<BlockingHistory instanceId="1" range="1h" timeWindow={null} />);
 
-    expect(await screen.findByText('Time')).toBeInTheDocument();
+    expect(await screen.findByText('Time First Occurs')).toBeInTheDocument();
     // "Head Blocker" appears in both table header and row badge
     const headBlockerEls = screen.getAllByText('Head Blocker');
     expect(headBlockerEls.length).toBeGreaterThanOrEqual(1);
@@ -223,15 +223,159 @@ describe('BlockingHistory', () => {
     );
   });
 
-  it('shows View Estimated Plan button in expanded chain', async () => {
+  it('shows View Estimated Plan and View Actual Plan buttons in expanded chain', async () => {
     mockFetch(sampleEvents);
     renderWithQuery(<BlockingHistory instanceId="1" range="1h" timeWindow={null} />);
 
     const spid = await screen.findByText('SPID 55');
     fireEvent.click(spid.closest('tr')!);
 
-    const planButtons = await screen.findAllByText('View Estimated Plan');
-    expect(planButtons.length).toBeGreaterThanOrEqual(1);
+    const estimatedButtons = await screen.findAllByText('View Estimated Plan');
+    expect(estimatedButtons.length).toBeGreaterThanOrEqual(1);
+    const actualButtons = screen.getAllByText('View Actual Plan');
+    expect(actualButtons.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('fetches and displays estimated plan XML on button click', async () => {
+    mockFetch(sampleEvents);
+    renderWithQuery(<BlockingHistory instanceId="1" range="1h" timeWindow={null} />);
+
+    const spid = await screen.findByText('SPID 55');
+    fireEvent.click(spid.closest('tr')!);
+
+    const estimatedButtons = await screen.findAllByText('View Estimated Plan');
+
+    // Mock the plan fetch response
+    mockAuthFetch.mockImplementation(async (url: string) => {
+      if (url.includes('/blocking/plan')) {
+        return { ok: true, json: async () => ({ plan: '<ShowPlanXML/>', source: 'cached' }) } as Response;
+      }
+      if (url.includes('/blocking/config')) {
+        return { ok: true, json: async () => ({ blocked_process_threshold: 10 }) } as Response;
+      }
+      return { ok: true, json: async () => sampleEvents } as Response;
+    });
+
+    fireEvent.click(estimatedButtons[0]);
+
+    expect(await screen.findByText('<ShowPlanXML/>')).toBeInTheDocument();
+    expect(screen.getByText('Estimated Execution Plan (XML)')).toBeInTheDocument();
+    expect(screen.getByText('cached')).toBeInTheDocument();
+    expect(screen.getByText('Close')).toBeInTheDocument();
+    expect(screen.getByText('Copy XML')).toBeInTheDocument();
+  });
+
+  it('fetches and displays actual plan with wait stats', async () => {
+    mockFetch(sampleEvents);
+    renderWithQuery(<BlockingHistory instanceId="1" range="1h" timeWindow={null} />);
+
+    const spid = await screen.findByText('SPID 55');
+    fireEvent.click(spid.closest('tr')!);
+
+    const actualButtons = await screen.findAllByText('View Actual Plan');
+
+    const planXml = '<ShowPlanXML><WaitStats><Wait WaitType="PAGEIOLATCH_SH" WaitTimeMs="500" WaitCount="3"/></WaitStats></ShowPlanXML>';
+    mockAuthFetch.mockImplementation(async (url: string) => {
+      if (url.includes('/blocking/plan')) {
+        return { ok: true, json: async () => ({ plan: planXml, source: 'live' }) } as Response;
+      }
+      if (url.includes('/blocking/config')) {
+        return { ok: true, json: async () => ({ blocked_process_threshold: 10 }) } as Response;
+      }
+      return { ok: true, json: async () => sampleEvents } as Response;
+    });
+
+    fireEvent.click(actualButtons[0]);
+
+    expect(await screen.findByText('Actual Execution Plan (XML)')).toBeInTheDocument();
+    expect(screen.getByText('live')).toBeInTheDocument();
+    // Wait stats table should appear
+    expect(screen.getByText('Wait Statistics')).toBeInTheDocument();
+    expect(screen.getByText('PAGEIOLATCH_SH')).toBeInTheDocument();
+  });
+
+  it('shows error message when plan fetch fails', async () => {
+    mockFetch(sampleEvents);
+    renderWithQuery(<BlockingHistory instanceId="1" range="1h" timeWindow={null} />);
+
+    const spid = await screen.findByText('SPID 55');
+    fireEvent.click(spid.closest('tr')!);
+
+    const estimatedButtons = await screen.findAllByText('View Estimated Plan');
+
+    mockAuthFetch.mockImplementation(async (url: string) => {
+      if (url.includes('/blocking/plan')) {
+        return { ok: false, json: async () => ({ error: 'No plan available for this session' }) } as Response;
+      }
+      if (url.includes('/blocking/config')) {
+        return { ok: true, json: async () => ({ blocked_process_threshold: 10 }) } as Response;
+      }
+      return { ok: true, json: async () => sampleEvents } as Response;
+    });
+
+    fireEvent.click(estimatedButtons[0]);
+
+    expect(await screen.findByText('No plan available for this session')).toBeInTheDocument();
+  });
+
+  it('closes plan display when Close button is clicked', async () => {
+    mockFetch(sampleEvents);
+    renderWithQuery(<BlockingHistory instanceId="1" range="1h" timeWindow={null} />);
+
+    const spid = await screen.findByText('SPID 55');
+    fireEvent.click(spid.closest('tr')!);
+
+    const estimatedButtons = await screen.findAllByText('View Estimated Plan');
+
+    mockAuthFetch.mockImplementation(async (url: string) => {
+      if (url.includes('/blocking/plan')) {
+        return { ok: true, json: async () => ({ plan: '<ShowPlanXML/>', source: 'live' }) } as Response;
+      }
+      if (url.includes('/blocking/config')) {
+        return { ok: true, json: async () => ({ blocked_process_threshold: 10 }) } as Response;
+      }
+      return { ok: true, json: async () => sampleEvents } as Response;
+    });
+
+    fireEvent.click(estimatedButtons[0]);
+
+    const closeBtn = await screen.findByText('Close');
+    fireEvent.click(closeBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Estimated Execution Plan (XML)')).not.toBeInTheDocument();
+    });
+  });
+
+  it('calls correct API endpoint with spid, sql, and type params', async () => {
+    mockFetch(sampleEvents);
+    renderWithQuery(<BlockingHistory instanceId="1" range="1h" timeWindow={null} />);
+
+    const spid = await screen.findByText('SPID 55');
+    fireEvent.click(spid.closest('tr')!);
+
+    const actualButtons = await screen.findAllByText('View Actual Plan');
+
+    mockAuthFetch.mockImplementation(async (url: string) => {
+      if (url.includes('/blocking/plan')) {
+        return { ok: true, json: async () => ({ plan: '<xml/>', source: 'live' }) } as Response;
+      }
+      if (url.includes('/blocking/config')) {
+        return { ok: true, json: async () => ({ blocked_process_threshold: 10 }) } as Response;
+      }
+      return { ok: true, json: async () => sampleEvents } as Response;
+    });
+
+    fireEvent.click(actualButtons[0]);
+
+    await screen.findByText('Actual Execution Plan (XML)');
+
+    expect(mockAuthFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/metrics/1/blocking/plan?spid=55')
+    );
+    expect(mockAuthFetch).toHaveBeenCalledWith(
+      expect.stringContaining('type=actual')
+    );
   });
 
   it('highlights SQL keywords in expanded chain', async () => {

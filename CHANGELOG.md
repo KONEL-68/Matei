@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Changed
+- BlockingHistory: replaced single non-functional "View Estimated Plan" button with working "View Estimated Plan" and "View Actual Plan" buttons per blocking chain node, with plan XML display, source badges (cached/live), copy/close controls, and wait stats table for actual plans
 - DiskChart: replaced IQR-filtered weighted linear regression forecasting with Holt's Linear Trend (Double Exponential Smoothing) — adapts to changing growth rates and handles irregular time spacing
 - DiskChart: auto-scaling Y-axis zooms into actual data range instead of fixed 0-100, area fills with gradients for visual weight, smart threshold lines only shown when relevant, improved tooltip with volume names and proper date/time, increased chart height, fixed locale to en-GB
 
