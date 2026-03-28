@@ -91,6 +91,22 @@ describe('baseline-job', () => {
       expect(cpuSql).toContain("'cpu'");
     });
 
+    it('disk_io query computes throughput from raw file_io_stats', async () => {
+      const pool = createMockPool();
+      const log = createMockLog();
+
+      pool.query.mockResolvedValue({ rowCount: 0 });
+
+      await runBaselineComputation(pool as never, log);
+
+      const diskSql = pool.query.mock.calls[3][0] as string;
+      expect(diskSql).toContain('file_io_stats');
+      expect(diskSql).toContain('num_of_bytes_read_delta');
+      expect(diskSql).toContain('num_of_bytes_written_delta');
+      expect(diskSql).toContain('mb_per_sec');
+      expect(diskSql).toContain("'disk_io'");
+    });
+
     it('waits query uses CTE to sum across wait types first', async () => {
       const pool = createMockPool();
       const log = createMockLog();

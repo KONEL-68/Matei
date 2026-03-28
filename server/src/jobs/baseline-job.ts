@@ -89,25 +89,25 @@ async function computeMetricBaseline(
       break;
 
     case 'disk_io':
-      // file_io_hourly has avg_read_latency_ms, avg_write_latency_ms, total_reads, total_writes
-      // Use average combined latency (read + write) as the baseline metric
+      // Compute throughput (MB/s) from raw file_io_stats deltas — same formula as overview timeline.
+      // Each row is one collection cycle (30s), sum bytes read+written across all files, convert to MB/s.
       query = `
         INSERT INTO overview_baseline (instance_id, metric, hour_of_day, baseline_min, baseline_avg, baseline_max, computed_at)
-        WITH hourly_totals AS (
-          SELECT instance_id, bucket,
-                 EXTRACT(HOUR FROM bucket AT TIME ZONE 'UTC')::int AS hour_of_day,
-                 AVG(avg_read_latency_ms + avg_write_latency_ms) AS combined_latency_ms
-          FROM file_io_hourly
-          WHERE bucket >= NOW() - INTERVAL '7 days'
-          GROUP BY instance_id, bucket
+        WITH cycle_throughput AS (
+          SELECT instance_id, collected_at,
+                 EXTRACT(HOUR FROM collected_at AT TIME ZONE 'UTC')::int AS hour_of_day,
+                 SUM(num_of_bytes_read_delta + num_of_bytes_written_delta) / 30.0 / 1048576.0 AS mb_per_sec
+          FROM file_io_stats
+          WHERE collected_at >= NOW() - INTERVAL '7 days'
+          GROUP BY instance_id, collected_at
         )
         SELECT instance_id, 'disk_io',
                hour_of_day,
-               MIN(combined_latency_ms) AS baseline_min,
-               AVG(combined_latency_ms) AS baseline_avg,
-               MAX(combined_latency_ms) AS baseline_max,
+               MIN(mb_per_sec) AS baseline_min,
+               AVG(mb_per_sec) AS baseline_avg,
+               MAX(mb_per_sec) AS baseline_max,
                NOW() AS computed_at
-        FROM hourly_totals
+        FROM cycle_throughput
         GROUP BY instance_id, hour_of_day
         ON CONFLICT (instance_id, metric, hour_of_day)
         DO UPDATE SET
