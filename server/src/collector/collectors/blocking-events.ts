@@ -489,7 +489,20 @@ export async function collectBlockingEvents(
   }
 
   // Build chains from pairs
-  return buildBlockingChains(pairs);
+  const chains = buildBlockingChains(pairs);
+
+  // Deduplicate: merge chains with the same head blocker SPID (same ongoing
+  // blocking scenario produces repeated XE events every `blocked process threshold` seconds)
+  const merged = new Map<number, BlockingEventRow>();
+  for (const chain of chains) {
+    const existing = merged.get(chain.head_blocker_spid);
+    if (!existing || chain.event_time > existing.event_time) {
+      // Keep the latest event — it has the highest wait times and most complete chain
+      merged.set(chain.head_blocker_spid, chain);
+    }
+  }
+
+  return [...merged.values()];
 }
 
 /** Reset all state (used in testing). */

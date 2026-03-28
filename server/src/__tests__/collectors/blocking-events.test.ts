@@ -300,7 +300,10 @@ describe('collectBlockingEvents', () => {
   });
 
   it('parses blocking events from ring buffer XML and builds chains', async () => {
-    const ringBufferXml = `<RingBufferTarget><event name="blocked_process_report" package="sqlserver" timestamp="2026-03-28T10:00:00.000Z"><data name="duration"><value>15000000</value></data><data name="blocked_process"><value><blocked-process-report><blocked-process><process spid="55" loginname="app_user" hostname="WEB01" databasename="Sales" clientapp="MyApp" waittype="LCK_M_X" waittime="15000" waitresource="KEY: 5:123"><inputbuf>SELECT 1</inputbuf></process></blocked-process><blocking-process><process spid="60" loginname="admin" hostname="APP01" databasename="Sales" clientapp="AdminTool"><inputbuf>UPDATE Orders SET x=1</inputbuf></process></blocking-process></blocked-process-report></value></data></event></RingBufferTarget>`;
+    // Use a timestamp close to "now" so the 5-minute lookback window includes it
+    const now = new Date();
+    const recentTs = new Date(now.getTime() - 60_000).toISOString(); // 1 minute ago
+    const ringBufferXml = `<RingBufferTarget><event name="blocked_process_report" package="sqlserver" timestamp="${recentTs}"><data name="duration"><value>15000000</value></data><data name="blocked_process"><value><blocked-process-report><blocked-process><process spid="55" loginname="app_user" hostname="WEB01" databasename="Sales" clientapp="MyApp" waittype="LCK_M_X" waittime="15000" waitresource="KEY: 5:123"><inputbuf>SELECT 1</inputbuf></process></blocked-process><blocking-process><process spid="60" loginname="admin" hostname="APP01" databasename="Sales" clientapp="AdminTool"><inputbuf>UPDATE Orders SET x=1</inputbuf></process></blocking-process></blocked-process-report></value></data></event></RingBufferTarget>`;
 
     const mockRequest = {
       query: async () => ({ recordset: [{ ring_buffer_xml: ringBufferXml }] }),
