@@ -48,13 +48,26 @@ export async function blockingRoutes(app: FastifyInstance, pool: pg.Pool, config
     const { id } = req.params;
     const { condition, params } = resolveTimeFilter(req.query, 'collected_at', 2);
 
+    // Group by blocking scenario (SPID + login + db + SQL prefix) to deduplicate
+    // across collection cycles. Show first_occurrence as event_time, but use the
+    // latest chain_json/wait data (most complete picture of the blocking tree).
     const result = await pool.query(
-      `SELECT id, event_time, head_blocker_spid, head_blocker_login,
-              head_blocker_host, head_blocker_app, head_blocker_db,
-              head_blocker_sql, chain_json, total_blocked_count,
-              max_wait_time_ms, collected_at
+      `SELECT
+              MIN(event_time) AS event_time,
+              head_blocker_spid,
+              head_blocker_login,
+              (array_agg(head_blocker_host ORDER BY collected_at DESC))[1] AS head_blocker_host,
+              (array_agg(head_blocker_app ORDER BY collected_at DESC))[1] AS head_blocker_app,
+              head_blocker_db,
+              (array_agg(head_blocker_sql ORDER BY collected_at DESC))[1] AS head_blocker_sql,
+              (array_agg(chain_json ORDER BY collected_at DESC))[1] AS chain_json,
+              MAX(total_blocked_count) AS total_blocked_count,
+              MAX(max_wait_time_ms) AS max_wait_time_ms,
+              MAX(collected_at) AS collected_at
        FROM blocking_events
        WHERE instance_id = $1 AND ${condition}
+       GROUP BY head_blocker_spid, head_blocker_login, head_blocker_db,
+                LEFT(head_blocker_sql, 100)
        ORDER BY event_time DESC
        LIMIT 200`,
       [id, ...params],

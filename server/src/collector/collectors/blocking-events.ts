@@ -498,8 +498,13 @@ export async function collectBlockingEvents(
   for (const chain of chains) {
     const key = `${chain.head_blocker_spid}|${chain.head_blocker_login ?? ''}|${chain.head_blocker_db ?? ''}|${(chain.head_blocker_sql ?? '').slice(0, 100)}`;
     const existing = merged.get(key);
-    if (!existing || chain.event_time > existing.event_time) {
+    if (!existing) {
       merged.set(key, chain);
+    } else {
+      // Keep earliest event_time (first occurrence) but latest chain/wait data
+      const firstTime = chain.event_time < existing.event_time ? chain.event_time : existing.event_time;
+      const latest = chain.event_time > existing.event_time ? chain : existing;
+      merged.set(key, { ...latest, event_time: firstTime });
     }
   }
 
