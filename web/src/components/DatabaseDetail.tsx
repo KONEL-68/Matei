@@ -4,6 +4,7 @@ import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianG
 import { authFetch } from '@/lib/auth';
 import type { TimeWindow } from '@/components/OverviewTimeline';
 import { insertGapBreaks, generateTicks } from '@/lib/chart-utils';
+import { QueryDetailPanel, type QueryRow } from '@/components/AnalysisSection';
 
 interface SeriesPoint {
   ts: string;
@@ -154,22 +155,10 @@ function MiniChart({ title, data, unit, color }: {
   );
 }
 
-interface QueryRow {
-  query_hash: string;
-  statement_text: string;
-  database_name: string;
-  execution_count: number;
-  avg_cpu_ms: number;
-  avg_elapsed_ms: number;
-  avg_reads: number;
-  total_cpu_ms: number;
-  total_elapsed_ms: number;
-  total_reads: number;
-}
-
 function TopQueriesForDb({ instanceId, dbName, timeWindow }: DatabaseDetailProps) {
   const [expandedHash, setExpandedHash] = useState<string | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
+
+  const range = timeWindow ? '24h' : '1h'; // fallback range for QueryDetailPanel
 
   const { data: queries = [], isLoading } = useQuery<QueryRow[]>({
     queryKey: ['db-top-queries', instanceId, dbName, timeWindow?.from, timeWindow?.to],
@@ -182,12 +171,6 @@ function TopQueriesForDb({ instanceId, dbName, timeWindow }: DatabaseDetailProps
       return res.json();
     },
   });
-
-  function copyText(text: string, id: string) {
-    navigator.clipboard.writeText(text);
-    setCopied(id);
-    setTimeout(() => setCopied(null), 2000);
-  }
 
   if (isLoading) {
     return (
@@ -241,31 +224,14 @@ function TopQueriesForDb({ instanceId, dbName, timeWindow }: DatabaseDetailProps
                     <div className="w-[80px] pr-3 text-right font-mono tabular-nums">{q.avg_reads.toFixed(0)}</div>
                     <div className="w-[90px] text-right font-mono tabular-nums">{q.total_cpu_ms.toFixed(0)}</div>
                   </div>
-                  {/* Expanded detail */}
+                  {/* Full expanded detail — same as Analysis section */}
                   {expandedHash === q.query_hash && (
-                    <div className="bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700 px-3 py-2 space-y-2">
-                      <div className="flex items-center gap-3 text-[11px] text-gray-500 dark:text-gray-400">
-                        <span>Hash: <span className="font-mono text-gray-600 dark:text-gray-400">{q.query_hash}</span></span>
-                        <a
-                          href={`/instances/${instanceId}/queries?hash=${encodeURIComponent(q.query_hash)}`}
-                          className="text-blue-500 hover:text-blue-400"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          Open in Query Explorer &rarr;
-                        </a>
-                      </div>
-                      <div className="relative">
-                        <pre className="text-[11px] font-mono text-gray-800 dark:text-gray-200 bg-gray-100 dark:bg-gray-900 rounded p-2 overflow-x-auto max-h-[200px] whitespace-pre-wrap break-all">
-                          {q.statement_text}
-                        </pre>
-                        <button
-                          onClick={() => copyText(q.statement_text, q.query_hash)}
-                          className="absolute top-1 right-1 rounded bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 text-[10px] text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
-                        >
-                          {copied === q.query_hash ? 'Copied!' : 'Copy'}
-                        </button>
-                      </div>
-                    </div>
+                    <QueryDetailPanel
+                      instanceId={instanceId}
+                      query={q}
+                      range={range}
+                      timeWindow={timeWindow}
+                    />
                   )}
                 </td>
               </tr>

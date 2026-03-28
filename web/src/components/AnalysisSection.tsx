@@ -15,7 +15,7 @@ interface AnalysisSectionProps {
   timeWindow: TimeWindow | null;
 }
 
-interface QueryRow {
+export interface QueryRow {
   query_hash: string;
   statement_text: string;
   database_name: string;
@@ -270,7 +270,7 @@ interface QueryWaitsData {
 }
 
 // --- Query Detail Panel (shown below the row when expanded) ---
-function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack, onUntrack, isTracked }: {
+export function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack, onUntrack, isTracked }: {
   instanceId: string;
   query: QueryRow;
   range: string;
