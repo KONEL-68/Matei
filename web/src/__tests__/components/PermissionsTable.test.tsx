@@ -118,6 +118,27 @@ describe('PermissionsTable', () => {
     expect(screen.queryByText('DOMAIN\\admin1')).not.toBeInTheDocument();
   });
 
+  it('hides roles with zero total members', async () => {
+    const dataWithEmptyRole = {
+      collected_at: '2026-03-27T00:38:00Z',
+      roles: [
+        { role_name: 'sysadmin', windows_logins: 15, ad_accounts: 52, sql_logins: 8, members: [] },
+        { role_name: 'dbcreator', windows_logins: 0, ad_accounts: 0, sql_logins: 0, members: [] },
+      ],
+    };
+    mockAuthFetch.mockImplementation(async () => {
+      return { ok: true, json: async () => dataWithEmptyRole } as Response;
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <PermissionsTable instanceId="1" />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText('sysadmin')).toBeInTheDocument();
+    expect(screen.queryByText('dbcreator')).not.toBeInTheDocument();
+  });
+
   it('fetches permissions with correct URL', () => {
     renderComponent('42');
     expect(mockAuthFetch).toHaveBeenCalledWith('/api/metrics/42/permissions');

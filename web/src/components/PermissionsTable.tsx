@@ -90,7 +90,9 @@ export function PermissionsTable({ instanceId }: PermissionsTableProps) {
                 </tr>
               </thead>
               <tbody>
-                {data.roles.map((role) => {
+                {data.roles
+                  .filter(role => (role.windows_logins + role.ad_accounts + role.sql_logins) > 0)
+                  .map((role) => {
                   const isExpanded = expanded.has(role.role_name);
                   return (
                     <PermissionsRow
