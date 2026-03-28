@@ -7,10 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Changed
+- Blocking section moved before Analysis on instance detail page and expanded by default for better visibility
 - Database detail top queries now reuses the full AnalysisSection TopQueriesTab with sorting, view modes (Totals/Avg per execution/Impact), search, and configurable result limit
 - TopQueriesTab accepts optional `db` prop to filter by database (hides Database column when filtering)
 
 ### Fixed
+- Permissions table now hides server roles with zero members instead of showing empty rows
+- Databases list now uses `database_properties` as the authoritative base list, preventing databases with no counter data from being silently dropped
+- Database metrics now collected every 30s (every cycle) instead of every 60s, matching the frontend refetch interval
 - Overview timeline metrics (memory, waits, disk I/O) now use independent Y-axes instead of sharing one, so each scales correctly
 - Fix 31 failing tests (8 files) to match current source implementations: blocking plan lookup, memory-clerks query, permissions query, and frontend component changes
 

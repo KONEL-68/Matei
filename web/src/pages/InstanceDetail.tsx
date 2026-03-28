@@ -202,6 +202,12 @@ export function InstanceDetail() {
         <OverviewMetricCharts instanceId={id!} window={timeWindow} />
       </div>
 
+      {/* Blocking History */}
+      <div className="mt-4">
+        <CollapsibleSection title="Blocking" defaultOpen>
+          <BlockingHistory instanceId={id!} range={range} timeWindow={timeWindow} />
+        </CollapsibleSection>
+      </div>
 
       {/* Wait Stats full-width chart */}
       <div className="mt-4">
@@ -241,13 +247,6 @@ export function InstanceDetail() {
           <div className="mt-4">
             <DiskChart instanceId={id!} range={range} />
           </div>
-        </CollapsibleSection>
-      </div>
-
-      {/* Blocking History */}
-      <div className="mt-4">
-        <CollapsibleSection title="Blocking">
-          <BlockingHistory instanceId={id!} range={range} timeWindow={timeWindow} />
         </CollapsibleSection>
       </div>
 
