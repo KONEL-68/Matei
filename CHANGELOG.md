@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- Database detail top queries now reuses the full AnalysisSection TopQueriesTab with sorting, view modes (Totals/Avg per execution/Impact), search, and configurable result limit
+- TopQueriesTab accepts optional `db` prop to filter by database (hides Database column when filtering)
+
 ### Fixed
 - Overview timeline metrics (memory, waits, disk I/O) now use independent Y-axes instead of sharing one, so each scales correctly
 

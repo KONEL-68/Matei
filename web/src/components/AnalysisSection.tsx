@@ -535,7 +535,7 @@ export function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack
 }
 
 // --- Top Queries Tab ---
-function TopQueriesTab({ instanceId, range, timeWindow, onTrack }: { instanceId: string; range: string; timeWindow: TimeWindow | null; onTrack: (q: QueryRow) => void }) {
+export function TopQueriesTab({ instanceId, range, timeWindow, onTrack, db }: { instanceId: string; range: string; timeWindow: TimeWindow | null; onTrack?: (q: QueryRow) => void; db?: string }) {
   const [mode, setMode] = useState<QueryMode>('totals');
   const [search, setSearch] = useState('');
   const [limit, setLimit] = useState(25);
@@ -543,12 +543,13 @@ function TopQueriesTab({ instanceId, range, timeWindow, onTrack }: { instanceId:
   const { sortCol, sortDir, toggle, compare } = useSort<QueryRow>('total_elapsed_ms');
 
   const { data: queries = [], isLoading } = useQuery<QueryRow[]>({
-    queryKey: ['analysis-queries', instanceId, range, timeWindow, limit],
+    queryKey: ['analysis-queries', instanceId, range, timeWindow, limit, db],
     queryFn: async () => {
       const params = timeWindow
         ? `from=${encodeURIComponent(timeWindow.from)}&to=${encodeURIComponent(timeWindow.to)}&limit=${limit}`
         : `range=${range}&limit=${limit}`;
-      const res = await authFetch(`/api/queries/${instanceId}?${params}&sort=duration`);
+      const dbParam = db ? `&db=${encodeURIComponent(db)}` : '';
+      const res = await authFetch(`/api/queries/${instanceId}?${params}&sort=duration${dbParam}`);
       if (!res.ok) return [];
       return res.json();
     },
@@ -580,7 +581,7 @@ function TopQueriesTab({ instanceId, range, timeWindow, onTrack }: { instanceId:
   const cpuCol = mode === 'avg' ? 'avg_cpu_ms' : 'total_cpu_ms';
   const readsCol = mode === 'avg' ? 'avg_reads' : 'total_reads';
   const writesCol = mode === 'avg' ? 'avg_writes' : 'total_writes';
-  const colCount = 8 + (mode === 'impact' ? 1 : 0);
+  const colCount = (db ? 7 : 8) + (mode === 'impact' ? 1 : 0);
 
   return (
     <div data-testid="top-queries-tab">
@@ -615,7 +616,7 @@ function TopQueriesTab({ instanceId, range, timeWindow, onTrack }: { instanceId:
                 <SortTh column={cpuCol} current={sortCol} dir={sortDir} onSort={toggle} className="text-right">{mode === 'avg' ? 'Avg CPU time (ms)' : 'CPU time (ms)'}</SortTh>
                 <SortTh column={readsCol} current={sortCol} dir={sortDir} onSort={toggle} className="text-right">{mode === 'avg' ? 'Avg Logical reads' : 'Logical reads'}</SortTh>
                 <SortTh column={writesCol} current={sortCol} dir={sortDir} onSort={toggle} className="text-right">{mode === 'avg' ? 'Avg Logical writes' : 'Logical writes'}</SortTh>
-                <SortTh column="database_name" current={sortCol} dir={sortDir} onSort={toggle} className="text-right">Database</SortTh>
+                {!db && <SortTh column="database_name" current={sortCol} dir={sortDir} onSort={toggle} className="text-right">Database</SortTh>}
               </tr>
             </thead>
             <tbody>
@@ -637,7 +638,7 @@ function TopQueriesTab({ instanceId, range, timeWindow, onTrack }: { instanceId:
                       <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{val(q, 'total_cpu_ms', 'avg_cpu_ms')}</td>
                       <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{val(q, 'total_reads', 'avg_reads')}</td>
                       <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{val(q, 'total_writes', 'avg_writes')}</td>
-                      <td className="py-1.5 pr-2 text-right text-gray-500 dark:text-gray-400">{q.database_name || 'N/A'}</td>
+                      {!db && <td className="py-1.5 pr-2 text-right text-gray-500 dark:text-gray-400">{q.database_name || 'N/A'}</td>}
                     </tr>
                     {isExpanded && (
                       <tr key={`${q.query_hash}-detail`}>

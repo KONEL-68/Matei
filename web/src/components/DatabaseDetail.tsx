@@ -1,10 +1,9 @@
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from 'recharts';
 import { authFetch } from '@/lib/auth';
 import type { TimeWindow } from '@/components/OverviewTimeline';
 import { insertGapBreaks, generateTicks } from '@/lib/chart-utils';
-import { QueryDetailPanel, type QueryRow } from '@/components/AnalysisSection';
+import { TopQueriesTab } from '@/components/AnalysisSection';
 
 interface SeriesPoint {
   ts: string;
@@ -155,94 +154,6 @@ function MiniChart({ title, data, unit, color }: {
   );
 }
 
-function TopQueriesForDb({ instanceId, dbName, timeWindow }: DatabaseDetailProps) {
-  const [expandedHash, setExpandedHash] = useState<string | null>(null);
-
-  const range = timeWindow ? '24h' : '1h'; // fallback range for QueryDetailPanel
-
-  const { data: queries = [], isLoading } = useQuery<QueryRow[]>({
-    queryKey: ['db-top-queries', instanceId, dbName, timeWindow?.from, timeWindow?.to],
-    queryFn: async () => {
-      const params = timeWindow
-        ? `from=${encodeURIComponent(timeWindow.from)}&to=${encodeURIComponent(timeWindow.to)}`
-        : 'range=1h';
-      const res = await authFetch(`/api/queries/${instanceId}?${params}&sort=duration&limit=10&db=${encodeURIComponent(dbName)}`);
-      if (!res.ok) return [];
-      return res.json();
-    },
-  });
-
-  if (isLoading) {
-    return (
-      <div className="mb-4">
-        <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Top Queries</h4>
-        <div className="text-xs text-gray-400">Loading...</div>
-      </div>
-    );
-  }
-
-  if (queries.length === 0) {
-    return (
-      <div className="mb-4">
-        <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Top Queries</h4>
-        <div className="text-xs text-gray-400">No queries found for this database in the selected time range</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mb-4">
-      <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Top Queries</h4>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-              <th className="pb-1.5 pr-3">Query</th>
-              <th className="pb-1.5 pr-3 text-right w-[80px]">Execs</th>
-              <th className="pb-1.5 pr-3 text-right w-[100px]">Avg CPU (ms)</th>
-              <th className="pb-1.5 pr-3 text-right w-[120px]">Avg Duration (ms)</th>
-              <th className="pb-1.5 pr-3 text-right w-[90px]">Avg Reads</th>
-              <th className="pb-1.5 text-right w-[100px]">Total CPU (ms)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {queries.map((q) => (
-              <>
-              <tr
-                key={q.query_hash}
-                className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50 border-b border-gray-100 dark:border-gray-800 text-gray-700 dark:text-gray-300"
-                onClick={() => setExpandedHash(expandedHash === q.query_hash ? null : q.query_hash)}
-              >
-                <td className="py-1.5 pr-3 max-w-[400px] truncate font-mono text-[11px]">
-                  <span className="text-gray-400 text-[10px] mr-1">{expandedHash === q.query_hash ? '\u25BC' : '\u25B6'}</span>
-                  {q.statement_text}
-                </td>
-                <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{q.execution_count.toLocaleString()}</td>
-                <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{q.avg_cpu_ms.toFixed(1)}</td>
-                <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{q.avg_elapsed_ms.toFixed(1)}</td>
-                <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{q.avg_reads.toFixed(0)}</td>
-                <td className="py-1.5 text-right font-mono tabular-nums">{q.total_cpu_ms.toFixed(0)}</td>
-              </tr>
-              {expandedHash === q.query_hash && (
-                <tr key={`${q.query_hash}-detail`}>
-                  <td colSpan={6} className="p-0">
-                    <QueryDetailPanel
-                      instanceId={instanceId}
-                      query={q}
-                      range={range}
-                      timeWindow={timeWindow}
-                    />
-                  </td>
-                </tr>
-              )}
-              </>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
 
 function vlfSeverity(count: number): string {
   if (count >= 1000) return 'text-red-500';
@@ -351,7 +262,10 @@ export function DatabaseDetail({ instanceId, dbName, timeWindow }: DatabaseDetai
       )}
 
       {/* Top Queries for this database */}
-      <TopQueriesForDb instanceId={instanceId} dbName={dbName} timeWindow={timeWindow} />
+      <div className="mb-4">
+        <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Top Queries</h4>
+        <TopQueriesTab instanceId={instanceId} range={timeWindow ? '24h' : '1h'} timeWindow={timeWindow} db={dbName} />
+      </div>
 
       {/* Files table */}
       {files && files.length > 0 && (
