@@ -117,7 +117,12 @@ export function DatabasesList({ instanceId, timeWindow }: DatabasesListProps) {
     switch (sortCol) {
       case 'name': cmp = a.database_name.localeCompare(b.database_name); break;
       case 'status': cmp = a.state_desc.localeCompare(b.state_desc); break;
-      case 'tps': cmp = a.transactions_per_sec - b.transactions_per_sec; break;
+      case 'tps': {
+        const aTps = a.transactions_per_sec || (a.tps_sparkline.length > 0 ? a.tps_sparkline[a.tps_sparkline.length - 1].val : 0);
+        const bTps = b.transactions_per_sec || (b.tps_sparkline.length > 0 ? b.tps_sparkline[b.tps_sparkline.length - 1].val : 0);
+        cmp = aTps - bTps;
+        break;
+      }
       case 'size': cmp = (a.data_size_kb + a.log_size_kb) - (b.data_size_kb + b.log_size_kb); break;
     }
     return sortDir === 'asc' ? cmp : -cmp;

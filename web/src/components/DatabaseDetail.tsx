@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from 'recharts';
 import { authFetch } from '@/lib/auth';
@@ -167,6 +168,9 @@ interface QueryRow {
 }
 
 function TopQueriesForDb({ instanceId, dbName, timeWindow }: DatabaseDetailProps) {
+  const [expandedHash, setExpandedHash] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+
   const { data: queries = [], isLoading } = useQuery<QueryRow[]>({
     queryKey: ['db-top-queries', instanceId, dbName, timeWindow?.from, timeWindow?.to],
     queryFn: async () => {
@@ -178,6 +182,12 @@ function TopQueriesForDb({ instanceId, dbName, timeWindow }: DatabaseDetailProps
       return res.json();
     },
   });
+
+  function copyText(text: string, id: string) {
+    navigator.clipboard.writeText(text);
+    setCopied(id);
+    setTimeout(() => setCopied(null), 2000);
+  }
 
   if (isLoading) {
     return (
@@ -214,15 +224,50 @@ function TopQueriesForDb({ instanceId, dbName, timeWindow }: DatabaseDetailProps
           </thead>
           <tbody>
             {queries.map((q) => (
-              <tr key={q.query_hash} className="border-b border-gray-100 dark:border-gray-800 text-gray-700 dark:text-gray-300">
-                <td className="py-1.5 pr-3 max-w-[400px] truncate font-mono text-[11px]" title={q.statement_text}>
-                  {q.statement_text}
+              <tr key={q.query_hash} className="group">
+                <td colSpan={6} className="p-0">
+                  {/* Clickable row */}
+                  <div
+                    className="flex items-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50 border-b border-gray-100 dark:border-gray-800 text-gray-700 dark:text-gray-300 py-1.5"
+                    onClick={() => setExpandedHash(expandedHash === q.query_hash ? null : q.query_hash)}
+                  >
+                    <div className="flex-1 pr-3 max-w-[400px] truncate font-mono text-[11px] flex items-center gap-1">
+                      <span className="text-gray-400 text-[10px]">{expandedHash === q.query_hash ? '\u25BC' : '\u25B6'}</span>
+                      {q.statement_text}
+                    </div>
+                    <div className="w-[70px] pr-3 text-right font-mono tabular-nums">{q.execution_count.toLocaleString()}</div>
+                    <div className="w-[90px] pr-3 text-right font-mono tabular-nums">{q.avg_cpu_ms.toFixed(1)}</div>
+                    <div className="w-[100px] pr-3 text-right font-mono tabular-nums">{q.avg_elapsed_ms.toFixed(1)}</div>
+                    <div className="w-[80px] pr-3 text-right font-mono tabular-nums">{q.avg_reads.toFixed(0)}</div>
+                    <div className="w-[90px] text-right font-mono tabular-nums">{q.total_cpu_ms.toFixed(0)}</div>
+                  </div>
+                  {/* Expanded detail */}
+                  {expandedHash === q.query_hash && (
+                    <div className="bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700 px-3 py-2 space-y-2">
+                      <div className="flex items-center gap-3 text-[11px] text-gray-500 dark:text-gray-400">
+                        <span>Hash: <span className="font-mono text-gray-600 dark:text-gray-400">{q.query_hash}</span></span>
+                        <a
+                          href={`/instances/${instanceId}/queries?hash=${encodeURIComponent(q.query_hash)}`}
+                          className="text-blue-500 hover:text-blue-400"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          Open in Query Explorer &rarr;
+                        </a>
+                      </div>
+                      <div className="relative">
+                        <pre className="text-[11px] font-mono text-gray-800 dark:text-gray-200 bg-gray-100 dark:bg-gray-900 rounded p-2 overflow-x-auto max-h-[200px] whitespace-pre-wrap break-all">
+                          {q.statement_text}
+                        </pre>
+                        <button
+                          onClick={() => copyText(q.statement_text, q.query_hash)}
+                          className="absolute top-1 right-1 rounded bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 text-[10px] text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                        >
+                          {copied === q.query_hash ? 'Copied!' : 'Copy'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </td>
-                <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{q.execution_count.toLocaleString()}</td>
-                <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{q.avg_cpu_ms.toFixed(1)}</td>
-                <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{q.avg_elapsed_ms.toFixed(1)}</td>
-                <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{q.avg_reads.toFixed(0)}</td>
-                <td className="py-1.5 text-right font-mono tabular-nums">{q.total_cpu_ms.toFixed(0)}</td>
               </tr>
             ))}
           </tbody>
