@@ -82,16 +82,13 @@ export function InstanceDetail() {
   const initialRange = (searchParams.get('range') as TimeRange) || '1h';
   const [tab, setTab] = useState<Tab>(initialTab);
   const [range] = useState<TimeRange>(initialRange);
-  const [userSelectedWindow, setUserSelectedWindow] = useState<TimeWindow | null>(null);
-
-  // Auto-sliding time window: tracks the last 1h unless the user manually selects a range
-  const timeWindow = userSelectedWindow ?? (() => {
+  const [timeWindow, setTimeWindow] = useState<TimeWindow | null>(() => {
     const now = new Date();
     return {
       from: new Date(now.getTime() - 60 * 60_000).toISOString(),
       to: now.toISOString(),
     };
-  })();
+  });
 
   const switchTab = useCallback((newTab: Tab) => {
     setTab(newTab);
@@ -120,7 +117,7 @@ export function InstanceDetail() {
     refetchInterval: 300000,
   });
 
-  const hasFixedWindow = !!userSelectedWindow;
+  const hasFixedWindow = !!timeWindow;
 
   const { data: cpuData = [] } = useQuery({
     queryKey: ['metrics-cpu', id, range, timeWindow],
@@ -195,7 +192,7 @@ export function InstanceDetail() {
         <OverviewTimeline
           instanceId={id!}
           window={timeWindow}
-          onWindowChange={setUserSelectedWindow}
+          onWindowChange={setTimeWindow}
         />
       </div>
 
