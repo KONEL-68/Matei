@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- DiskChart: replaced IQR-filtered weighted linear regression forecasting with Holt's Linear Trend (Double Exponential Smoothing) — adapts to changing growth rates and handles irregular time spacing
+- DiskChart: auto-scaling Y-axis zooms into actual data range instead of fixed 0-100, area fills with gradients for visual weight, smart threshold lines only shown when relevant, improved tooltip with volume names and proper date/time, increased chart height, fixed locale to en-GB
+
 ### Added
 - Permissions (server role members) tests: collector test and API route test for `/api/metrics/:id/permissions`
 - Permissions table component: expandable role-based permissions view showing Windows logins, AD accounts, and SQL logins per server role with drill-down member list
