@@ -14,6 +14,7 @@ import { SqlServerMetrics } from '@/components/SqlServerMetrics';
 import { PermissionsTable } from '@/components/PermissionsTable';
 import { DiskUsage } from '@/components/DiskUsage';
 import { BlockingHistory } from '@/components/BlockingHistory';
+import { DatabasesList } from '@/components/DatabasesList';
 import { authFetch } from '@/lib/auth';
 
 type TimeRange = '1h' | '6h' | '24h' | '7d' | '30d' | '1y';
@@ -250,6 +251,12 @@ export function InstanceDetail() {
         </CollapsibleSection>
       </div>
 
+      {/* Databases */}
+      <div className="mt-4">
+        <CollapsibleSection title="Databases" defaultOpen>
+          <DatabasesList instanceId={id!} timeWindow={timeWindow} />
+        </CollapsibleSection>
+      </div>
 
       </>}
     </div>
