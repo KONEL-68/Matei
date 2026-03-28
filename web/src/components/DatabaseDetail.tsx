@@ -198,43 +198,44 @@ function TopQueriesForDb({ instanceId, dbName, timeWindow }: DatabaseDetailProps
           <thead>
             <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               <th className="pb-1.5 pr-3">Query</th>
-              <th className="pb-1.5 pr-3 text-right">Execs</th>
-              <th className="pb-1.5 pr-3 text-right">Avg CPU (ms)</th>
-              <th className="pb-1.5 pr-3 text-right">Avg Duration (ms)</th>
-              <th className="pb-1.5 pr-3 text-right">Avg Reads</th>
-              <th className="pb-1.5 text-right">Total CPU (ms)</th>
+              <th className="pb-1.5 pr-3 text-right w-[80px]">Execs</th>
+              <th className="pb-1.5 pr-3 text-right w-[100px]">Avg CPU (ms)</th>
+              <th className="pb-1.5 pr-3 text-right w-[120px]">Avg Duration (ms)</th>
+              <th className="pb-1.5 pr-3 text-right w-[90px]">Avg Reads</th>
+              <th className="pb-1.5 text-right w-[100px]">Total CPU (ms)</th>
             </tr>
           </thead>
           <tbody>
             {queries.map((q) => (
-              <tr key={q.query_hash} className="group">
-                <td colSpan={6} className="p-0">
-                  {/* Clickable row */}
-                  <div
-                    className="flex items-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50 border-b border-gray-100 dark:border-gray-800 text-gray-700 dark:text-gray-300 py-1.5"
-                    onClick={() => setExpandedHash(expandedHash === q.query_hash ? null : q.query_hash)}
-                  >
-                    <div className="flex-1 pr-3 max-w-[400px] truncate font-mono text-[11px] flex items-center gap-1">
-                      <span className="text-gray-400 text-[10px]">{expandedHash === q.query_hash ? '\u25BC' : '\u25B6'}</span>
-                      {q.statement_text}
-                    </div>
-                    <div className="w-[70px] pr-3 text-right font-mono tabular-nums">{q.execution_count.toLocaleString()}</div>
-                    <div className="w-[90px] pr-3 text-right font-mono tabular-nums">{q.avg_cpu_ms.toFixed(1)}</div>
-                    <div className="w-[100px] pr-3 text-right font-mono tabular-nums">{q.avg_elapsed_ms.toFixed(1)}</div>
-                    <div className="w-[80px] pr-3 text-right font-mono tabular-nums">{q.avg_reads.toFixed(0)}</div>
-                    <div className="w-[90px] text-right font-mono tabular-nums">{q.total_cpu_ms.toFixed(0)}</div>
-                  </div>
-                  {/* Full expanded detail — same as Analysis section */}
-                  {expandedHash === q.query_hash && (
+              <>
+              <tr
+                key={q.query_hash}
+                className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50 border-b border-gray-100 dark:border-gray-800 text-gray-700 dark:text-gray-300"
+                onClick={() => setExpandedHash(expandedHash === q.query_hash ? null : q.query_hash)}
+              >
+                <td className="py-1.5 pr-3 max-w-[400px] truncate font-mono text-[11px]">
+                  <span className="text-gray-400 text-[10px] mr-1">{expandedHash === q.query_hash ? '\u25BC' : '\u25B6'}</span>
+                  {q.statement_text}
+                </td>
+                <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{q.execution_count.toLocaleString()}</td>
+                <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{q.avg_cpu_ms.toFixed(1)}</td>
+                <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{q.avg_elapsed_ms.toFixed(1)}</td>
+                <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{q.avg_reads.toFixed(0)}</td>
+                <td className="py-1.5 text-right font-mono tabular-nums">{q.total_cpu_ms.toFixed(0)}</td>
+              </tr>
+              {expandedHash === q.query_hash && (
+                <tr key={`${q.query_hash}-detail`}>
+                  <td colSpan={6} className="p-0">
                     <QueryDetailPanel
                       instanceId={instanceId}
                       query={q}
                       range={range}
                       timeWindow={timeWindow}
                     />
-                  )}
-                </td>
-              </tr>
+                  </td>
+                </tr>
+              )}
+              </>
             ))}
           </tbody>
         </table>
