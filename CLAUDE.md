@@ -34,7 +34,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   /src/migrations/     — SQL files (###_description.sql, e.g. 001_initial.sql) + run.ts executor
 /web                 — React frontend (Vite)
   /src/pages/          — Dashboard, Instances, InstanceDetail, QueryExplorer, Alerts, Login, Settings
-  /src/components/     — StatusBar, CpuChart, MemoryChart, MemoryBreakdown, MemoryClerksChart, SessionBreakdown, SessionsTable, CurrentActivity, WaitsTable, TopWaitsTable, WaitsChart, DeadlocksTable, BlockingTree, BlockingHistory, FileIoChart, DiskChart, CollapsibleSection, InstanceForm, InstanceCard, AnalysisSection, OverviewTimeline, OverviewMetricCharts, SqlServerMetrics, PermissionsTable, Layout
+  /src/components/     — StatusBar, CpuChart, MemoryChart, MemoryBreakdown, MemoryClerksChart, SessionBreakdown, SessionsTable, CurrentActivity, WaitsTable, TopWaitsTable, WaitsChart, DeadlocksTable, BlockingTree, BlockingHistory, FileIoChart, DiskChart, DiskUsage, CollapsibleSection, InstanceForm, InstanceCard, AnalysisSection, OverviewTimeline, OverviewMetricCharts, SqlServerMetrics, PermissionsTable, Layout
   /src/components/settings/ — GroupsSettings, AlertsSettings, RetentionSettings, UsersSettings, AboutSettings
   /src/lib/              — auth.ts, theme.ts, utils.ts, chart-utils.ts (insertGapBreaks, fillAllNulls, generateTicks)
 /docker              — Docker Compose stack + nginx config
@@ -109,7 +109,7 @@ docker compose -f docker/docker-compose.yml up --build       # all services on p
 - Exclude benign system waits (list in /sql/excluded_waits.json)
 - CPU from ring buffers: dm_os_ring_buffers WHERE ring_buffer_type = 'RING_BUFFER_SCHEDULER_MONITOR'
 - Active sessions: only is_user_process = 1 unless explicitly viewing system
-- Query plans: estimated plans collected via dm_exec_query_plan in collector (top 10 by CPU, every 2nd cycle), actual plans via dm_exec_query_statistics_xml(session_id) for running queries. Both persisted to query_plans table, deduplicated by MD5 hash. Collection logic is inline in worker-pool.ts (not a separate collector file).
+- Query plans: estimated plans collected via dm_exec_query_plan in collector (top 10 by CPU, every 2nd cycle), actual plans via dm_exec_query_statistics_xml(session_id) for running queries. Both persisted to query_plans table, deduplicated by MD5 hash. Collection logic is inline in worker-pool.ts (not a separate collector file). Plans for blocking SPIDs are also collected when blocking events are detected.
 - dm_exec_query_statistics_xml takes session_id (NOT plan_handle) — this is critical for actual plan collection
 - All timestamps in UTC
 - file_io_stats is also cumulative (delta computation same pattern as wait_stats)
@@ -146,7 +146,9 @@ Default cycle interval: 30s (COLLECTOR_INTERVAL_MS). Some metrics skip cycles:
 ## Permissions needed on monitored SQL Servers
 - VIEW SERVER STATE (all metrics)
 - VIEW DATABASE STATE (per-database metrics)
+- ALTER ANY EVENT SESSION (for auto-creating the matei_blocking XE session)
 - No sysadmin, no db_owner, no SQL Agent access needed
+- `blocked process threshold` must be configured by DBA (`sp_configure`) for blocking detection
 
 ## Key data flows
 - **Collector cycle**: scheduler.ts triggers → worker-pool.ts fans out (40 concurrent) →

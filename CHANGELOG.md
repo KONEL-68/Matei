@@ -6,22 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Changed
-- BlockingHistory: replaced single non-functional "View Estimated Plan" button with working "View Estimated Plan" and "View Actual Plan" buttons per blocking chain node, with plan XML display, source badges (cached/live), copy/close controls, and wait stats table for actual plans
-- DiskChart: replaced IQR-filtered weighted linear regression forecasting with Holt's Linear Trend (Double Exponential Smoothing) — adapts to changing growth rates and handles irregular time spacing
-- DiskChart: auto-scaling Y-axis zooms into actual data range instead of fixed 0-100, area fills with gradients for visual weight, smart threshold lines only shown when relevant, improved tooltip with volume names and proper date/time, increased chart height, fixed locale to en-GB
-
 ### Added
-- Auto-create `matei_blocking` XE session: collector now ensures the Extended Events session exists and is running before querying for blocking events, with per-instance tracking, SQL Server restart detection, and graceful fallback on permission errors
-- Live blocking config endpoint: `GET /api/metrics/:id/blocking/config` queries `blocked process threshold` setting directly from the SQL Server instance
-- Blocking events backend: migration (021), collector, worker-pool integration, API routes, partition manager, and tests
-- Migration 021: `blocking_events` partitioned table for blocking chain data with JSONB chain storage
-- Blocking events collector (`server/src/collector/collectors/blocking-events.ts`): reads `matei_blocking` XE session, parses blocked process reports, builds directed blocking chains per head blocker
-- API endpoints: `GET /api/metrics/:id/blocking`, `GET /api/blocking/recent`, `GET /api/blocking/counts`
-- SQL reference file: `sql/blocking_events.sql` with server-side XML parsing of blocked_process_report events
-- BlockingHistory component: historical blocking events table with expandable blocking chain tree, severity coloring, SQL syntax highlighting, and estimated plan button
+- Blocking History section: full-stack blocking monitoring using Extended Events `blocked_process_report`
+  - Auto-creates `matei_blocking` XE session on target servers; validates and recreates if misconfigured
+  - Collector reads ring buffer XML in Node.js (avoids SQL Server XPath timeouts), builds directed blocking chains with head blocker determination
+  - Deduplicates repeated events from same blocking scenario using composite key (SPID + login + DB + SQL), shows first occurrence time
+  - Resolves numeric database IDs to names via `sys.databases` lookup
+  - Migration 021: `blocking_events` partitioned table with JSONB chain storage
+  - API endpoints: `GET /api/metrics/:id/blocking` (with cross-cycle dedup), `/blocking/config` (live threshold check), `/blocking/plan` (estimated + actual plan lookup)
+  - BlockingHistory component: expandable head blocker table with severity coloring, recursive blocking tree, SQL syntax highlighting, View Estimated/Actual Plan buttons with XML display, source badges, wait stats extraction, Copy XML
+  - Yellow warning banner when `blocked process threshold` is not configured
+  - Plan collection for blocking SPIDs: persists estimated + actual plans for all involved sessions, not just top CPU queries
+- DiskUsage component: per-volume disk table with space bars, avg read/write latency sparklines, transfers/sec sparklines
+- `GET /api/metrics/:id/disk-usage` endpoint combining os_disk space with file_io_stats aggregates and sparkline time series
+- `volume_mount_point` column in file_io_stats collector (via `dm_os_volume_stats` join) and migration 020
+- `GET /api/metrics/:id/waits/latest` endpoint returning latest collection cycle's wait deltas for live StatusBar
+- `GET /api/metrics/:id/file-io/latest` endpoint returning latest cycle's file I/O latency for live StatusBar
+- Extended time ranges (7d/30d/1y) and from/to query params for `/api/queries/:id/:hash`
+- Test coverage: webhook.ts, scheduler.ts, web/lib/auth.ts, web/lib/theme.ts, DiskUsage, DiskChart edge cases, BlockingHistory, blocking routes (105+ new tests)
 - Permissions (server role members) tests: collector test and API route test for `/api/metrics/:id/permissions`
 - Permissions table component: expandable role-based permissions view showing Windows logins, AD accounts, and SQL logins per server role with drill-down member list
+
+### Changed
+- StatusBar: all metrics now show latest collection cycle data (not time-range averages), refreshes every 15s independently of History tab time window
+- DiskChart: Holt's Linear Trend forecasting (replaces IQR-filtered linear regression), auto-scaled Y-axis, gradient area fills, smart threshold lines, merged tooltip, all-volume forecast lines
+- InstanceDetail: consolidated Disks section (DiskUsage + DiskChart), removed old Active Sessions/File I/O/Deadlocks/Blocking sections from History tab
+- AnalysisSection: URL params built inside queryFn for proper reactivity
 - Current Activity tab: moved Top Waits, SQL Memory Breakdown, Disk Space, and Session Breakdown cards from History tab; all data now fetched live from SQL Server (not PostgreSQL)
 - Live API endpoints querying SQL Server directly: `/api/metrics/:id/live/sessions`, `/live/waits`, `/live/disk`, `/live/memory`, `/live/memory-clerks`
 - Auto-refresh header moved above live cards; all cards + sessions refresh every 15s (controlled by toggle)
@@ -105,7 +115,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Query plan persistence: cached in PostgreSQL, deduplicated by MD5 hash
 - Memory grant tracking from dm_exec_query_stats
 
-### Changed
 - Current Activity tab cards query SQL Server live instead of reading from PostgreSQL
 - Memory Breakdown component accepts optional `refetchInterval` prop
 - Analysis section wrapped in CollapsibleSection (same style as SQL Server Metrics)
