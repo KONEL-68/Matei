@@ -219,7 +219,7 @@ export function DiskChart({ instanceId, range, syncId }: DiskChartProps) {
   return (
     <div>
       <ResponsiveContainer width="100%" height={260}>
-        <ComposedChart data={chartData} syncId={syncId}>
+        <ComposedChart data={chartData} syncId={syncId} syncMethod="value">
           <defs>
             {volumes.map((vol, i) => (
               <linearGradient key={`grad-${vol}`} id={`diskGrad-${i}`} x1="0" y1="0" x2="0" y2="1">

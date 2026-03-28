@@ -76,7 +76,7 @@ export function CpuChart({ data, height = 280, syncId }: CpuChartProps) {
     <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
       <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">CPU Utilization (%)</h3>
       <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={chartData} syncId={syncId}>
+        <LineChart data={chartData} syncId={syncId} syncMethod="value">
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
           <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={11} tick={{ fill: dark ? '#9ca3af' : '#6b7280' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
           <YAxis domain={[0, 100]} fontSize={11} tick={{ fill: dark ? '#9ca3af' : '#6b7280' }} />

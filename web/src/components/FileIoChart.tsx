@@ -115,7 +115,7 @@ export function FileIoChart({ instanceId, range, syncId }: FileIoChartProps) {
   return (
     <div>
       <ResponsiveContainer width="100%" height={280}>
-        <LineChart data={chartData} syncId={syncId}>
+        <LineChart data={chartData} syncId={syncId} syncMethod="value">
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
           <XAxis
             dataKey="ts"

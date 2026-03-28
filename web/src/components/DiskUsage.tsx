@@ -86,6 +86,7 @@ function SparkCell({ data, color, unit, fallbackValue, syncId }: {
             <LineChart
               data={data}
               syncId={syncId}
+              syncMethod="value"
               onMouseMove={handleMouseMove}
               onMouseLeave={handleMouseLeave}
               margin={{ top: 2, right: 0, bottom: 2, left: 0 }}

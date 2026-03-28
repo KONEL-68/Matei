@@ -508,7 +508,7 @@ export function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack
             <div className="text-[10px] font-medium uppercase text-gray-500 dark:text-gray-400 mb-1">Performance over time</div>
             <div className="h-32 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} syncId={syncId}>
+                <LineChart data={chartData} syncId={syncId} syncMethod="value">
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
                   <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#9CA3AF' }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 9, fill: '#9CA3AF' }} width={40} />
@@ -524,7 +524,7 @@ export function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack
             <div className="text-[10px] font-medium uppercase text-gray-500 dark:text-gray-400 mb-1">Executions per minute</div>
             <div className="h-24 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} syncId={syncId}>
+                <LineChart data={chartData} syncId={syncId} syncMethod="value">
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
                   <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#9CA3AF' }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 9, fill: '#9CA3AF' }} width={40} />

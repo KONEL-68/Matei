@@ -219,7 +219,7 @@ function MiniChart({ data, unit, dark, minTs, maxTs, syncId }: {
 
   return (
     <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-      <LineChart data={data} syncId={syncId}>
+      <LineChart data={data} syncId={syncId} syncMethod="value">
         <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
         <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={9} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
         <YAxis fontSize={9} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={40} tickFormatter={(v: number) => formatValue(v, '')} />
@@ -270,7 +270,7 @@ function MultiLineMiniChart({ data, counters, unit, dark, minTs, maxTs, syncId }
 
   return (
     <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-      <LineChart data={data} syncId={syncId}>
+      <LineChart data={data} syncId={syncId} syncMethod="value">
         <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
         <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={9} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
         <YAxis fontSize={9} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={40} tickFormatter={(v: number) => formatValue(v, '')} />

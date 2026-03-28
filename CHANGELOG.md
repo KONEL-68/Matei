@@ -12,7 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Physical reads columns in Top Queries and Tracked Queries tables (avg/total/per-sec modes) with sort support and expanded row detail
 
 ### Changed
-- MemoryClerksChart now uses numeric X axis (`type="number"` with `ts` field) so Recharts `syncId` syncs by coordinate value instead of data index
+- All synced charts now use `syncMethod="value"` so Recharts matches by X-axis value (timestamp) instead of data array index
+- WaitsChart and MemoryClerksChart now use numeric X axis (`type="number"` with `ts` field) so Recharts `syncId` syncs by coordinate value instead of data index
+- OverviewMetricCharts domain normalized to timeWindow bounds so all 4 mini charts share the same X-axis range
 - Blocking section moved between Wait Stats and Analysis on instance detail page, expanded by default for better visibility
 - Database detail top queries now reuses the full AnalysisSection TopQueriesTab with sorting, view modes (Totals/Avg per execution/Impact), search, and configurable result limit
 - TopQueriesTab accepts optional `db` prop to filter by database (hides Database column when filtering)

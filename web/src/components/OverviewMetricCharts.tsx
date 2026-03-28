@@ -83,7 +83,7 @@ function CpuMiniChart({ instanceId, rangeParams, dark, timeWindow, syncId }: { i
   return (
     <Panel title="CPU Utilization (%)">
       <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-        <LineChart data={chartData} syncId={syncId}>
+        <LineChart data={chartData} syncId={syncId} syncMethod="value">
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
           <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
           <YAxis domain={[0, 100]} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={30} />
@@ -143,7 +143,7 @@ function MemoryMiniChart({ instanceId, rangeParams, dark, timeWindow, syncId }: 
   return (
     <Panel title="SQL Memory (GB)">
       <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-        <LineChart data={chartData} syncId={syncId}>
+        <LineChart data={chartData} syncId={syncId} syncMethod="value">
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
           <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
           <YAxis domain={[yMin, yMax]} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={40} tickFormatter={formatGB} />
@@ -202,7 +202,7 @@ function SignalResourceMiniChart({ instanceId, rangeParams, dark, timeWindow, sy
   return (
     <Panel title="Signal vs Resource Wait (ms/s)">
       <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-        <LineChart data={chartData} syncId={syncId}>
+        <LineChart data={chartData} syncId={syncId} syncMethod="value">
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
           <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
           <YAxis fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={40} />
@@ -252,7 +252,7 @@ function DiskIoMiniChart({ instanceId, rangeParams, dark, timeWindow, syncId }: 
   return (
     <Panel title="Throughput (MB/s)">
       <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-        <LineChart data={chartData} syncId={syncId}>
+        <LineChart data={chartData} syncId={syncId} syncMethod="value">
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
           <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
           <YAxis fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={40} />
