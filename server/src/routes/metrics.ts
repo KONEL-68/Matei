@@ -1514,7 +1514,7 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
     }));
 
     // Sort by data size descending
-    databases.sort((a, b) => b.data_size_kb - a.data_size_kb);
+    databases.sort((a, b) => a.database_name.localeCompare(b.database_name));
 
     return reply.send(databases);
   });
