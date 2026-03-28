@@ -100,7 +100,7 @@ export function StatusBar({ instanceId }: StatusBarProps) {
 
   const { data: waitsData = [] } = useQuery<WaitRow[]>({
     queryKey: ['statusbar-waits', instanceId],
-    queryFn: () => fetchJson(`/api/metrics/${instanceId}/waits?range=1h`),
+    queryFn: () => fetchJson(`/api/metrics/${instanceId}/waits/latest`),
     refetchInterval: 15_000,
   });
 

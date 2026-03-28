@@ -331,6 +331,46 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
     return reply.send(result.rows);
   });
 
+  // GET /api/metrics/:instanceId/waits/latest — latest cycle's wait deltas (for live StatusBar)
+  app.get<{ Params: IdParam }>('/api/metrics/:id/waits/latest', async (req, reply) => {
+    const { id } = req.params;
+    const excludedWaitsArray = [...EXCLUDED_WAITS];
+
+    // Get the most recent collected_at, then fetch all waits from that cycle
+    const result = await pool.query(
+      `SELECT wait_type,
+              waiting_tasks_count_delta AS waiting_tasks_count,
+              wait_time_ms_delta AS wait_time_ms,
+              max_wait_time_ms,
+              signal_wait_time_ms_delta AS signal_wait_time_ms,
+              EXTRACT(EPOCH FROM (collected_at - LAG(collected_at) OVER (PARTITION BY instance_id ORDER BY collected_at))) AS interval_sec
+       FROM wait_stats_raw
+       WHERE instance_id = $1
+         AND collected_at = (SELECT MAX(collected_at) FROM wait_stats_raw WHERE instance_id = $1)
+         AND wait_type != ALL($2)
+         AND wait_time_ms_delta > 0
+       ORDER BY wait_time_ms_delta DESC
+       LIMIT 10`,
+      [id, excludedWaitsArray],
+    );
+
+    // Compute ms/sec using the actual interval between this cycle and the previous one
+    // Default to 30s if we can't determine the interval
+    const intervalSec = result.rows[0]?.interval_sec ?? 30;
+    const effectiveInterval = intervalSec > 0 ? intervalSec : 30;
+
+    const rows = result.rows.map((row: Record<string, unknown>) => ({
+      wait_type: row.wait_type,
+      waiting_tasks_count: Number(row.waiting_tasks_count),
+      wait_time_ms: Number(row.wait_time_ms),
+      max_wait_time_ms: Number(row.max_wait_time_ms),
+      signal_wait_time_ms: Number(row.signal_wait_time_ms),
+      wait_ms_per_sec: Number(row.wait_time_ms) / effectiveInterval,
+    }));
+
+    return reply.send(rows);
+  });
+
   // GET /api/metrics/:instanceId/waits?range=1h|6h|24h|7d|30d|1y&from=&to=
   app.get<{ Params: IdParam; Querystring: RangeQuery }>('/api/metrics/:id/waits', async (req, reply) => {
     const { id } = req.params;
