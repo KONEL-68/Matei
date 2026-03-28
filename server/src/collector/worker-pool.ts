@@ -379,7 +379,7 @@ async function collectFromInstance(
       isQueryStatsCycle ? collectMemoryClerks(pool.request()) : Promise.resolve([]),
       isPermissionsCycle ? collectPermissions(pool.request()) : Promise.resolve([]),
       isQueryStatsCycle ? collectBlockingEvents(pool.request(), instance.id, pool.request()) : Promise.resolve([]),
-      isQueryStatsCycle ? collectDatabaseMetrics(pool.request(), instance.id, startTime) : Promise.resolve(null),
+      collectDatabaseMetrics(pool.request(), instance.id, startTime),
       isDbPropertiesCycle ? collectDatabaseProperties(pool.request()) : Promise.resolve(null),
     ];
 
@@ -389,7 +389,7 @@ async function collectFromInstance(
       hostInfoCollected.add(instance.id);
     }
 
-    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} procs=${procedureStats?.length ?? 'skip'} proc_stmts=${procedureStatements.length || 'skip'} deadlocks=${deadlocks.length} blocking=${blockingEvents.length || 'skip'} perf=${perfCounters?.length ?? 'first-run'} mem_clerks=${memoryClerks.length || 'skip'} permissions=${permissions.length || 'skip'} db_metrics=${databaseMetrics?.length ?? 'skip'} db_props=${databaseProperties?.properties.length ?? 'skip'}${needsHostInfo ? ` hostinfo=${osHostInfo.length} serverconfig=${serverConfig.length}` : ''}`);
+    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} procs=${procedureStats?.length ?? 'skip'} proc_stmts=${procedureStatements.length || 'skip'} deadlocks=${deadlocks.length} blocking=${blockingEvents.length || 'skip'} perf=${perfCounters?.length ?? 'first-run'} mem_clerks=${memoryClerks.length || 'skip'} permissions=${permissions.length || 'skip'} db_metrics=${databaseMetrics?.length ?? 'first-run'} db_props=${databaseProperties?.properties.length ?? 'skip'}${needsHostInfo ? ` hostinfo=${osHostInfo.length} serverconfig=${serverConfig.length}` : ''}`);
 
     // Collect query plans (estimated + actual) on query stats cycles — non-blocking
     if (isQueryStatsCycle && queryStats && queryStats.length > 0 && pgPool) {
@@ -791,7 +791,7 @@ async function batchInsertQueryStats(pgPool: pg.Pool, results: InstanceResult[])
     if (!r.queryStats) continue;
     for (const row of r.queryStats) {
       placeholders.push(
-        `($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`,
+        `($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`,
       );
       values.push(
         r.instanceId, row.query_hash, row.statement_text, row.database_name,
@@ -799,6 +799,7 @@ async function batchInsertQueryStats(pgPool: pg.Pool, results: InstanceResult[])
         row.reads_per_sec, row.writes_per_sec, row.rows_per_sec,
         row.avg_cpu_ms, row.avg_elapsed_ms, row.avg_reads, row.avg_writes,
         new Date(), row.last_grant_kb, row.last_used_grant_kb,
+        row.avg_physical_reads, row.physical_reads_per_sec,
       );
     }
   }
@@ -811,7 +812,8 @@ async function batchInsertQueryStats(pgPool: pg.Pool, results: InstanceResult[])
       execution_count_delta, cpu_ms_per_sec, elapsed_ms_per_sec,
       reads_per_sec, writes_per_sec, rows_per_sec,
       avg_cpu_ms, avg_elapsed_ms, avg_reads, avg_writes, collected_at,
-      last_grant_kb, last_used_grant_kb
+      last_grant_kb, last_used_grant_kb,
+      avg_physical_reads, physical_reads_per_sec
     ) VALUES ${placeholders.join(', ')}`,
     values,
   );
@@ -1124,10 +1126,10 @@ async function batchInsertDatabaseProperties(pgPool: pg.Pool, results: InstanceR
       const now = new Date();
 
       for (const row of files) {
-        placeholders.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`);
+        placeholders.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`);
         values.push(
           r.instanceId, row.database_name, row.file_name, row.type_desc,
-          row.filegroup_name, row.physical_name, row.size_mb,
+          row.filegroup_name, row.physical_name, row.size_mb, row.used_mb,
           row.max_size, row.growth, row.is_percent_growth, now,
         );
       }
@@ -1135,7 +1137,7 @@ async function batchInsertDatabaseProperties(pgPool: pg.Pool, results: InstanceR
       await pgPool.query(
         `INSERT INTO database_files (
           instance_id, database_name, file_name, type_desc,
-          filegroup_name, physical_name, size_mb,
+          filegroup_name, physical_name, size_mb, used_mb,
           max_size, growth, is_percent_growth, collected_at
         ) VALUES ${placeholders.join(', ')}`,
         values,

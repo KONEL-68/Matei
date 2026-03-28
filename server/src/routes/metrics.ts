@@ -1502,24 +1502,39 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
       sizeSparkMap.get(row.database_name)!.push({ ts: row.ts, val: Number(row.val) });
     }
 
-    // Get persisted database states
-    const stateResult = await pool.query(
+    // Get ALL known databases from database_properties (authoritative list)
+    const allDbsResult = await pool.query(
       `SELECT database_name, state_desc FROM database_properties WHERE instance_id = $1`,
       [id],
     );
-    const stateMap = new Map(stateResult.rows.map((r: { database_name: string; state_desc: string }) => [r.database_name, r.state_desc]));
 
-    const databases = Array.from(dbMap.entries()).map(([name, counters]) => ({
-      database_name: name,
-      state_desc: stateMap.get(name) ?? 'ONLINE',
-      data_size_kb: counters['Data File(s) Size (KB)'] ?? 0,
-      log_size_kb: counters['Log File(s) Size (KB)'] ?? 0,
-      log_used_size_kb: counters['Log File(s) Used Size (KB)'] ?? 0,
-      transactions_per_sec: counters['Transactions/sec'] ?? 0,
-      active_transactions: counters['Active Transactions'] ?? 0,
-      tps_sparkline: sparkMap.get(name) ?? [],
-      size_sparkline: sizeSparkMap.get(name) ?? [],
-    }));
+    // Use database_properties as base list; fall back to dbMap keys if not yet collected
+    const databases = allDbsResult.rows.length > 0
+      ? allDbsResult.rows.map((r: { database_name: string; state_desc: string }) => {
+          const counters = dbMap.get(r.database_name) ?? {};
+          return {
+            database_name: r.database_name,
+            state_desc: r.state_desc,
+            data_size_kb: counters['Data File(s) Size (KB)'] ?? 0,
+            log_size_kb: counters['Log File(s) Size (KB)'] ?? 0,
+            log_used_size_kb: counters['Log File(s) Used Size (KB)'] ?? 0,
+            transactions_per_sec: counters['Transactions/sec'] ?? 0,
+            active_transactions: counters['Active Transactions'] ?? 0,
+            tps_sparkline: sparkMap.get(r.database_name) ?? [],
+            size_sparkline: sizeSparkMap.get(r.database_name) ?? [],
+          };
+        })
+      : Array.from(dbMap.entries()).map(([name, counters]) => ({
+          database_name: name,
+          state_desc: 'ONLINE',
+          data_size_kb: counters['Data File(s) Size (KB)'] ?? 0,
+          log_size_kb: counters['Log File(s) Size (KB)'] ?? 0,
+          log_used_size_kb: counters['Log File(s) Used Size (KB)'] ?? 0,
+          transactions_per_sec: counters['Transactions/sec'] ?? 0,
+          active_transactions: counters['Active Transactions'] ?? 0,
+          tps_sparkline: sparkMap.get(name) ?? [],
+          size_sparkline: sizeSparkMap.get(name) ?? [],
+        }));
 
     databases.sort((a, b) => a.database_name.localeCompare(b.database_name));
 
@@ -1568,7 +1583,7 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
     // Database files from PostgreSQL
     const filesResult = await pool.query(
       `SELECT file_name AS name, type_desc, filegroup_name, physical_name,
-              size_mb, max_size, growth, is_percent_growth
+              size_mb, used_mb, max_size, growth, is_percent_growth
        FROM database_files
        WHERE instance_id = $1 AND database_name = $2
        ORDER BY type_desc, file_name`,

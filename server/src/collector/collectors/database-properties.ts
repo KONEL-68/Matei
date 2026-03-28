@@ -20,6 +20,7 @@ export interface DatabaseFileRow {
   filegroup_name: string | null;
   physical_name: string;
   size_mb: number;
+  used_mb: number | null;
   max_size: number;
   growth: number;
   is_percent_growth: boolean;
@@ -77,6 +78,32 @@ export async function collectDatabaseProperties(
 
   const properties = propsResult.recordset as DatabasePropertyRow[];
   const files = filesResult.recordset as DatabaseFileRow[];
+
+  // Initialize used_mb to null for all files
+  for (const f of files) {
+    f.used_mb = null;
+  }
+
+  // Collect used space per online database via FILEPROPERTY (non-fatal per database)
+  const onlineDbs = new Set(
+    properties.filter(p => p.state_desc === 'ONLINE').map(p => p.database_name),
+  );
+  for (const dbName of onlineDbs) {
+    try {
+      const safeName = dbName.replace(/]/g, ']]');
+      const usedResult = await request.query(
+        `SELECT file_id, name, FILEPROPERTY(name, 'SpaceUsed') AS pages_used FROM [${safeName}].sys.database_files`,
+      );
+      for (const row of usedResult.recordset) {
+        const file = files.find(f => f.database_name === dbName && f.file_name === row.name);
+        if (file && row.pages_used != null) {
+          file.used_mb = (row.pages_used * 8) / 1024.0;
+        }
+      }
+    } catch {
+      // Permission denied or database not accessible — leave used_mb as null
+    }
+  }
 
   // Collect VLF counts per online database (non-fatal per database)
   for (const prop of properties) {
