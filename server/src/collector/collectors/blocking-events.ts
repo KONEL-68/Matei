@@ -70,67 +70,68 @@ const FIRST_RUN_LOOKBACK_MS = 5 * 60 * 1000;
 // Time window (ms) to group events together for chain building
 const GROUP_WINDOW_MS = 10_000;
 
-// Query from /sql/blocking_events.sql — server-side XML parsing for efficiency
-// Uses .value() directly on the event node instead of CROSS APPLY for blocked/blocking
-// process details, since CROSS APPLY silently drops rows when XPath doesn't match.
+// Fetch the entire ring buffer as a single string. All XML parsing (event shredding,
+// timestamp filtering, field extraction) is done in Node.js to avoid SQL Server
+// XPath timeouts on large ring buffers.
 const QUERY = `
-SELECT
-    xed.value('(@timestamp)[1]', 'DATETIMEOFFSET') AT TIME ZONE 'UTC' AS event_time_utc,
-    xed.value('(data[@name="duration"]/value)[1]', 'BIGINT') / 1000 AS duration_ms,
-
-    -- Blocked process details (direct XPath from event node)
-    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process/process/@spid)[1]', 'INT') AS blocked_spid,
-    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process/process/@loginname)[1]', 'NVARCHAR(128)') AS blocked_login,
-    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process/process/@hostname)[1]', 'NVARCHAR(128)') AS blocked_hostname,
-    DB_NAME(xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process/process/@currentdb)[1]', 'INT')) AS blocked_database,
-    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process/process/@clientapp)[1]', 'NVARCHAR(256)') AS blocked_app,
-    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process/process/@waittype)[1]', 'NVARCHAR(128)') AS blocked_wait_type,
-    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process/process/@waittime)[1]', 'BIGINT') AS blocked_wait_time_ms,
-    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process/process/@waitresource)[1]', 'NVARCHAR(256)') AS blocked_wait_resource,
-    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocked-process/process/inputbuf)[1]', 'NVARCHAR(MAX)') AS blocked_inputbuf,
-
-    -- Blocking process details (direct XPath from event node)
-    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocking-process/process/@spid)[1]', 'INT') AS blocker_spid,
-    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocking-process/process/@loginname)[1]', 'NVARCHAR(128)') AS blocker_login,
-    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocking-process/process/@hostname)[1]', 'NVARCHAR(128)') AS blocker_hostname,
-    DB_NAME(xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocking-process/process/@currentdb)[1]', 'INT')) AS blocker_database,
-    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocking-process/process/@clientapp)[1]', 'NVARCHAR(256)') AS blocker_app,
-    xed.value('(data[@name="blocked_process"]/value/blocked-process-report/blocking-process/process/inputbuf)[1]', 'NVARCHAR(MAX)') AS blocker_inputbuf
-FROM (
-    SELECT CAST(target_data AS XML) AS target_data
-    FROM sys.dm_xe_session_targets st
-    JOIN sys.dm_xe_sessions s ON s.address = st.event_session_address
-    WHERE s.name = 'matei_blocking'
-      AND st.target_name = 'ring_buffer'
-) AS data
-CROSS APPLY target_data.nodes('RingBufferTarget/event[@name="blocked_process_report"]') AS xev(xed)
-WHERE xed.value('(@timestamp)[1]', 'DATETIMEOFFSET') > @since
-ORDER BY event_time_utc DESC
+SELECT CAST(target_data AS NVARCHAR(MAX)) AS ring_buffer_xml
+FROM sys.dm_xe_session_targets st
+JOIN sys.dm_xe_sessions s ON s.address = st.event_session_address
+WHERE s.name = 'matei_blocking'
+  AND st.target_name = 'ring_buffer'
 `;
+
+/** Extract an XML attribute value using regex. */
+function xmlAttr(xml: string, tag: string, attr: string): string | null {
+  // Match <tag ... attr="value" ...> — handles both self-closing and regular tags
+  const tagRegex = new RegExp(`<${tag}[^>]*\\s${attr}="([^"]*)"`, 's');
+  const m = xml.match(tagRegex);
+  return m ? m[1] : null;
+}
+
+/** Extract text content of an XML element. */
+function xmlText(xml: string, tag: string): string | null {
+  const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, 'i');
+  const m = xml.match(regex);
+  return m ? m[1].trim() : null;
+}
+
+/** Extract a section of XML by tag name. */
+function xmlSection(xml: string, tag: string): string | null {
+  const regex = new RegExp(`<${tag}[^>]*>[\\s\\S]*?</${tag}>`, 'i');
+  const m = xml.match(regex);
+  return m ? m[0] : null;
+}
 
 /**
  * Parse a SQL Server result row into a BlockedProcessPair.
+ * The row contains event_time_utc, duration_ms, and report_xml (raw XML string).
+ * XML parsing is done in Node.js with regex for performance.
  * Exported for testing.
  */
 export function parseBlockedProcessReport(row: Record<string, unknown>): BlockedProcessPair {
+  const reportXml = (row.report_xml as string) || '';
+  const blockedSection = xmlSection(reportXml, 'blocked-process') || '';
+  const blockerSection = xmlSection(reportXml, 'blocking-process') || '';
+
   return {
     event_time: new Date(row.event_time_utc as string),
     duration_ms: Number(row.duration_ms) || 0,
-    blocked_spid: Number(row.blocked_spid) || 0,
-    blocked_login: (row.blocked_login as string) || null,
-    blocked_hostname: (row.blocked_hostname as string) || null,
-    blocked_database: (row.blocked_database as string) || null,
-    blocked_app: (row.blocked_app as string) || null,
-    blocked_wait_type: (row.blocked_wait_type as string) || null,
-    blocked_wait_time_ms: Number(row.blocked_wait_time_ms) || 0,
-    blocked_wait_resource: (row.blocked_wait_resource as string) || null,
-    blocked_sql: (row.blocked_inputbuf as string)?.trim() || null,
-    blocker_spid: Number(row.blocker_spid) || 0,
-    blocker_login: (row.blocker_login as string) || null,
-    blocker_hostname: (row.blocker_hostname as string) || null,
-    blocker_database: (row.blocker_database as string) || null,
-    blocker_app: (row.blocker_app as string) || null,
-    blocker_sql: (row.blocker_inputbuf as string)?.trim() || null,
+    blocked_spid: Number(xmlAttr(blockedSection, 'process', 'spid')) || 0,
+    blocked_login: xmlAttr(blockedSection, 'process', 'loginname'),
+    blocked_hostname: xmlAttr(blockedSection, 'process', 'hostname'),
+    blocked_database: xmlAttr(blockedSection, 'process', 'databasename') ?? xmlAttr(blockedSection, 'process', 'currentdb'),
+    blocked_app: xmlAttr(blockedSection, 'process', 'clientapp'),
+    blocked_wait_type: xmlAttr(blockedSection, 'process', 'waittype'),
+    blocked_wait_time_ms: Number(xmlAttr(blockedSection, 'process', 'waittime')) || 0,
+    blocked_wait_resource: xmlAttr(blockedSection, 'process', 'waitresource'),
+    blocked_sql: xmlText(blockedSection, 'inputbuf'),
+    blocker_spid: Number(xmlAttr(blockerSection, 'process', 'spid')) || 0,
+    blocker_login: xmlAttr(blockerSection, 'process', 'loginname'),
+    blocker_hostname: xmlAttr(blockerSection, 'process', 'hostname'),
+    blocker_database: xmlAttr(blockerSection, 'process', 'databasename') ?? xmlAttr(blockerSection, 'process', 'currentdb'),
+    blocker_app: xmlAttr(blockerSection, 'process', 'clientapp'),
+    blocker_sql: xmlText(blockerSection, 'inputbuf'),
   };
 }
 
@@ -399,6 +400,44 @@ export async function ensureBlockingXeSession(
  * Returns new blocking chains since last collection.
  * If the XE session doesn't exist, returns [].
  */
+/**
+ * Split the ring buffer XML string into individual event XML fragments.
+ * Filters by timestamp > since. All parsing done in Node.js (no SQL Server XPath).
+ */
+export function parseRingBuffer(xml: string, since: Date): Array<{ event_time_utc: string; duration_ms: number; report_xml: string }> {
+  const results: Array<{ event_time_utc: string; duration_ms: number; report_xml: string }> = [];
+
+  // Match each <event name="blocked_process_report" ...>...</event>
+  const eventRegex = /<event\s+name="blocked_process_report"[^>]*timestamp="([^"]*)"[^>]*>([\s\S]*?)<\/event>/g;
+  let match;
+  while ((match = eventRegex.exec(xml)) !== null) {
+    const timestamp = match[1];
+    const eventBody = match[2];
+
+    // Filter by timestamp
+    const eventDate = new Date(timestamp);
+    if (eventDate <= since) continue;
+
+    // Extract duration
+    const durationMatch = eventBody.match(/<data\s+name="duration"[^>]*>[\s\S]*?<value>(\d+)<\/value>/);
+    const durationUs = durationMatch ? Number(durationMatch[1]) : 0;
+
+    // Extract blocked_process report XML
+    const reportMatch = eventBody.match(/<data\s+name="blocked_process"[^>]*>[\s\S]*?<value>([\s\S]*?)<\/value>/);
+    const reportXml = reportMatch ? reportMatch[1] : '';
+
+    if (reportXml) {
+      results.push({
+        event_time_utc: timestamp,
+        duration_ms: Math.round(durationUs / 1000),
+        report_xml: reportXml,
+      });
+    }
+  }
+
+  return results;
+}
+
 export async function collectBlockingEvents(
   request: sql.Request,
   instanceId: number,
@@ -411,14 +450,11 @@ export async function collectBlockingEvents(
   const since = lastCollectedTime.get(instanceId)
     ?? new Date(Date.now() - FIRST_RUN_LOOKBACK_MS);
 
-  request.input('since', since);
-
   let result;
   try {
     result = await request.query(QUERY);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    // If session doesn't exist, suppress future error logging for this instance
     if (msg.includes('matei_blocking') || msg.includes('ring_buffer') || msg.includes('dm_xe_session')) {
       blockingSessionSupported.set(instanceId, false);
     }
@@ -428,15 +464,17 @@ export async function collectBlockingEvents(
   // Mark as supported since query succeeded
   blockingSessionSupported.set(instanceId, true);
 
-  if (result.recordset.length === 0) {
-    return [];
-  }
+  const ringBufferXml = result.recordset[0]?.ring_buffer_xml as string | undefined;
+  if (!ringBufferXml) return [];
 
-  // Parse all rows into pairs
+  // Parse ring buffer XML in Node.js — fast regex, no SQL Server XPath
+  const events = parseRingBuffer(ringBufferXml, since);
+
+  // Parse all events into pairs
   const pairs: BlockedProcessPair[] = [];
   let latestTime = since;
 
-  for (const row of result.recordset) {
+  for (const row of events) {
     const pair = parseBlockedProcessReport(row);
     if (pair.blocker_spid === 0 || pair.blocked_spid === 0) continue;
     pairs.push(pair);

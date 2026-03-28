@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   parseBlockedProcessReport,
+  parseRingBuffer,
   buildBlockingChains,
   collectBlockingEvents,
   ensureBlockingXeSession,
@@ -9,25 +10,22 @@ import {
 } from '../../collector/collectors/blocking-events.js';
 
 describe('parseBlockedProcessReport', () => {
-  it('extracts blocker and blocked details from a result row', () => {
+  it('extracts blocker and blocked details from report XML', () => {
     const row = {
       event_time_utc: '2026-03-28T10:00:00.000Z',
       duration_ms: 15000,
-      blocked_spid: 55,
-      blocked_login: 'app_user',
-      blocked_hostname: 'WEBSERVER01',
-      blocked_database: 'Sales',
-      blocked_app: 'MyApp',
-      blocked_wait_type: 'LCK_M_X',
-      blocked_wait_time_ms: 15000,
-      blocked_wait_resource: 'KEY: 5:72057594044284928',
-      blocked_inputbuf: '  SELECT * FROM Orders  ',
-      blocker_spid: 60,
-      blocker_login: 'admin_user',
-      blocker_hostname: 'APPSERVER01',
-      blocker_database: 'Sales',
-      blocker_app: 'AdminTool',
-      blocker_inputbuf: 'UPDATE Orders SET Status = 1',
+      report_xml: `<blocked-process-report monitorLoop="123">
+        <blocked-process>
+          <process spid="55" loginname="app_user" hostname="WEBSERVER01" databasename="Sales" clientapp="MyApp" waittype="LCK_M_X" waittime="15000" waitresource="KEY: 5:72057594044284928">
+            <inputbuf>  SELECT * FROM Orders  </inputbuf>
+          </process>
+        </blocked-process>
+        <blocking-process>
+          <process spid="60" loginname="admin_user" hostname="APPSERVER01" databasename="Sales" clientapp="AdminTool">
+            <inputbuf>UPDATE Orders SET Status = 1</inputbuf>
+          </process>
+        </blocking-process>
+      </blocked-process-report>`,
     };
 
     const pair = parseBlockedProcessReport(row);
@@ -42,32 +40,18 @@ describe('parseBlockedProcessReport', () => {
     expect(pair.event_time).toBeInstanceOf(Date);
   });
 
-  it('handles null/missing fields gracefully', () => {
+  it('handles missing/empty report XML gracefully', () => {
     const row = {
       event_time_utc: '2026-03-28T10:00:00.000Z',
       duration_ms: null,
-      blocked_spid: 55,
-      blocked_login: null,
-      blocked_hostname: null,
-      blocked_database: null,
-      blocked_app: null,
-      blocked_wait_type: null,
-      blocked_wait_time_ms: null,
-      blocked_wait_resource: null,
-      blocked_inputbuf: null,
-      blocker_spid: 60,
-      blocker_login: null,
-      blocker_hostname: null,
-      blocker_database: null,
-      blocker_app: null,
-      blocker_inputbuf: null,
+      report_xml: '',
     };
 
     const pair = parseBlockedProcessReport(row);
-    expect(pair.blocked_spid).toBe(55);
+    expect(pair.blocked_spid).toBe(0);
     expect(pair.blocked_login).toBeNull();
     expect(pair.blocked_sql).toBeNull();
-    expect(pair.blocker_spid).toBe(60);
+    expect(pair.blocker_spid).toBe(0);
     expect(pair.duration_ms).toBe(0);
     expect(pair.blocked_wait_time_ms).toBe(0);
   });
@@ -315,32 +299,11 @@ describe('collectBlockingEvents', () => {
     expect(queryCalled).toBe(false);
   });
 
-  it('parses blocking events from query result and builds chains', async () => {
+  it('parses blocking events from ring buffer XML and builds chains', async () => {
+    const ringBufferXml = `<RingBufferTarget><event name="blocked_process_report" package="sqlserver" timestamp="2026-03-28T10:00:00.000Z"><data name="duration"><value>15000000</value></data><data name="blocked_process"><value><blocked-process-report><blocked-process><process spid="55" loginname="app_user" hostname="WEB01" databasename="Sales" clientapp="MyApp" waittype="LCK_M_X" waittime="15000" waitresource="KEY: 5:123"><inputbuf>SELECT 1</inputbuf></process></blocked-process><blocking-process><process spid="60" loginname="admin" hostname="APP01" databasename="Sales" clientapp="AdminTool"><inputbuf>UPDATE Orders SET x=1</inputbuf></process></blocking-process></blocked-process-report></value></data></event></RingBufferTarget>`;
+
     const mockRequest = {
-      input: () => mockRequest,
-      query: async () => ({
-        recordset: [
-          {
-            event_time_utc: '2026-03-28T10:00:00.000Z',
-            duration_ms: 15000,
-            blocked_spid: 55,
-            blocked_login: 'app_user',
-            blocked_hostname: 'WEB01',
-            blocked_database: 'Sales',
-            blocked_app: 'MyApp',
-            blocked_wait_type: 'LCK_M_X',
-            blocked_wait_time_ms: 15000,
-            blocked_wait_resource: 'KEY: 5:123',
-            blocked_inputbuf: 'SELECT 1',
-            blocker_spid: 60,
-            blocker_login: 'admin',
-            blocker_hostname: 'APP01',
-            blocker_database: 'Sales',
-            blocker_app: 'AdminTool',
-            blocker_inputbuf: 'UPDATE Orders SET x=1',
-          },
-        ],
-      }),
+      query: async () => ({ recordset: [{ ring_buffer_xml: ringBufferXml }] }),
     } as never;
 
     const result = await collectBlockingEvents(mockRequest, 1);
@@ -348,6 +311,19 @@ describe('collectBlockingEvents', () => {
     expect(result[0].head_blocker_spid).toBe(60);
     expect(result[0].total_blocked_count).toBe(1);
     expect(result[0].chain_json).toHaveLength(2);
+  });
+
+  it('parseRingBuffer filters events by timestamp', () => {
+    const xml = `<RingBufferTarget>
+      <event name="blocked_process_report" package="sqlserver" timestamp="2026-03-28T09:00:00.000Z"><data name="duration"><value>5000000</value></data><data name="blocked_process"><value><blocked-process-report><blocked-process><process spid="1"/></blocked-process><blocking-process><process spid="2"/></blocking-process></blocked-process-report></value></data></event>
+      <event name="blocked_process_report" package="sqlserver" timestamp="2026-03-28T10:00:00.000Z"><data name="duration"><value>10000000</value></data><data name="blocked_process"><value><blocked-process-report><blocked-process><process spid="3"/></blocked-process><blocking-process><process spid="4"/></blocking-process></blocked-process-report></value></data></event>
+    </RingBufferTarget>`;
+
+    const since = new Date('2026-03-28T09:30:00.000Z');
+    const events = parseRingBuffer(xml, since);
+    expect(events).toHaveLength(1);
+    expect(events[0].event_time_utc).toBe('2026-03-28T10:00:00.000Z');
+    expect(events[0].duration_ms).toBe(10000);
   });
 });
 
