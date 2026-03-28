@@ -1,10 +1,8 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
-import { generateTicks } from '@/lib/chart-utils';
-import { useCrosshair } from '@/lib/crosshair';
 
 interface WaitsChartProps {
   instanceId: string;
@@ -40,13 +38,13 @@ interface TooltipPayloadEntry {
 function WaitsTooltip({ active, payload, label, range }: {
   active?: boolean;
   payload?: TooltipPayloadEntry[];
-  label?: number;
+  label?: string;
   range: string;
 }) {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded border border-gray-700 bg-gray-900 p-2 text-xs shadow-lg">
-      <p className="mb-1 text-gray-400">{label != null ? formatTime(new Date(label).toISOString(), range) : ''}</p>
+      <p className="mb-1 text-gray-400">{label ? formatTime(label, range) : ''}</p>
       {payload.map((p) => (
         <div key={p.dataKey} className="flex items-center gap-2">
           <span style={{ color: p.color }}>&#9632;</span>
@@ -62,7 +60,6 @@ export function WaitsChart({ instanceId, range, from, to, enabled = true }: Wait
   const { theme } = useTheme();
   const dark = theme === 'dark';
   const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const { onMouseMove, onMouseLeave, crosshairTs } = useCrosshair();
 
   const handleLegendClick = (e: { dataKey?: string }) => {
     if (!e.dataKey) return;
@@ -129,30 +126,17 @@ export function WaitsChart({ instanceId, range, from, to, enabled = true }: Wait
     }
   }
 
-  // Add numeric timestamp for X axis
-  for (const entry of chartData) {
-    (entry as Record<string, number | string>).ts = new Date(entry.bucket as string).getTime();
-  }
-
-  const allTs = chartData.map(d => d.ts as number);
-  const minTs = from && to ? new Date(from).getTime() : Math.min(...allTs);
-  const maxTs = from && to ? new Date(to).getTime() : Math.max(...allTs);
-  const axisTicks = generateTicks(minTs, maxTs, 10);
-
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
       <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">Wait Stats Over Time (ms/sec)</h3>
       <ResponsiveContainer width="100%" height={280}>
-        <BarChart data={chartData} onMouseMove={onMouseMove} onMouseLeave={onMouseLeave}>
+        <BarChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
           <XAxis
-            dataKey="ts"
-            type="number"
-            domain={[minTs, maxTs]}
-            ticks={axisTicks}
+            dataKey="bucket"
             fontSize={11}
             tick={{ fill: dark ? '#9ca3af' : '#6b7280' }}
-            tickFormatter={(v: number) => formatTime(new Date(v).toISOString(), range)}
+            tickFormatter={(v: string) => formatTime(v, range)}
           />
           <YAxis fontSize={11} tick={{ fill: dark ? '#9ca3af' : '#6b7280' }} />
           <Tooltip content={<WaitsTooltip range={range} />} />
@@ -172,7 +156,6 @@ export function WaitsChart({ instanceId, range, from, to, enabled = true }: Wait
               hide={hidden.has(wt)}
             />
           ))}
-          {crosshairTs != null && <ReferenceLine x={crosshairTs} stroke="#3b82f6" strokeDasharray="4 4" strokeWidth={1} />}
         </BarChart>
       </ResponsiveContainer>
     </div>

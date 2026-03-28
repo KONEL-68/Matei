@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//e/Github/_mine/matei/web/**)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vitest:*)",
+      "Bash(docker compose:*)"
+    ]
+  }
+}

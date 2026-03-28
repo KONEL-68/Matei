@@ -1,9 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, ReferenceLine,
+  Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
-import { useCrosshair } from '@/lib/crosshair';
 import { useTheme } from '@/lib/theme';
 import { authFetch } from '@/lib/auth';
 import { insertGapBreaks, generateTicks } from '@/lib/chart-utils';
@@ -54,7 +53,6 @@ function SimpleTooltip({ active, payload, label, unit }: {
 
 // ── CPU ──
 function CpuMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instanceId: string; rangeParams: string; dark: boolean; timeWindow: TimeWindow | null }) {
-  const { onMouseMove, onMouseLeave, crosshairTs } = useCrosshair();
   const { data = [] } = useQuery<Array<{ sql_cpu_pct: number; other_process_cpu_pct: number; collected_at: string }>>({
     queryKey: ['overview-cpu', instanceId, rangeParams],
     queryFn: async () => {
@@ -75,8 +73,8 @@ function CpuMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instanceI
 
   // Clip x-axis domain to actual data bounds so lines don't droop into empty space
   const timestamps = mapped.map((d) => d.ts);
-  const minTs = timeWindow ? new Date(timeWindow.from).getTime() : (timestamps.length > 0 ? Math.min(...timestamps) : 0);
-  const maxTs = timeWindow ? new Date(timeWindow.to).getTime() : (timestamps.length > 0 ? Math.max(...timestamps) : 0);
+  const minTs = timestamps.length > 0 ? Math.min(...timestamps) : (timeWindow ? new Date(timeWindow.from).getTime() : 0);
+  const maxTs = timestamps.length > 0 ? Math.max(...timestamps) : (timeWindow ? new Date(timeWindow.to).getTime() : 0);
   const axisTicks = generateTicks(minTs, maxTs, 8);
 
   if (chartData.length === 0) return <EmptyPanel title="CPU Utilization (%)" />;
@@ -84,7 +82,7 @@ function CpuMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instanceI
   return (
     <Panel title="CPU Utilization (%)">
       <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-        <LineChart data={chartData} onMouseMove={onMouseMove} onMouseLeave={onMouseLeave}>
+        <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
           <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
           <YAxis domain={[0, 100]} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={30} />
@@ -92,7 +90,6 @@ function CpuMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instanceI
           <Legend wrapperStyle={{ fontSize: 10 }} />
           <Line type="linear" dataKey="SQL CPU" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls={false} />
           <Line type="linear" dataKey="Other CPU" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls={false} />
-          {crosshairTs != null && <ReferenceLine x={crosshairTs} stroke="#3b82f6" strokeDasharray="4 4" strokeWidth={1} />}
         </LineChart>
       </ResponsiveContainer>
     </Panel>
@@ -101,7 +98,6 @@ function CpuMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instanceI
 
 // ── Memory ──
 function MemoryMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instanceId: string; rangeParams: string; dark: boolean; timeWindow: TimeWindow | null }) {
-  const { onMouseMove, onMouseLeave, crosshairTs } = useCrosshair();
   const { data = [] } = useQuery<Array<{
     os_total_memory_mb: number; sql_committed_mb: number; sql_target_mb: number; collected_at: string;
   }>>({
@@ -130,8 +126,8 @@ function MemoryMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instan
 
   // Clip x-axis domain to actual data bounds so lines don't droop into empty space
   const timestamps = mapped.map((d) => d.ts);
-  const minTs = timeWindow ? new Date(timeWindow.from).getTime() : (timestamps.length > 0 ? Math.min(...timestamps) : 0);
-  const maxTs = timeWindow ? new Date(timeWindow.to).getTime() : (timestamps.length > 0 ? Math.max(...timestamps) : 0);
+  const minTs = timestamps.length > 0 ? Math.min(...timestamps) : (timeWindow ? new Date(timeWindow.from).getTime() : 0);
+  const maxTs = timestamps.length > 0 ? Math.max(...timestamps) : (timeWindow ? new Date(timeWindow.to).getTime() : 0);
   const axisTicks = generateTicks(minTs, maxTs, 8);
 
   if (chartData.length === 0) return <EmptyPanel title="SQL Memory (GB)" />;
@@ -146,7 +142,7 @@ function MemoryMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instan
   return (
     <Panel title="SQL Memory (GB)">
       <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-        <LineChart data={chartData} onMouseMove={onMouseMove} onMouseLeave={onMouseLeave}>
+        <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
           <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
           <YAxis domain={[yMin, yMax]} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={40} tickFormatter={formatGB} />
@@ -169,7 +165,6 @@ function MemoryMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instan
           <Line type="linear" dataKey="SQL Committed" stroke="#8b5cf6" strokeWidth={1.5} dot={false} connectNulls={false} />
           <Line type="linear" dataKey="SQL Target" stroke="#a855f7" strokeWidth={1.5} dot={false} connectNulls={false} />
           {hasDeficit && <Line type="linear" dataKey="Memory Deficit" stroke="#ef4444" strokeWidth={1.5} dot={false} strokeDasharray="5 3" connectNulls={false} />}
-          {crosshairTs != null && <ReferenceLine x={crosshairTs} stroke="#3b82f6" strokeDasharray="4 4" strokeWidth={1} />}
         </LineChart>
       </ResponsiveContainer>
     </Panel>
@@ -178,7 +173,6 @@ function MemoryMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instan
 
 // ── Signal vs Resource Waits ──
 function SignalResourceMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instanceId: string; rangeParams: string; dark: boolean; timeWindow: TimeWindow | null }) {
-  const { onMouseMove, onMouseLeave, crosshairTs } = useCrosshair();
   const { data: rawData = [] } = useQuery<Array<{ bucket: string; signal_ms_per_sec: number; resource_ms_per_sec: number }>>({
     queryKey: ['overview-signal-resource', instanceId, rangeParams],
     queryFn: async () => {
@@ -198,8 +192,8 @@ function SignalResourceMiniChart({ instanceId, rangeParams, dark, timeWindow }: 
   const chartData = insertGapBreaks(mapped, 'time');
 
   const timestamps = mapped.map(d => d.ts);
-  const minTs = timeWindow ? new Date(timeWindow.from).getTime() : (timestamps.length > 0 ? Math.min(...timestamps) : 0);
-  const maxTs = timeWindow ? new Date(timeWindow.to).getTime() : (timestamps.length > 0 ? Math.max(...timestamps) : 0);
+  const minTs = timestamps.length > 0 ? Math.min(...timestamps) : (timeWindow ? new Date(timeWindow.from).getTime() : 0);
+  const maxTs = timestamps.length > 0 ? Math.max(...timestamps) : (timeWindow ? new Date(timeWindow.to).getTime() : 0);
   const axisTicks = generateTicks(minTs, maxTs, 8);
 
   if (chartData.length === 0) return <EmptyPanel title="Signal vs Resource Wait (ms/s)" />;
@@ -207,7 +201,7 @@ function SignalResourceMiniChart({ instanceId, rangeParams, dark, timeWindow }: 
   return (
     <Panel title="Signal vs Resource Wait (ms/s)">
       <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-        <LineChart data={chartData} onMouseMove={onMouseMove} onMouseLeave={onMouseLeave}>
+        <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
           <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
           <YAxis fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={40} />
@@ -215,7 +209,6 @@ function SignalResourceMiniChart({ instanceId, rangeParams, dark, timeWindow }: 
           <Legend wrapperStyle={{ fontSize: 10 }} />
           <Line type="linear" dataKey="Signal Wait" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls={false} />
           <Line type="linear" dataKey="Resource Wait" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls={false} />
-          {crosshairTs != null && <ReferenceLine x={crosshairTs} stroke="#3b82f6" strokeDasharray="4 4" strokeWidth={1} />}
         </LineChart>
       </ResponsiveContainer>
       <p className="mt-1 text-[9px] text-gray-500 dark:text-gray-500">High signal waits = CPU pressure. High resource waits = I/O or lock pressure.</p>
@@ -225,7 +218,6 @@ function SignalResourceMiniChart({ instanceId, rangeParams, dark, timeWindow }: 
 
 // ── Disk I/O Throughput ──
 function DiskIoMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instanceId: string; rangeParams: string; dark: boolean; timeWindow: TimeWindow | null }) {
-  const { onMouseMove, onMouseLeave, crosshairTs } = useCrosshair();
   const { data: overviewData = [] } = useQuery<Array<{
     bucket: string; disk_read_mb_per_sec: number | null; disk_write_mb_per_sec: number | null;
   }>>({
@@ -250,8 +242,8 @@ function DiskIoMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instan
 
   // Clip x-axis domain to actual data bounds so lines don't droop into empty space
   const timestamps = mapped.map((d) => d.ts);
-  const minTs = timeWindow ? new Date(timeWindow.from).getTime() : (timestamps.length > 0 ? Math.min(...timestamps) : 0);
-  const maxTs = timeWindow ? new Date(timeWindow.to).getTime() : (timestamps.length > 0 ? Math.max(...timestamps) : 0);
+  const minTs = timestamps.length > 0 ? Math.min(...timestamps) : (timeWindow ? new Date(timeWindow.from).getTime() : 0);
+  const maxTs = timestamps.length > 0 ? Math.max(...timestamps) : (timeWindow ? new Date(timeWindow.to).getTime() : 0);
   const axisTicks = generateTicks(minTs, maxTs, 8);
 
   if (chartData.length === 0) return <EmptyPanel title="Throughput (MB/s)" />;
@@ -259,7 +251,7 @@ function DiskIoMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instan
   return (
     <Panel title="Throughput (MB/s)">
       <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-        <LineChart data={chartData} onMouseMove={onMouseMove} onMouseLeave={onMouseLeave}>
+        <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
           <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
           <YAxis fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={40} />
@@ -267,7 +259,6 @@ function DiskIoMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instan
           <Legend wrapperStyle={{ fontSize: 10 }} />
           <Line type="linear" dataKey="Read" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls={false} />
           <Line type="linear" dataKey="Write" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls={false} />
-          {crosshairTs != null && <ReferenceLine x={crosshairTs} stroke="#3b82f6" strokeDasharray="4 4" strokeWidth={1} />}
         </LineChart>
       </ResponsiveContainer>
     </Panel>

@@ -16,7 +16,6 @@ import { DiskUsage } from '@/components/DiskUsage';
 import { BlockingHistory } from '@/components/BlockingHistory';
 import { DatabasesList } from '@/components/DatabasesList';
 import { authFetch } from '@/lib/auth';
-import { CrosshairProvider } from '@/lib/crosshair';
 
 type TimeRange = '1h' | '6h' | '24h' | '7d' | '30d' | '1y';
 
@@ -188,7 +187,7 @@ export function InstanceDetail() {
       )}
 
       {/* History tab */}
-      {tab === 'history' && <CrosshairProvider>
+      {tab === 'history' && <>
       {/* Overview Timeline with drag selection */}
       <div className="mt-4">
         <OverviewTimeline
@@ -258,7 +257,7 @@ export function InstanceDetail() {
         </CollapsibleSection>
       </div>
 
-      </CrosshairProvider>}
+      </>}
     </div>
   );
 }

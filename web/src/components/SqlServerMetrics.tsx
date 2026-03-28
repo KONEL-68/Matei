@@ -2,10 +2,9 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine,
+  Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { useTheme } from '@/lib/theme';
-import { useCrosshair } from '@/lib/crosshair';
 import { authFetch } from '@/lib/auth';
 import { CollapsibleSection } from '@/components/CollapsibleSection';
 import { MemoryClerksChart } from '@/components/MemoryClerksChart';
@@ -203,8 +202,6 @@ function MiniChart({ data, unit, dark, minTs, maxTs }: {
   minTs: number;
   maxTs: number;
 }) {
-  const { onMouseMove, onMouseLeave, crosshairTs } = useCrosshair();
-
   if (data.length === 0) {
     return (
       <div
@@ -220,7 +217,7 @@ function MiniChart({ data, unit, dark, minTs, maxTs }: {
 
   return (
     <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-      <LineChart data={data} onMouseMove={onMouseMove} onMouseLeave={onMouseLeave}>
+      <LineChart data={data}>
         <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
         <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={9} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
         <YAxis fontSize={9} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={40} tickFormatter={(v: number) => formatValue(v, '')} />
@@ -240,7 +237,6 @@ function MiniChart({ data, unit, dark, minTs, maxTs }: {
           connectNulls={false}
           fill="url(#areaFill)"
         />
-        {crosshairTs != null && <ReferenceLine x={crosshairTs} stroke="#3b82f6" strokeDasharray="4 4" strokeWidth={1} />}
       </LineChart>
     </ResponsiveContainer>
   );
@@ -256,8 +252,6 @@ function MultiLineMiniChart({ data, counters, unit, dark, minTs, maxTs }: {
   minTs: number;
   maxTs: number;
 }) {
-  const { onMouseMove, onMouseLeave, crosshairTs } = useCrosshair();
-
   if (data.length === 0) {
     return (
       <div
@@ -273,7 +267,7 @@ function MultiLineMiniChart({ data, counters, unit, dark, minTs, maxTs }: {
 
   return (
     <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-      <LineChart data={data} onMouseMove={onMouseMove} onMouseLeave={onMouseLeave}>
+      <LineChart data={data}>
         <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
         <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={9} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
         <YAxis fontSize={9} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={40} tickFormatter={(v: number) => formatValue(v, '')} />
@@ -289,7 +283,6 @@ function MultiLineMiniChart({ data, counters, unit, dark, minTs, maxTs }: {
             connectNulls={false}
           />
         ))}
-        {crosshairTs != null && <ReferenceLine x={crosshairTs} stroke="#3b82f6" strokeDasharray="4 4" strokeWidth={1} />}
       </LineChart>
     </ResponsiveContainer>
   );

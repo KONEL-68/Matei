@@ -15,7 +15,16 @@
       "Bash(find E:Github_minemateiserversrccollectorcollectors -type f -name *.ts)",
       "Bash(cat /e/Github/_mine/matei/sql/*.sql)",
       "Bash(npm run:*)",
-      "Bash(docker exec:*)"
+      "Bash(docker exec:*)",
+      "Bash(find /e/github/_mine/matei/web/src/components -name *.tsx -type f)",
+      "Bash(find /e/github/_mine/matei/web/src/pages -name *.tsx -type f)",
+      "Bash(ls E:/Github/_mine/matei/server/src/**/*.test.ts E:/Github/_mine/matei/server/src/**/*.spec.ts)",
+      "Bash(ls:*)",
+      "Bash(find /e/Github/_mine/matei/server/src -type f -path */routes/* -name *.ts)",
+      "Bash(xargs grep:*)",
+      "Bash(grep -l \"sys.databases\" /e/Github/_mine/matei/sql/*.sql)",
+      "Bash(git status:*)",
+      "Bash(docker restart:*)"
     ]
   }
 }
