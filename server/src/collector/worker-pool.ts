@@ -625,14 +625,14 @@ async function batchInsertFileIoStats(pgPool: pg.Pool, results: InstanceResult[]
     if (!r.fileIoStats) continue;
     for (const row of r.fileIoStats) {
       placeholders.push(
-        `($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`,
+        `($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`,
       );
       values.push(
         r.instanceId, row.database_name, row.file_name, row.file_type,
         row.num_of_reads_delta, row.num_of_bytes_read_delta,
         row.io_stall_read_ms_delta, row.num_of_writes_delta,
         row.num_of_bytes_written_delta, row.io_stall_write_ms_delta,
-        row.size_on_disk_bytes, new Date(),
+        row.size_on_disk_bytes, row.volume_mount_point, new Date(),
       );
     }
   }
@@ -645,7 +645,7 @@ async function batchInsertFileIoStats(pgPool: pg.Pool, results: InstanceResult[]
       num_of_reads_delta, num_of_bytes_read_delta,
       io_stall_read_ms_delta, num_of_writes_delta,
       num_of_bytes_written_delta, io_stall_write_ms_delta,
-      size_on_disk_bytes, collected_at
+      size_on_disk_bytes, volume_mount_point, collected_at
     ) VALUES ${placeholders.join(', ')}`,
     values,
   );

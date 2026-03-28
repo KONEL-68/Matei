@@ -15,6 +15,7 @@ function makeSnapshot(overrides: Partial<FileIoSnapshot> & { database_id: number
     io_stall_write_ms: 0,
     io_stall: 0,
     size_on_disk_bytes: 1048576,
+    volume_mount_point: 'C:\\',
     collected_at_utc: new Date(),
     ...overrides,
   };

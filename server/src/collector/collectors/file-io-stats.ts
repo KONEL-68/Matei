@@ -15,6 +15,7 @@ export interface FileIoSnapshot {
   io_stall_write_ms: number;
   io_stall: number;
   size_on_disk_bytes: number;
+  volume_mount_point: string | null;
   collected_at_utc: Date;
 }
 
@@ -33,6 +34,7 @@ export interface FileIoDelta {
   write_bytes_per_sec: number;
   read_latency_ms: number;
   write_latency_ms: number;
+  volume_mount_point: string | null;
 }
 
 interface PreviousState {
@@ -60,11 +62,13 @@ SELECT
     vfs.io_stall_write_ms,
     vfs.io_stall,
     vfs.size_on_disk_bytes,
+    vs.volume_mount_point,
     GETUTCDATE()                AS collected_at_utc
 FROM sys.dm_io_virtual_file_stats(NULL, NULL) vfs
 JOIN sys.master_files mf
     ON vfs.database_id = mf.database_id
     AND vfs.file_id = mf.file_id
+CROSS APPLY sys.dm_os_volume_stats(mf.database_id, mf.file_id) vs
 ORDER BY vfs.io_stall DESC
 `;
 
@@ -114,6 +118,7 @@ export function computeFileIoDelta(
       write_bytes_per_sec: byteWriteDelta / seconds,
       read_latency_ms: readsDelta > 0 ? stallReadDelta / readsDelta : 0,
       write_latency_ms: writesDelta > 0 ? stallWriteDelta / writesDelta : 0,
+      volume_mount_point: curr.volume_mount_point,
     });
   }
 
