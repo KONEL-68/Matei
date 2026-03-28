@@ -153,6 +153,78 @@ function MiniChart({ title, data, unit, color }: {
   );
 }
 
+interface QueryRow {
+  query_hash: string;
+  statement_text: string;
+  database_name: string;
+  execution_count: number;
+  avg_cpu_ms: number;
+  avg_elapsed_ms: number;
+  avg_reads: number;
+  total_cpu_ms: number;
+  total_elapsed_ms: number;
+  total_reads: number;
+}
+
+function TopQueriesForDb({ instanceId, dbName, timeWindow }: DatabaseDetailProps) {
+  const { data: queries = [], isLoading } = useQuery<QueryRow[]>({
+    queryKey: ['db-top-queries', instanceId, dbName, timeWindow?.from, timeWindow?.to],
+    queryFn: async () => {
+      const params = timeWindow
+        ? `from=${encodeURIComponent(timeWindow.from)}&to=${encodeURIComponent(timeWindow.to)}`
+        : 'range=1h';
+      const res = await authFetch(`/api/queries/${instanceId}?${params}&sort=duration&limit=10&db=${encodeURIComponent(dbName)}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="mb-4">
+        <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Top Queries</h4>
+        <div className="text-xs text-gray-400">Loading...</div>
+      </div>
+    );
+  }
+
+  if (queries.length === 0) return null;
+
+  return (
+    <div className="mb-4">
+      <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Top Queries</h4>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className="pb-1.5 pr-3">Query</th>
+              <th className="pb-1.5 pr-3 text-right">Execs</th>
+              <th className="pb-1.5 pr-3 text-right">Avg CPU (ms)</th>
+              <th className="pb-1.5 pr-3 text-right">Avg Duration (ms)</th>
+              <th className="pb-1.5 pr-3 text-right">Avg Reads</th>
+              <th className="pb-1.5 text-right">Total CPU (ms)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {queries.map((q) => (
+              <tr key={q.query_hash} className="border-b border-gray-100 dark:border-gray-800 text-gray-700 dark:text-gray-300">
+                <td className="py-1.5 pr-3 max-w-[400px] truncate font-mono text-[11px]" title={q.statement_text}>
+                  {q.statement_text}
+                </td>
+                <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{q.execution_count.toLocaleString()}</td>
+                <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{q.avg_cpu_ms.toFixed(1)}</td>
+                <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{q.avg_elapsed_ms.toFixed(1)}</td>
+                <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{q.avg_reads.toFixed(0)}</td>
+                <td className="py-1.5 text-right font-mono tabular-nums">{q.total_cpu_ms.toFixed(0)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function vlfSeverity(count: number): string {
   if (count >= 1000) return 'text-red-500';
   if (count >= 500) return 'text-yellow-500';
@@ -258,6 +330,9 @@ export function DatabaseDetail({ instanceId, dbName, timeWindow }: DatabaseDetai
           {vlf_count >= 500 && vlf_count < 1000 && <span className="text-xs text-yellow-400 ml-2">Consider shrinking and regrowing the log file</span>}
         </div>
       )}
+
+      {/* Top Queries for this database */}
+      <TopQueriesForDb instanceId={instanceId} dbName={dbName} timeWindow={timeWindow} />
 
       {/* Files table */}
       {files && files.length > 0 && (

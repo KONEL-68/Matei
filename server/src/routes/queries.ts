@@ -20,6 +20,7 @@ interface QueryListQuery {
   limit?: string;
   from?: string;
   to?: string;
+  db?: string;
 }
 
 function sortColumn(sort: string | undefined): string {
@@ -61,6 +62,14 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
       params.push(interval);
     }
 
+    // Optional database filter
+    let dbCondition = '';
+    if (req.query.db) {
+      const dbIdx = params.length + 1;
+      dbCondition = ` AND database_name = $${dbIdx}`;
+      params.push(req.query.db);
+    }
+
     const limitIdx = params.length + 1;
     params.push(limit);
 
@@ -86,7 +95,7 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
          MAX(last_grant_kb) AS last_grant_kb,
          MAX(last_used_grant_kb) AS last_used_grant_kb
        FROM query_stats_raw
-       WHERE instance_id = $1 AND ${timeCondition}
+       WHERE instance_id = $1 AND ${timeCondition}${dbCondition}
        GROUP BY query_hash
        ORDER BY ${orderBy} DESC
        LIMIT $${limitIdx}`,

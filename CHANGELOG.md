@@ -24,6 +24,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Database properties collector: persists sys.databases properties, sys.master_files info, VLF counts, and backup dates every 6 hours
   - Migration 023: `database_properties` and `database_files` snapshot tables
   - Status column in databases list showing ONLINE/OFFLINE state
+  - Column sorting (name, status, transactions/sec, size) with clickable headers
+  - Top Queries section in database detail showing top 10 queries by duration filtered to the specific database
+  - `db` query parameter on `GET /api/queries/:id` endpoint for filtering queries by database name
 - Blocking History section: full-stack blocking monitoring using Extended Events `blocked_process_report`
   - Auto-creates `matei_blocking` XE session on target servers; validates and recreates if misconfigured
   - Collector reads ring buffer XML in Node.js (avoids SQL Server XPath timeouts), builds directed blocking chains with head blocker determination
