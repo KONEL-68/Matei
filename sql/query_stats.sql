@@ -16,6 +16,7 @@ SELECT TOP 50
     qs.total_worker_time,
     qs.total_elapsed_time,
     qs.total_logical_reads,
+    qs.total_physical_reads,
     qs.total_logical_writes,
     qs.total_rows,
     qs.creation_time,

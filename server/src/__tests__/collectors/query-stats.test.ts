@@ -15,6 +15,7 @@ function makeSnapshot(overrides: Partial<QueryStatsSnapshot> & { query_hash: str
     total_worker_time: 0,
     total_elapsed_time: 0,
     total_logical_reads: 0,
+    total_physical_reads: 0,
     total_logical_writes: 0,
     total_rows: 0,
     creation_time: new Date('2026-03-20T09:00:00Z'),

@@ -9,6 +9,7 @@ export interface QueryStatsSnapshot {
   total_worker_time: number;
   total_elapsed_time: number;
   total_logical_reads: number;
+  total_physical_reads: number;
   total_logical_writes: number;
   total_rows: number;
   creation_time: Date;
@@ -33,7 +34,9 @@ export interface QueryStatsDelta {
   avg_cpu_ms: number;
   avg_elapsed_ms: number;
   avg_reads: number;
+  avg_physical_reads: number;
   avg_writes: number;
+  physical_reads_per_sec: number;
   last_grant_kb: number | null;
   last_used_grant_kb: number | null;
 }
@@ -57,6 +60,7 @@ SELECT TOP 50
     qs.total_worker_time,
     qs.total_elapsed_time,
     qs.total_logical_reads,
+    qs.total_physical_reads,
     qs.total_logical_writes,
     qs.total_rows,
     qs.creation_time,
@@ -106,11 +110,12 @@ export function computeQueryStatsDelta(
     const cpuDelta = curr.total_worker_time - prev.total_worker_time;
     const elapsedDelta = curr.total_elapsed_time - prev.total_elapsed_time;
     const readsDelta = curr.total_logical_reads - prev.total_logical_reads;
+    const physicalReadsDelta = curr.total_physical_reads - prev.total_physical_reads;
     const writesDelta = curr.total_logical_writes - prev.total_logical_writes;
     const rowsDelta = curr.total_rows - prev.total_rows;
 
     // Skip if any counter went backwards (plan recompile / eviction)
-    if (cpuDelta < 0 || elapsedDelta < 0 || readsDelta < 0) continue;
+    if (cpuDelta < 0 || elapsedDelta < 0 || readsDelta < 0 || physicalReadsDelta < 0) continue;
 
     // worker_time is in microseconds, convert to milliseconds for rates
     const cpuMsDelta = cpuDelta / 1000;
@@ -129,7 +134,9 @@ export function computeQueryStatsDelta(
       avg_cpu_ms: cpuMsDelta / execDelta,
       avg_elapsed_ms: elapsedMsDelta / execDelta,
       avg_reads: readsDelta / execDelta,
+      avg_physical_reads: physicalReadsDelta / execDelta,
       avg_writes: writesDelta / execDelta,
+      physical_reads_per_sec: physicalReadsDelta / seconds,
       last_grant_kb: curr.last_grant_kb,
       last_used_grant_kb: curr.last_used_grant_kb,
     });

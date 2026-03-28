@@ -27,11 +27,14 @@ export interface QueryRow {
   avg_cpu_ms: number;
   avg_elapsed_ms: number;
   avg_reads: number;
+  avg_physical_reads: number;
   avg_writes: number;
   total_cpu_ms: number;
   total_elapsed_ms: number;
   total_reads: number;
+  total_physical_reads: number;
   total_writes: number;
+  physical_reads_per_sec: number;
   sample_count: number;
   last_grant_kb: number | null;
   last_used_grant_kb: number | null;
@@ -481,11 +484,12 @@ export function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack
       </div>
 
       {/* Metrics summary */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-5 gap-3">
         {[
           { label: 'Avg CPU', value: `${query.avg_cpu_ms.toFixed(1)} ms` },
           { label: 'Avg Duration', value: `${query.avg_elapsed_ms.toFixed(1)} ms` },
           { label: 'Avg Reads', value: formatNum(query.avg_reads) },
+          { label: 'Avg Physical Reads', value: formatNum(query.avg_physical_reads) },
           { label: 'Executions', value: formatNum(query.execution_count, 0) },
         ].map(m => (
           <div key={m.label} className="rounded bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2">
@@ -580,8 +584,9 @@ export function TopQueriesTab({ instanceId, range, timeWindow, onTrack, db }: { 
   const durationCol = mode === 'avg' ? 'avg_elapsed_ms' : 'total_elapsed_ms';
   const cpuCol = mode === 'avg' ? 'avg_cpu_ms' : 'total_cpu_ms';
   const readsCol = mode === 'avg' ? 'avg_reads' : 'total_reads';
+  const physReadsCol = mode === 'avg' ? 'avg_physical_reads' : mode === 'impact' ? 'physical_reads_per_sec' : 'total_physical_reads';
   const writesCol = mode === 'avg' ? 'avg_writes' : 'total_writes';
-  const colCount = (db ? 7 : 8) + (mode === 'impact' ? 1 : 0);
+  const colCount = (db ? 8 : 9) + (mode === 'impact' ? 1 : 0);
 
   return (
     <div data-testid="top-queries-tab">
@@ -615,6 +620,7 @@ export function TopQueriesTab({ instanceId, range, timeWindow, onTrack, db }: { 
                 <SortTh column={durationCol} current={sortCol} dir={sortDir} onSort={toggle} className="text-right">{mode === 'avg' ? 'Avg Duration (ms)' : 'Duration (ms)'}</SortTh>
                 <SortTh column={cpuCol} current={sortCol} dir={sortDir} onSort={toggle} className="text-right">{mode === 'avg' ? 'Avg CPU time (ms)' : 'CPU time (ms)'}</SortTh>
                 <SortTh column={readsCol} current={sortCol} dir={sortDir} onSort={toggle} className="text-right">{mode === 'avg' ? 'Avg Logical reads' : 'Logical reads'}</SortTh>
+                <SortTh column={physReadsCol} current={sortCol} dir={sortDir} onSort={toggle} className="text-right">{mode === 'avg' ? 'Avg Phys reads' : 'Phys reads'}</SortTh>
                 <SortTh column={writesCol} current={sortCol} dir={sortDir} onSort={toggle} className="text-right">{mode === 'avg' ? 'Avg Logical writes' : 'Logical writes'}</SortTh>
                 {!db && <SortTh column="database_name" current={sortCol} dir={sortDir} onSort={toggle} className="text-right">Database</SortTh>}
               </tr>
@@ -637,6 +643,7 @@ export function TopQueriesTab({ instanceId, range, timeWindow, onTrack, db }: { 
                       <td className="py-1.5 pr-2 text-right font-medium text-gray-900 dark:text-gray-100">{val(q, 'total_elapsed_ms', 'avg_elapsed_ms')}</td>
                       <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{val(q, 'total_cpu_ms', 'avg_cpu_ms')}</td>
                       <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{val(q, 'total_reads', 'avg_reads')}</td>
+                      <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{val(q, 'total_physical_reads', 'avg_physical_reads')}</td>
                       <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{val(q, 'total_writes', 'avg_writes')}</td>
                       {!db && <td className="py-1.5 pr-2 text-right text-gray-500 dark:text-gray-400">{q.database_name || 'N/A'}</td>}
                     </tr>
@@ -694,6 +701,7 @@ function TrackedQueriesTab({ instanceId, range, timeWindow }: { instanceId: stri
   const durationCol = mode === 'avg' ? 'avg_elapsed_ms' : 'total_elapsed_ms';
   const cpuCol = mode === 'avg' ? 'avg_cpu_ms' : 'total_cpu_ms';
   const readsCol = mode === 'avg' ? 'avg_reads' : 'total_reads';
+  const physReadsCol = mode === 'avg' ? 'avg_physical_reads' : 'total_physical_reads';
   const writesCol = mode === 'avg' ? 'avg_writes' : 'total_writes';
 
   return (
@@ -719,6 +727,7 @@ function TrackedQueriesTab({ instanceId, range, timeWindow }: { instanceId: stri
                   <SortTh column={durationCol} current={sortCol} dir={sortDir} onSort={toggle} className="text-right">{mode === 'avg' ? 'Avg Duration (ms)' : 'Duration (ms)'}</SortTh>
                   <SortTh column={cpuCol} current={sortCol} dir={sortDir} onSort={toggle} className="text-right">{mode === 'avg' ? 'Avg CPU time (ms)' : 'CPU time (ms)'}</SortTh>
                   <SortTh column={readsCol} current={sortCol} dir={sortDir} onSort={toggle} className="text-right">{mode === 'avg' ? 'Avg Logical reads' : 'Logical reads'}</SortTh>
+                  <SortTh column={physReadsCol} current={sortCol} dir={sortDir} onSort={toggle} className="text-right">{mode === 'avg' ? 'Avg Phys reads' : 'Phys reads'}</SortTh>
                   <SortTh column={writesCol} current={sortCol} dir={sortDir} onSort={toggle} className="text-right">{mode === 'avg' ? 'Avg Logical writes' : 'Logical writes'}</SortTh>
                   <SortTh column="database_name" current={sortCol} dir={sortDir} onSort={toggle} className="text-right">Database</SortTh>
                 </tr>
@@ -745,12 +754,13 @@ function TrackedQueriesTab({ instanceId, range, timeWindow }: { instanceId: stri
                         <td className="py-1.5 pr-2 text-right font-medium text-gray-900 dark:text-gray-100">{v('total_elapsed_ms', 'avg_elapsed_ms')}</td>
                         <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{v('total_cpu_ms', 'avg_cpu_ms')}</td>
                         <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{v('total_reads', 'avg_reads')}</td>
+                        <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{v('total_physical_reads', 'avg_physical_reads')}</td>
                         <td className="py-1.5 pr-2 text-right text-gray-700 dark:text-gray-300">{v('total_writes', 'avg_writes')}</td>
                         <td className="py-1.5 pr-2 text-right text-gray-500 dark:text-gray-400">{q.database_name || 'N/A'}</td>
                       </tr>
                       {isExpanded && (
                         <tr key={`${q.query_hash}-detail`}>
-                          <td colSpan={7} className="p-0">
+                          <td colSpan={8} className="p-0">
                             <QueryDetailPanel
                               instanceId={instanceId} query={q} range={range} timeWindow={timeWindow}
                               onUntrack={(hash) => { untrack(hash); setExpandedHash(null); }} isTracked
