@@ -35,6 +35,9 @@ function rangeToInterval(range: string | undefined): string {
   switch (range) {
     case '6h': return '6 hours';
     case '24h': return '24 hours';
+    case '7d': return '7 days';
+    case '30d': return '30 days';
+    case '1y': return '1 year';
     default: return '1 hour';
   }
 }
@@ -505,17 +508,28 @@ export async function queryRoutes(app: FastifyInstance, pool: pg.Pool, config: A
   });
 
   // GET /api/queries/:instanceId/:queryHash — time series for a specific query
-  app.get<{ Params: HashParam; Querystring: { range?: string } }>('/api/queries/:id/:hash', async (req, reply) => {
+  app.get<{ Params: HashParam; Querystring: { range?: string; from?: string; to?: string } }>('/api/queries/:id/:hash', async (req, reply) => {
     const { id, hash } = req.params;
-    const interval = rangeToInterval(req.query.range);
+
+    let timeCondition: string;
+    const params: (string | number)[] = [id, hash];
+
+    if (req.query.from && req.query.to) {
+      timeCondition = `collected_at >= $3 AND collected_at <= $4`;
+      params.push(req.query.from, req.query.to);
+    } else {
+      const interval = rangeToInterval(req.query.range);
+      timeCondition = `collected_at > NOW() - $3::interval`;
+      params.push(interval);
+    }
 
     const result = await pool.query(
       `SELECT cpu_ms_per_sec, elapsed_ms_per_sec, reads_per_sec,
               execution_count_delta, avg_cpu_ms, avg_reads, collected_at
        FROM query_stats_raw
-       WHERE instance_id = $1 AND query_hash = $2 AND collected_at > NOW() - $3::interval
+       WHERE instance_id = $1 AND query_hash = $2 AND ${timeCondition}
        ORDER BY collected_at ASC`,
-      [id, hash, interval],
+      params,
     );
 
     return reply.send(result.rows);

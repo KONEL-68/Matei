@@ -285,13 +285,12 @@ function QueryDetailPanel({ instanceId, query, range, timeWindow, onTrack, onUnt
   const [planSource, setPlanSource] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const tsParams = timeWindow
-    ? `from=${encodeURIComponent(timeWindow.from)}&to=${encodeURIComponent(timeWindow.to)}`
-    : `range=${range}`;
-
   const { data: timeSeries = [] } = useQuery<QueryTimeSeries[]>({
     queryKey: ['query-timeseries', instanceId, query.query_hash, range, timeWindow],
     queryFn: async () => {
+      const tsParams = timeWindow
+        ? `from=${encodeURIComponent(timeWindow.from)}&to=${encodeURIComponent(timeWindow.to)}`
+        : `range=${range}`;
       const res = await authFetch(`/api/queries/${instanceId}/${encodeURIComponent(query.query_hash)}?${tsParams}`);
       if (!res.ok) return [];
       return res.json();
@@ -543,13 +542,12 @@ function TopQueriesTab({ instanceId, range, timeWindow, onTrack }: { instanceId:
   const [expandedHash, setExpandedHash] = useState<string | null>(null);
   const { sortCol, sortDir, toggle, compare } = useSort<QueryRow>('total_elapsed_ms');
 
-  const params = timeWindow
-    ? `from=${encodeURIComponent(timeWindow.from)}&to=${encodeURIComponent(timeWindow.to)}&limit=${limit}`
-    : `range=${range}&limit=${limit}`;
-
   const { data: queries = [], isLoading } = useQuery<QueryRow[]>({
     queryKey: ['analysis-queries', instanceId, range, timeWindow, limit],
     queryFn: async () => {
+      const params = timeWindow
+        ? `from=${encodeURIComponent(timeWindow.from)}&to=${encodeURIComponent(timeWindow.to)}&limit=${limit}`
+        : `range=${range}&limit=${limit}`;
       const res = await authFetch(`/api/queries/${instanceId}?${params}&sort=duration`);
       if (!res.ok) return [];
       return res.json();
@@ -667,13 +665,12 @@ function TrackedQueriesTab({ instanceId, range, timeWindow }: { instanceId: stri
   const [removing, setRemoving] = useState<string | null>(null);
   const { sortCol, sortDir, toggle, compare } = useSort<TrackedQueryRow>('total_elapsed_ms');
 
-  const params = timeWindow
-    ? `from=${encodeURIComponent(timeWindow.from)}&to=${encodeURIComponent(timeWindow.to)}`
-    : `range=${range}`;
-
   const { data: tracked = [], isLoading } = useQuery<TrackedQueryRow[]>({
     queryKey: ['tracked-queries', instanceId, range, timeWindow],
     queryFn: async () => {
+      const params = timeWindow
+        ? `from=${encodeURIComponent(timeWindow.from)}&to=${encodeURIComponent(timeWindow.to)}`
+        : `range=${range}`;
       const res = await authFetch(`/api/queries/${instanceId}/tracked?${params}`);
       if (!res.ok) return [];
       return res.json();
@@ -886,13 +883,12 @@ function TopProceduresTab({ instanceId, range, timeWindow }: { instanceId: strin
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const { sortCol, sortDir, toggle, compare } = useSort<ProcedureRow>('total_cpu_ms');
 
-  const params = timeWindow
-    ? `from=${encodeURIComponent(timeWindow.from)}&to=${encodeURIComponent(timeWindow.to)}&limit=${limit}`
-    : `range=${range}&limit=${limit}`;
-
   const { data: procs = [], isLoading, error } = useQuery<ProcedureRow[]>({
     queryKey: ['analysis-procedures', instanceId, range, timeWindow?.from, timeWindow?.to, limit],
     queryFn: async () => {
+      const params = timeWindow
+        ? `from=${encodeURIComponent(timeWindow.from)}&to=${encodeURIComponent(timeWindow.to)}&limit=${limit}`
+        : `range=${range}&limit=${limit}`;
       const res = await authFetch(`/api/queries/${instanceId}/procedure-stats?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
