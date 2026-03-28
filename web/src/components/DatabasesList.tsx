@@ -87,28 +87,13 @@ function SparkCell({ data, color, label }: {
   );
 }
 
-function SizeBar({ sizeKb, maxKb }: { sizeKb: number; maxKb: number }) {
-  const pct = maxKb > 0 ? Math.min((sizeKb / maxKb) * 100, 100) : 0;
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 h-3 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
-        <div
-          className="h-full bg-blue-500 rounded"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <span className="text-xs text-gray-600 dark:text-gray-400 font-mono min-w-[70px] text-right tabular-nums">
-        {formatSize(sizeKb)}
-      </span>
-    </div>
-  );
-}
-
 export function DatabasesList({ instanceId, timeWindow }: DatabasesListProps) {
   const [expandedDb, setExpandedDb] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
   const [perPage, setPerPage] = useState(10);
+  const [sortCol, setSortCol] = useState<'name' | 'status' | 'tps' | 'size'>('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   const { data: databases = [], isLoading } = useQuery<DatabaseSummary[]>({
     queryKey: ['databases-list', instanceId, timeWindow?.from, timeWindow?.to],
@@ -127,11 +112,34 @@ export function DatabasesList({ instanceId, timeWindow }: DatabasesListProps) {
     ? databases.filter((d) => d.database_name.toLowerCase().includes(search.toLowerCase()))
     : databases;
 
-  const maxSize = Math.max(...filtered.map((d) => d.data_size_kb + d.log_size_kb), 1);
-  const totalPages = Math.ceil(filtered.length / perPage);
+  const sorted = [...filtered].sort((a, b) => {
+    let cmp = 0;
+    switch (sortCol) {
+      case 'name': cmp = a.database_name.localeCompare(b.database_name); break;
+      case 'status': cmp = a.state_desc.localeCompare(b.state_desc); break;
+      case 'tps': cmp = a.transactions_per_sec - b.transactions_per_sec; break;
+      case 'size': cmp = (a.data_size_kb + a.log_size_kb) - (b.data_size_kb + b.log_size_kb); break;
+    }
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+
+  const toggleSort = (col: typeof sortCol) => {
+    if (sortCol === col) {
+      setSortDir((d) => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortCol(col);
+      setSortDir(col === 'name' || col === 'status' ? 'asc' : 'desc');
+    }
+    setPage(0);
+  };
+
+  const sortIcon = (col: typeof sortCol) =>
+    sortCol === col ? (sortDir === 'asc' ? ' \u25B2' : ' \u25BC') : '';
+
+  const totalPages = Math.ceil(sorted.length / perPage);
   const pageStart = page * perPage;
   const pageEnd = pageStart + perPage;
-  const paginated = filtered.slice(pageStart, pageEnd);
+  const paginated = sorted.slice(pageStart, pageEnd);
 
   if (isLoading) {
     return (
@@ -177,7 +185,7 @@ export function DatabasesList({ instanceId, timeWindow }: DatabasesListProps) {
           >
             &larr;
           </button>
-          <span>{pageStart + 1}-{Math.min(pageEnd, filtered.length)} of {filtered.length}</span>
+          <span>{pageStart + 1}-{Math.min(pageEnd, sorted.length)} of {sorted.length}</span>
           <button
             onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
             disabled={page >= totalPages - 1}
@@ -192,10 +200,10 @@ export function DatabasesList({ instanceId, timeWindow }: DatabasesListProps) {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-            <th className="pb-2 pr-4">Name</th>
-            <th className="pb-2 pr-4 w-[100px]">Status</th>
-            <th className="pb-2 pr-4 w-[200px]">Transactions/sec</th>
-            <th className="pb-2 w-[280px]">Database size</th>
+            <th className="pb-2 pr-4 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200" onClick={() => toggleSort('name')}>Name{sortIcon('name')}</th>
+            <th className="pb-2 pr-4 w-[100px] cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200" onClick={() => toggleSort('status')}>Status{sortIcon('status')}</th>
+            <th className="pb-2 pr-4 w-[200px] cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200" onClick={() => toggleSort('tps')}>Transactions/sec{sortIcon('tps')}</th>
+            <th className="pb-2 w-[120px] text-right cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200" onClick={() => toggleSort('size')}>Database size{sortIcon('size')}</th>
           </tr>
         </thead>
         <tbody>
@@ -221,8 +229,10 @@ export function DatabasesList({ instanceId, timeWindow }: DatabasesListProps) {
                   <div className="w-[200px] pr-4">
                     <SparkCell data={db.tps_sparkline} color="#3b82f6" label="tps" />
                   </div>
-                  <div className="w-[280px]">
-                    <SizeBar sizeKb={db.data_size_kb + db.log_size_kb} maxKb={maxSize} />
+                  <div className="w-[120px] text-right">
+                    <span className="text-sm text-gray-700 dark:text-gray-300 font-mono tabular-nums">
+                      {formatSize(db.data_size_kb + db.log_size_kb)}
+                    </span>
                   </div>
                 </div>
                 {/* Expanded detail */}
