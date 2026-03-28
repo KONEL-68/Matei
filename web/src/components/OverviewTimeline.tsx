@@ -36,6 +36,7 @@ interface ChartPoint {
   baseline_min?: number | null;
   baseline_avg?: number | null;
   baseline_max?: number | null;
+  baseline_band?: number | null;
 }
 
 type BaselineMetric = 'cpu' | 'memory' | 'waits' | 'disk_io';
@@ -176,6 +177,9 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
       base.baseline_min = bp?.baseline_min ?? null;
       base.baseline_avg = bp?.baseline_avg ?? null;
       base.baseline_max = bp?.baseline_max ?? null;
+      base.baseline_band = (bp?.baseline_max != null && bp?.baseline_min != null)
+        ? bp.baseline_max - bp.baseline_min
+        : null;
     }
     return base;
   });
@@ -602,16 +606,16 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
                 );
               }}
             />
-            {/* Baseline band (rendered behind live metrics) */}
+            {/* Baseline band: stacked areas (invisible base + colored band) rendered behind live metrics */}
             {baselineEnabled && baselineData.length > 0 && (
               <>
                 <Area
                   yAxisId={BASELINE_AXIS_MAP[baselineMetric]}
                   type="linear"
-                  dataKey="baseline_max"
+                  dataKey="baseline_min"
+                  stackId="baseline"
                   stroke="none"
-                  fill="#3b82f6"
-                  fillOpacity={0.15}
+                  fill="transparent"
                   dot={false}
                   connectNulls
                   isAnimationActive={false}
@@ -620,10 +624,11 @@ export function OverviewTimeline({ instanceId, window, onWindowChange }: Overvie
                 <Area
                   yAxisId={BASELINE_AXIS_MAP[baselineMetric]}
                   type="linear"
-                  dataKey="baseline_min"
+                  dataKey="baseline_band"
+                  stackId="baseline"
                   stroke="none"
-                  fill={dark ? '#111827' : '#ffffff'}
-                  fillOpacity={1}
+                  fill="#3b82f6"
+                  fillOpacity={0.15}
                   dot={false}
                   connectNulls
                   isAnimationActive={false}
