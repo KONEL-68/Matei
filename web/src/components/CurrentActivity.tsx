@@ -1,9 +1,6 @@
 import { Fragment, useState, useEffect, useMemo, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { authFetch } from '@/lib/auth';
-import { TopWaitsTable } from '@/components/TopWaitsTable';
-import { MemoryBreakdown } from '@/components/MemoryBreakdown';
-import { SessionBreakdown } from '@/components/SessionBreakdown';
 
 interface SessionRow {
   session_id: number;
@@ -26,15 +23,6 @@ interface SessionRow {
   open_transaction_count: number | null;
   granted_memory_kb: number | null;
   current_statement: string | null;
-}
-
-interface DiskRow {
-  volume_mount_point: string;
-  logical_volume_name: string;
-  total_mb: number;
-  available_mb: number;
-  used_mb: number;
-  used_pct: number;
 }
 
 interface CurrentActivityProps {
@@ -95,18 +83,6 @@ function statusBadgeClass(status: string): string {
   }
 }
 
-function diskBarColor(pct: number): string {
-  if (pct > 90) return 'bg-red-500';
-  if (pct > 75) return 'bg-yellow-500';
-  return 'bg-blue-500';
-}
-
-function diskTextColor(pct: number): string {
-  if (pct > 90) return 'text-red-600 dark:text-red-400';
-  if (pct > 75) return 'text-yellow-600 dark:text-yellow-400';
-  return 'text-gray-600 dark:text-gray-400';
-}
-
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await authFetch(url);
   if (!res.ok) throw new Error(`Failed to fetch ${url}`);
@@ -127,18 +103,6 @@ export function CurrentActivity({ instanceId }: CurrentActivityProps) {
   const { data: sessionsData = [], dataUpdatedAt } = useQuery<SessionRow[]>({
     queryKey: ['current-activity', instanceId],
     queryFn: () => fetchJson<SessionRow[]>(`/api/metrics/${instanceId}/live/sessions`),
-    refetchInterval: autoRefresh ? 15000 : false,
-  });
-
-  const { data: waitsData = [] } = useQuery<Array<{ wait_type: string; wait_ms_per_sec: number; wait_time_ms: number }>>({
-    queryKey: ['current-activity-waits', instanceId],
-    queryFn: () => fetchJson(`/api/metrics/${instanceId}/live/waits`),
-    refetchInterval: autoRefresh ? 15000 : false,
-  });
-
-  const { data: diskData = [] } = useQuery<DiskRow[]>({
-    queryKey: ['current-activity-disk', instanceId],
-    queryFn: () => fetchJson<DiskRow[]>(`/api/metrics/${instanceId}/live/disk`),
     refetchInterval: autoRefresh ? 15000 : false,
   });
 
@@ -294,48 +258,6 @@ export function CurrentActivity({ instanceId }: CurrentActivityProps) {
             {sessionCount} sessions
           </span>
         </div>
-      </div>
-
-      {/* Live cards: Top Waits | Memory Breakdown | Disk Space | Session Breakdown */}
-      <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-4 items-stretch">
-        <TopWaitsTable data={waitsData} />
-        <MemoryBreakdown instanceId={instanceId} refetchInterval={autoRefresh ? 15000 : false} />
-        <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900 h-full">
-          <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">Disk Space</h3>
-          {diskData.length === 0 ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400">No disk data</p>
-          ) : (
-            <div className="space-y-2">
-              {[...diskData].sort((a, b) => Number(b.used_pct) - Number(a.used_pct)).map((d) => {
-                const pct = Number(d.used_pct);
-                return (
-                  <div key={d.volume_mount_point}>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-mono text-gray-700 dark:text-gray-300 truncate" title={`${d.volume_mount_point} ${d.logical_volume_name || ''}`}>
-                        {d.volume_mount_point}
-                      </span>
-                      <span className="ml-2 text-gray-500 dark:text-gray-400">
-                        {((d.total_mb - d.available_mb) / 1024).toFixed(0)} GB used of {(d.total_mb / 1024).toFixed(0)} GB
-                      </span>
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-2">
-                      <div className="h-2 flex-1 rounded-full bg-gray-100 dark:bg-gray-800">
-                        <div
-                          className={`h-2 rounded-full transition-all ${diskBarColor(pct)}`}
-                          style={{ width: `${Math.min(100, pct)}%` }}
-                        />
-                      </div>
-                      <span className={`text-xs font-medium w-10 text-right ${diskTextColor(pct)}`}>
-                        {pct.toFixed(0)}%
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        <SessionBreakdown data={sessionsData as Array<{ request_status: string | null; session_status: string; wait_type: string | null }>} />
       </div>
 
       {/* Filters row */}

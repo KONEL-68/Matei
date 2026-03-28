@@ -693,6 +693,118 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
     })));
   });
 
+  // GET /api/metrics/:id/disk-usage — combined disk space + I/O per volume
+  app.get<{ Params: IdParam; Querystring: RangeQuery }>('/api/metrics/:id/disk-usage', async (req, reply) => {
+    const { id } = req.params;
+
+    // Step 1: latest disk space per volume (within last 30 min)
+    const diskResult = await pool.query(
+      `SELECT DISTINCT ON (volume_mount_point)
+              volume_mount_point, logical_volume_name, total_mb, available_mb, used_mb, used_pct
+       FROM os_disk
+       WHERE instance_id = $1 AND collected_at > NOW() - INTERVAL '30 minutes'
+       ORDER BY volume_mount_point, collected_at DESC`,
+      [id],
+    );
+
+    if (diskResult.rows.length === 0) {
+      return reply.send([]);
+    }
+
+    // Step 2: I/O aggregates per volume over the requested time range
+    const tf = resolveTimeFilter(req.query, 'collected_at', 2);
+    const ioAggResult = await pool.query(
+      `SELECT
+              volume_mount_point,
+              CASE WHEN SUM(num_of_reads_delta) > 0
+                   THEN SUM(io_stall_read_ms_delta)::float / SUM(num_of_reads_delta) ELSE 0 END AS avg_read_latency_ms,
+              CASE WHEN SUM(num_of_writes_delta) > 0
+                   THEN SUM(io_stall_write_ms_delta)::float / SUM(num_of_writes_delta) ELSE 0 END AS avg_write_latency_ms,
+              CASE WHEN EXTRACT(EPOCH FROM (MAX(collected_at) - MIN(collected_at))) > 0
+                   THEN SUM(num_of_reads_delta + num_of_writes_delta)::float /
+                        EXTRACT(EPOCH FROM (MAX(collected_at) - MIN(collected_at))) ELSE 0 END AS transfers_per_sec
+       FROM file_io_stats
+       WHERE instance_id = $1 AND volume_mount_point IS NOT NULL AND ${tf.condition}
+       GROUP BY volume_mount_point`,
+      [id, ...tf.params],
+    );
+
+    const ioByVolume = new Map<string, { avg_read_latency_ms: number; avg_write_latency_ms: number; transfers_per_sec: number }>();
+    for (const row of ioAggResult.rows) {
+      ioByVolume.set(row.volume_mount_point, {
+        avg_read_latency_ms: Number(row.avg_read_latency_ms),
+        avg_write_latency_ms: Number(row.avg_write_latency_ms),
+        transfers_per_sec: Number(row.transfers_per_sec),
+      });
+    }
+
+    // Step 3: sparkline time series per volume (bucketed)
+    const bucketMinutes = chartBucketMinutes(req.query.range);
+    const tf2 = resolveTimeFilter(req.query, 'collected_at', 2);
+    const sparkResult = await pool.query(
+      `SELECT
+              volume_mount_point,
+              date_trunc('minute', collected_at) -
+                (EXTRACT(MINUTE FROM collected_at)::int % $${2 + tf2.params.length}) * INTERVAL '1 minute' AS bucket,
+              CASE WHEN SUM(num_of_reads_delta) > 0
+                   THEN SUM(io_stall_read_ms_delta)::float / SUM(num_of_reads_delta) ELSE 0 END AS read_latency,
+              CASE WHEN SUM(num_of_writes_delta) > 0
+                   THEN SUM(io_stall_write_ms_delta)::float / SUM(num_of_writes_delta) ELSE 0 END AS write_latency,
+              SUM(num_of_reads_delta + num_of_writes_delta)::float / ($${2 + tf2.params.length} * 60) AS transfers
+       FROM file_io_stats
+       WHERE instance_id = $1 AND volume_mount_point IS NOT NULL AND ${tf2.condition}
+       GROUP BY volume_mount_point, bucket
+       ORDER BY volume_mount_point, bucket`,
+      [id, ...tf2.params, bucketMinutes],
+    );
+
+    // Group sparkline rows by volume
+    const sparkByVolume = new Map<string, Array<{ t: number; read_latency: number; write_latency: number; transfers: number }>>();
+    for (const row of sparkResult.rows) {
+      const vol = row.volume_mount_point as string;
+      if (!sparkByVolume.has(vol)) sparkByVolume.set(vol, []);
+      sparkByVolume.get(vol)!.push({
+        t: new Date(row.bucket).getTime(),
+        read_latency: Number(row.read_latency),
+        write_latency: Number(row.write_latency),
+        transfers: Number(row.transfers),
+      });
+    }
+
+    // Step 4: merge disk space + I/O aggregates + sparklines
+    const result = diskResult.rows.map((d: {
+      volume_mount_point: string;
+      logical_volume_name: string;
+      total_mb: number;
+      available_mb: number;
+      used_mb: number;
+      used_pct: number;
+    }) => {
+      const vol = d.volume_mount_point;
+      const io = ioByVolume.get(vol);
+      const sparks = sparkByVolume.get(vol) ?? [];
+
+      return {
+        volume_mount_point: vol,
+        logical_volume_name: d.logical_volume_name,
+        total_mb: Number(d.total_mb),
+        available_mb: Number(d.available_mb),
+        used_mb: Number(d.used_mb),
+        used_pct: Number(d.used_pct),
+        avg_read_latency_ms: io?.avg_read_latency_ms ?? 0,
+        avg_write_latency_ms: io?.avg_write_latency_ms ?? 0,
+        transfers_per_sec: io?.transfers_per_sec ?? 0,
+        sparklines: {
+          read_latency: sparks.map(s => ({ t: s.t, v: s.read_latency })),
+          write_latency: sparks.map(s => ({ t: s.t, v: s.write_latency })),
+          transfers: sparks.map(s => ({ t: s.t, v: s.transfers })),
+        },
+      };
+    });
+
+    return reply.send(result);
+  });
+
   // GET /api/metrics/:instanceId/memory/breakdown — SQL memory component breakdown (Grafana-style)
   app.get<{ Params: IdParam }>('/api/metrics/:id/memory/breakdown', async (req, reply) => {
     const { id } = req.params;
