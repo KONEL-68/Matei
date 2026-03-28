@@ -28,6 +28,7 @@ interface DbProperties {
   compatibility_level: number;
   collation_name: string;
   owner: string;
+  owner_name: string;
   create_date: string;
   last_full_backup: string | null;
   last_log_backup: string | null;
@@ -238,7 +239,7 @@ export function DatabaseDetail({ instanceId, dbName, timeWindow }: DatabaseDetai
             <div><span className="text-gray-500 dark:text-gray-400">Recovery:</span> <span className="text-gray-900 dark:text-gray-100">{properties.recovery_model_desc}</span></div>
             <div><span className="text-gray-500 dark:text-gray-400">Compat Level:</span> <span className="text-gray-900 dark:text-gray-100">{properties.compatibility_level}</span></div>
             <div><span className="text-gray-500 dark:text-gray-400">Collation:</span> <span className="text-gray-900 dark:text-gray-100 truncate">{properties.collation_name}</span></div>
-            <div><span className="text-gray-500 dark:text-gray-400">Owner:</span> <span className="text-gray-900 dark:text-gray-100">{properties.owner}</span></div>
+            <div><span className="text-gray-500 dark:text-gray-400">Owner:</span> <span className="text-gray-900 dark:text-gray-100">{properties.owner_name ?? properties.owner}</span></div>
             <div><span className="text-gray-500 dark:text-gray-400">Created:</span> <span className="text-gray-900 dark:text-gray-100">{formatDate(properties.create_date)}</span></div>
             <div><span className="text-gray-500 dark:text-gray-400">Last Full Backup:</span> <span className="text-gray-900 dark:text-gray-100">{formatDate(properties.last_full_backup)}</span></div>
             <div><span className="text-gray-500 dark:text-gray-400">Last Log Backup:</span> <span className="text-gray-900 dark:text-gray-100">{formatDate(properties.last_log_backup)}</span></div>

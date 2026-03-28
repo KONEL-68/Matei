@@ -19,6 +19,7 @@ import { collectMemoryClerks, type MemoryClerkRow } from './collectors/memory-cl
 import { collectPermissions, type PermissionsRow } from './collectors/permissions.js';
 import { collectBlockingEvents, ensureBlockingXeSession, type BlockingEventRow } from './collectors/blocking-events.js';
 import { collectDatabaseMetrics, type DatabaseMetricResult } from './collectors/database-metrics.js';
+import { collectDatabaseProperties, type DatabasePropertiesResult } from './collectors/database-properties.js';
 import { evaluateAlerts, writeAlerts } from '../alerts/engine.js';
 import { fireWebhook } from '../alerts/webhook.js';
 
@@ -50,6 +51,7 @@ export interface InstanceResult {
   permissions: PermissionsRow[];
   blockingEvents: BlockingEventRow[];
   databaseMetrics: DatabaseMetricResult[] | null;
+  databaseProperties: DatabasePropertiesResult | null;
 }
 
 // Track which instances support dm_exec_query_statistics_xml (avoid repeated errors)
@@ -292,6 +294,7 @@ async function collectFromInstance(
   isDiskCycle: boolean,
   isQueryStatsCycle: boolean,
   isPermissionsCycle: boolean,
+  isDbPropertiesCycle: boolean,
   log: CollectorLog,
   pgPool: pg.Pool,
 ): Promise<InstanceResult> {
@@ -316,6 +319,7 @@ async function collectFromInstance(
     permissions: [],
     blockingEvents: [],
     databaseMetrics: null,
+    databaseProperties: null,
   };
 
   let pool: sql.ConnectionPool | null = null;
@@ -357,6 +361,7 @@ async function collectFromInstance(
       Promise<PermissionsRow[]>,
       Promise<BlockingEventRow[]>,
       Promise<DatabaseMetricResult[] | null>,
+      Promise<DatabasePropertiesResult | null>,
     ] = [
       collectWaitStats(pool.request(), instance.id, startTime),
       collectActiveSessions(pool.request()),
@@ -375,15 +380,16 @@ async function collectFromInstance(
       isPermissionsCycle ? collectPermissions(pool.request()) : Promise.resolve([]),
       isQueryStatsCycle ? collectBlockingEvents(pool.request(), instance.id, pool.request()) : Promise.resolve([]),
       isQueryStatsCycle ? collectDatabaseMetrics(pool.request(), instance.id, startTime) : Promise.resolve(null),
+      isDbPropertiesCycle ? collectDatabaseProperties(pool.request()) : Promise.resolve(null),
     ];
 
-    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, procedureStats, procedureStatements, osHostInfo, serverConfig, deadlocks, perfCounters, memoryClerks, permissions, blockingEvents, databaseMetrics] = await Promise.all(collectorsPromise);
+    const [waitStats, activeSessions, osCpu, osMemory, fileIoStats, osDisk, queryStats, procedureStats, procedureStatements, osHostInfo, serverConfig, deadlocks, perfCounters, memoryClerks, permissions, blockingEvents, databaseMetrics, databaseProperties] = await Promise.all(collectorsPromise);
 
     if (needsHostInfo && osHostInfo.length > 0) {
       hostInfoCollected.add(instance.id);
     }
 
-    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} procs=${procedureStats?.length ?? 'skip'} proc_stmts=${procedureStatements.length || 'skip'} deadlocks=${deadlocks.length} blocking=${blockingEvents.length || 'skip'} perf=${perfCounters?.length ?? 'first-run'} mem_clerks=${memoryClerks.length || 'skip'} permissions=${permissions.length || 'skip'} db_metrics=${databaseMetrics?.length ?? 'skip'}${needsHostInfo ? ` hostinfo=${osHostInfo.length} serverconfig=${serverConfig.length}` : ''}`);
+    log.info(`[instance=${instance.id}] Collection complete: health=${health.length} cpu=${osCpu.length} memory=${osMemory.length} sessions=${activeSessions.length} waits=${waitStats?.length ?? 'first-run'} fileio=${fileIoStats?.length ?? 'first-run'} disk=${osDisk.length} queries=${queryStats?.length ?? 'skip'} procs=${procedureStats?.length ?? 'skip'} proc_stmts=${procedureStatements.length || 'skip'} deadlocks=${deadlocks.length} blocking=${blockingEvents.length || 'skip'} perf=${perfCounters?.length ?? 'first-run'} mem_clerks=${memoryClerks.length || 'skip'} permissions=${permissions.length || 'skip'} db_metrics=${databaseMetrics?.length ?? 'skip'} db_props=${databaseProperties?.properties.length ?? 'skip'}${needsHostInfo ? ` hostinfo=${osHostInfo.length} serverconfig=${serverConfig.length}` : ''}`);
 
     // Collect query plans (estimated + actual) on query stats cycles — non-blocking
     if (isQueryStatsCycle && queryStats && queryStats.length > 0 && pgPool) {
@@ -426,6 +432,7 @@ async function collectFromInstance(
       permissions,
       blockingEvents,
       databaseMetrics,
+      databaseProperties,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -457,11 +464,12 @@ export async function collectAll(
   const isDiskCycle = cycleCount % 10 === 0;
   const isQueryStatsCycle = cycleCount % 2 === 0;
   const isPermissionsCycle = cycleCount === 1 || cycleCount % 2880 === 0;
+  const isDbPropertiesCycle = cycleCount === 1 || cycleCount % 720 === 0; // every 6 hours
 
   const results = await runWithConcurrency(
     instances,
     concurrency,
-    (inst) => collectFromInstance(inst, encryptionKey, isDiskCycle, isQueryStatsCycle, isPermissionsCycle, log, pgPool),
+    (inst) => collectFromInstance(inst, encryptionKey, isDiskCycle, isQueryStatsCycle, isPermissionsCycle, isDbPropertiesCycle, log, pgPool),
   );
 
   // Update statuses FIRST — even if batch inserts fail, we want status to reflect reality
@@ -487,6 +495,7 @@ export async function collectAll(
     ['permissions', () => batchInsertPermissions(pgPool, results)],
     ['blocking_events', () => batchInsertBlockingEvents(pgPool, results)],
     ['database_metrics', () => batchInsertDatabaseMetrics(pgPool, results)],
+    ['database_properties', () => batchInsertDatabaseProperties(pgPool, results)],
   ] as const) {
     try {
       await insertFn();
@@ -1067,6 +1076,71 @@ async function batchInsertPermissions(pgPool: pg.Pool, results: InstanceResult[]
       ) VALUES ${placeholders.join(', ')}`,
       values,
     );
+  }
+}
+
+async function batchInsertDatabaseProperties(pgPool: pg.Pool, results: InstanceResult[]): Promise<void> {
+  for (const r of results) {
+    if (!r.databaseProperties) continue;
+    const { properties, files } = r.databaseProperties;
+
+    // Full replace: delete old data then insert new snapshot
+    await pgPool.query('DELETE FROM database_properties WHERE instance_id = $1', [r.instanceId]);
+    await pgPool.query('DELETE FROM database_files WHERE instance_id = $1', [r.instanceId]);
+
+    // Insert properties
+    if (properties.length > 0) {
+      const values: unknown[] = [];
+      const placeholders: string[] = [];
+      let idx = 1;
+      const now = new Date();
+
+      for (const row of properties) {
+        placeholders.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`);
+        values.push(
+          r.instanceId, row.database_name, row.state_desc, row.recovery_model_desc,
+          row.compatibility_level, row.collation_name, row.owner_name,
+          row.create_date, row.last_full_backup, row.last_log_backup,
+          row.vlf_count, now,
+        );
+      }
+
+      await pgPool.query(
+        `INSERT INTO database_properties (
+          instance_id, database_name, state_desc, recovery_model_desc,
+          compatibility_level, collation_name, owner_name,
+          create_date, last_full_backup, last_log_backup,
+          vlf_count, collected_at
+        ) VALUES ${placeholders.join(', ')}`,
+        values,
+      );
+    }
+
+    // Insert files
+    if (files.length > 0) {
+      const values: unknown[] = [];
+      const placeholders: string[] = [];
+      let idx = 1;
+      const now = new Date();
+
+      for (const row of files) {
+        placeholders.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++}, $${idx++})`);
+        values.push(
+          r.instanceId, row.database_name, row.file_name, row.type_desc,
+          row.filegroup_name, row.physical_name, row.size_mb,
+          row.max_size, row.growth, row.is_percent_growth, now,
+        );
+      }
+
+      await pgPool.query(
+        `INSERT INTO database_files (
+          instance_id, database_name, file_name, type_desc,
+          filegroup_name, physical_name, size_mb,
+          max_size, growth, is_percent_growth, collected_at
+        ) VALUES ${placeholders.join(', ')}`,
+        values,
+      );
+    }
   }
 }
 

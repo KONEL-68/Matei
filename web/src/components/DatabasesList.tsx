@@ -12,6 +12,7 @@ interface SparkPoint {
 
 interface DatabaseSummary {
   database_name: string;
+  state_desc: string;
   data_size_kb: number;
   log_size_kb: number;
   log_used_size_kb: number;
@@ -192,6 +193,7 @@ export function DatabasesList({ instanceId, timeWindow }: DatabasesListProps) {
         <thead>
           <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
             <th className="pb-2 pr-4">Name</th>
+            <th className="pb-2 pr-4 w-[100px]">Status</th>
             <th className="pb-2 pr-4 w-[200px]">Transactions/sec</th>
             <th className="pb-2 w-[280px]">Database size</th>
           </tr>
@@ -199,7 +201,7 @@ export function DatabasesList({ instanceId, timeWindow }: DatabasesListProps) {
         <tbody>
           {paginated.map((db) => (
             <tr key={db.database_name} className="group">
-              <td colSpan={3} className="p-0">
+              <td colSpan={4} className="p-0">
                 {/* Main row */}
                 <div
                   className="flex items-center border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 py-3 px-1"
@@ -209,6 +211,11 @@ export function DatabasesList({ instanceId, timeWindow }: DatabasesListProps) {
                     <span className="text-gray-400 text-xs">{expandedDb === db.database_name ? '\u25BC' : '\u25B6'}</span>
                     <span className="text-blue-600 dark:text-blue-400 font-medium truncate">
                       {db.database_name}
+                    </span>
+                  </div>
+                  <div className="w-[100px] pr-4">
+                    <span className={`text-xs font-medium ${db.state_desc === 'ONLINE' ? 'text-emerald-500' : 'text-gray-400'}`}>
+                      {db.state_desc}
                     </span>
                   </div>
                   <div className="w-[200px] pr-4">

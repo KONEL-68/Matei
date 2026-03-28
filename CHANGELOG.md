@@ -21,6 +21,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `GET /api/metrics/:id/databases/:dbName` endpoint: time-series for all per-database counters plus on-demand live properties (recovery model, files, VLF count, backup dates) from SQL Server
   - DatabasesList component: collapsible database list in History tab with transactions/sec sparklines, size bars, search, pagination
   - DatabaseDetail component: expandable inline detail with 3-column chart grid (size, log activity, transactions), database properties, files table, VLF count with severity warnings
+  - Database properties collector: persists sys.databases properties, sys.master_files info, VLF counts, and backup dates every 6 hours
+  - Migration 023: `database_properties` and `database_files` snapshot tables
+  - Status column in databases list showing ONLINE/OFFLINE state
 - Blocking History section: full-stack blocking monitoring using Extended Events `blocked_process_report`
   - Auto-creates `matei_blocking` XE session on target servers; validates and recreates if misconfigured
   - Collector reads ring buffer XML in Node.js (avoids SQL Server XPath timeouts), builds directed blocking chains with head blocker determination

@@ -1502,8 +1502,16 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
       sizeSparkMap.get(row.database_name)!.push({ ts: row.ts, val: Number(row.val) });
     }
 
+    // Get persisted database states
+    const stateResult = await pool.query(
+      `SELECT database_name, state_desc FROM database_properties WHERE instance_id = $1`,
+      [id],
+    );
+    const stateMap = new Map(stateResult.rows.map((r: { database_name: string; state_desc: string }) => [r.database_name, r.state_desc]));
+
     const databases = Array.from(dbMap.entries()).map(([name, counters]) => ({
       database_name: name,
+      state_desc: stateMap.get(name) ?? 'ONLINE',
       data_size_kb: counters['Data File(s) Size (KB)'] ?? 0,
       log_size_kb: counters['Log File(s) Size (KB)'] ?? 0,
       log_used_size_kb: counters['Log File(s) Used Size (KB)'] ?? 0,
@@ -1513,7 +1521,6 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
       size_sparkline: sizeSparkMap.get(name) ?? [],
     }));
 
-    // Sort by data size descending
     databases.sort((a, b) => a.database_name.localeCompare(b.database_name));
 
     return reply.send(databases);
@@ -1547,76 +1554,28 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
       series[row.counter_name].push({ ts: row.ts, val: Number(row.val) });
     }
 
-    // Database properties — on-demand from SQL Server
-    let properties = null;
-    let files = null;
-    let vlf_count = null;
-    try {
-      const sqlPool = await getLivePool(id);
-      if (sqlPool) {
-        // Database properties
-        const propsResult = await sqlPool.request()
-          .input('dbName', dbName)
-          .query(`
-            SELECT
-              d.name,
-              d.state_desc,
-              d.recovery_model_desc,
-              d.compatibility_level,
-              d.collation_name,
-              SUSER_SNAME(d.owner_sid) AS owner,
-              d.create_date,
-              (SELECT MAX(bs.backup_finish_date)
-               FROM msdb.dbo.backupset bs
-               WHERE bs.database_name = d.name AND bs.type = 'D') AS last_full_backup,
-              (SELECT MAX(bs.backup_finish_date)
-               FROM msdb.dbo.backupset bs
-               WHERE bs.database_name = d.name AND bs.type = 'L') AS last_log_backup
-            FROM sys.databases d
-            WHERE d.name = @dbName
-          `);
-        properties = propsResult.recordset[0] ?? null;
+    // Database properties from PostgreSQL (persisted every 6 hours)
+    const propsResult = await pool.query(
+      `SELECT database_name, state_desc, recovery_model_desc, compatibility_level,
+              collation_name, owner_name, create_date, last_full_backup, last_log_backup,
+              vlf_count, collected_at
+       FROM database_properties
+       WHERE instance_id = $1 AND database_name = $2`,
+      [id, dbName],
+    );
+    const properties = propsResult.rows[0] ?? null;
 
-        // Database files (only if database is online)
-        if (properties && properties.state_desc === 'ONLINE') {
-          try {
-            const filesResult = await sqlPool.request()
-              .input('dbName', dbName)
-              .query(`
-                USE [${dbName.replace(/]/g, ']]')}];
-                SELECT
-                  f.name,
-                  f.type_desc,
-                  fg.name AS filegroup_name,
-                  f.physical_name,
-                  f.size * 8 / 1024.0 AS size_mb,
-                  FILEPROPERTY(f.name, 'SpaceUsed') * 8 / 1024.0 AS used_mb,
-                  f.max_size,
-                  f.growth,
-                  f.is_percent_growth
-                FROM sys.database_files f
-                LEFT JOIN sys.filegroups fg ON f.data_space_id = fg.data_space_id
-                ORDER BY f.type, f.file_id
-              `);
-            files = filesResult.recordset;
-          } catch {
-            // May fail if we can't switch context — non-fatal
-          }
-
-          // VLF count (SQL Server 2016 SP2+)
-          try {
-            const vlfResult = await sqlPool.request()
-              .input('dbName', dbName)
-              .query(`SELECT COUNT(*) AS vlf_count FROM sys.dm_db_log_info(DB_ID(@dbName))`);
-            vlf_count = vlfResult.recordset[0]?.vlf_count ?? null;
-          } catch {
-            // dm_db_log_info not available on older versions — non-fatal
-          }
-        }
-      }
-    } catch {
-      // SQL Server connection failed — return collected data without live properties
-    }
+    // Database files from PostgreSQL
+    const filesResult = await pool.query(
+      `SELECT file_name AS name, type_desc, filegroup_name, physical_name,
+              size_mb, max_size, growth, is_percent_growth
+       FROM database_files
+       WHERE instance_id = $1 AND database_name = $2
+       ORDER BY type_desc, file_name`,
+      [id, dbName],
+    );
+    const files = filesResult.rows.length > 0 ? filesResult.rows : null;
+    const vlf_count = properties?.vlf_count ?? null;
 
     return reply.send({ series, properties, files, vlf_count });
   });
