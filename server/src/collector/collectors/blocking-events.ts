@@ -491,14 +491,15 @@ export async function collectBlockingEvents(
   // Build chains from pairs
   const chains = buildBlockingChains(pairs);
 
-  // Deduplicate: merge chains with the same head blocker SPID (same ongoing
-  // blocking scenario produces repeated XE events every `blocked process threshold` seconds)
-  const merged = new Map<number, BlockingEventRow>();
+  // Deduplicate: merge chains from the same ongoing blocking scenario.
+  // Key on SPID + login + database + SQL text hash to handle SPID reuse
+  // (SQL Server recycles SPIDs, so different users can get the same SPID).
+  const merged = new Map<string, BlockingEventRow>();
   for (const chain of chains) {
-    const existing = merged.get(chain.head_blocker_spid);
+    const key = `${chain.head_blocker_spid}|${chain.head_blocker_login ?? ''}|${chain.head_blocker_db ?? ''}|${(chain.head_blocker_sql ?? '').slice(0, 100)}`;
+    const existing = merged.get(key);
     if (!existing || chain.event_time > existing.event_time) {
-      // Keep the latest event — it has the highest wait times and most complete chain
-      merged.set(chain.head_blocker_spid, chain);
+      merged.set(key, chain);
     }
   }
 
