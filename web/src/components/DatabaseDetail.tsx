@@ -188,7 +188,14 @@ function TopQueriesForDb({ instanceId, dbName, timeWindow }: DatabaseDetailProps
     );
   }
 
-  if (queries.length === 0) return null;
+  if (queries.length === 0) {
+    return (
+      <div className="mb-4">
+        <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Top Queries</h4>
+        <div className="text-xs text-gray-400">No queries found for this database in the selected time range</div>
+      </div>
+    );
+  }
 
   return (
     <div className="mb-4">
