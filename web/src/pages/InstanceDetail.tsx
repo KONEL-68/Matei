@@ -202,6 +202,16 @@ export function InstanceDetail() {
       </div>
 
 
+      {/* Wait Stats full-width chart */}
+      <div className="mt-4">
+        <WaitsChart
+          instanceId={id!}
+          range={range}
+          from={timeWindow?.from}
+          to={timeWindow?.to}
+        />
+      </div>
+
       {/* Analysis section (Top Queries / Tracked Queries / Top Procedures) */}
       <div className="mt-4">
         <AnalysisSection instanceId={id!} range={range} timeWindow={timeWindow} />

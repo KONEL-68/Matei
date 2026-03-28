@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- Wait Stats (ms/sec) chart moved out of 2x2 grid to full-width placement before Analysis section for better visibility
+- New Signal vs Resource Wait (ms/s) stacked bar chart in the 2x2 grid replacing the old wait stats slot
+- `GET /api/metrics/:id/waits/signal-resource-chart` endpoint for aggregated signal vs resource wait time series
+- WaitsChart component now supports `from`/`to` time window props
+
 ### Added
 - Blocking History section: full-stack blocking monitoring using Extended Events `blocked_process_report`
   - Auto-creates `matei_blocking` XE session on target servers; validates and recreates if misconfigured

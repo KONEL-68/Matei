@@ -483,6 +483,33 @@ export async function metricRoutes(app: FastifyInstance, pool: pg.Pool, config?:
     })));
   });
 
+  // GET /api/metrics/:instanceId/waits/signal-resource-chart?range=1h|6h|24h|7d&from=&to=
+  app.get<{ Params: IdParam; Querystring: RangeQuery }>('/api/metrics/:id/waits/signal-resource-chart', async (req, reply) => {
+    const { id } = req.params;
+    const bucketMinutes = chartBucketMinutes(req.query.range);
+    const excludedWaitsArray = [...EXCLUDED_WAITS];
+
+    const tf = resolveTimeFilter(req.query, 'collected_at', 2);
+    const result = await pool.query(
+      `SELECT date_trunc('minute', collected_at) -
+              (EXTRACT(minute FROM collected_at)::int % $${2 + tf.params.length}) * INTERVAL '1 minute' AS bucket,
+              SUM(COALESCE(signal_wait_time_ms_delta, 0))::float / ($${2 + tf.params.length} * 60) AS signal_ms_per_sec,
+              SUM(COALESCE(wait_time_ms_delta, 0) - COALESCE(signal_wait_time_ms_delta, 0))::float / ($${2 + tf.params.length} * 60) AS resource_ms_per_sec
+       FROM wait_stats_raw
+       WHERE instance_id = $1 AND ${tf.condition}
+         AND wait_type != ALL($${3 + tf.params.length})
+       GROUP BY bucket
+       ORDER BY bucket ASC`,
+      [id, ...tf.params, bucketMinutes, excludedWaitsArray],
+    );
+
+    return reply.send(result.rows.map((r: { bucket: string; signal_ms_per_sec: number; resource_ms_per_sec: number }) => ({
+      bucket: new Date(r.bucket).toISOString(),
+      signal_ms_per_sec: Number(r.signal_ms_per_sec),
+      resource_ms_per_sec: Number(r.resource_ms_per_sec),
+    })));
+  });
+
   // GET /api/metrics/:instanceId/sessions/history?range=1h|6h|24h&from=&to=
   app.get<{ Params: IdParam; Querystring: RangeQuery }>('/api/metrics/:id/sessions/history', async (req, reply) => {
     const { id } = req.params;

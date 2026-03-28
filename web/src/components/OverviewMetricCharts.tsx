@@ -1,7 +1,6 @@
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import { useTheme } from '@/lib/theme';
@@ -15,7 +14,6 @@ interface Props {
 }
 
 const CHART_HEIGHT = 180;
-const WAIT_COLORS = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6'];
 
 function formatTime(ts: string): string {
   const d = new Date(ts);
@@ -173,94 +171,47 @@ function MemoryMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instan
   );
 }
 
-// ── Waits ──
-function WaitsMiniChart({ instanceId, rangeParams, dark }: { instanceId: string; rangeParams: string; dark: boolean }) {
-  const [hiddenWaits, setHiddenWaits] = useState<Set<string>>(new Set());
-
-  const { data: rawData = [] } = useQuery<Array<{ bucket: string; wait_type: string; wait_ms_per_sec: number }>>({
-    queryKey: ['overview-waits', instanceId, rangeParams],
+// ── Signal vs Resource Waits ──
+function SignalResourceMiniChart({ instanceId, rangeParams, dark, timeWindow }: { instanceId: string; rangeParams: string; dark: boolean; timeWindow: TimeWindow | null }) {
+  const { data: rawData = [] } = useQuery<Array<{ bucket: string; signal_ms_per_sec: number; resource_ms_per_sec: number }>>({
+    queryKey: ['overview-signal-resource', instanceId, rangeParams],
     queryFn: async () => {
-      const res = await authFetch(`/api/metrics/${instanceId}/waits/chart?${rangeParams}`);
+      const res = await authFetch(`/api/metrics/${instanceId}/waits/signal-resource-chart?${rangeParams}`);
       if (!res.ok) return [];
       return res.json();
     },
     refetchInterval: 30_000,
   });
 
-  if (rawData.length === 0) return <EmptyPanel title="Wait Stats (ms/sec)" />;
+  const mapped = rawData.map(d => ({
+    time: formatTime(d.bucket),
+    ts: new Date(d.bucket).getTime(),
+    'Signal Wait': d.signal_ms_per_sec as number | null,
+    'Resource Wait': d.resource_ms_per_sec as number | null,
+  }));
+  const chartData = insertGapBreaks(mapped, 'time');
 
-  const waitTypes = [...new Set(rawData.map(d => d.wait_type))];
-  const bucketMap = new Map<string, Record<string, number | string>>();
-  for (const pt of rawData) {
-    if (!bucketMap.has(pt.bucket)) {
-      bucketMap.set(pt.bucket, { bucket: pt.bucket });
-    }
-    bucketMap.get(pt.bucket)![pt.wait_type] = pt.wait_ms_per_sec;
-  }
-  // Fill empty time buckets so gaps render as empty space in the bar chart
-  const sortedBuckets = [...bucketMap.keys()].sort();
-  let chartData: Record<string, number | string>[] = [...bucketMap.values()];
-  if (sortedBuckets.length >= 2) {
-    const timestamps = sortedBuckets.map(b => new Date(b).getTime());
-    const intervals: number[] = [];
-    for (let i = 1; i < timestamps.length; i++) intervals.push(timestamps[i] - timestamps[i - 1]);
-    intervals.sort((a, b) => a - b);
-    const median = intervals[Math.floor(intervals.length / 2)];
-    if (median > 0) {
-      const filled = new Map(bucketMap);
-      for (let t = timestamps[0]; t <= timestamps[timestamps.length - 1]; t += median) {
-        const iso = new Date(t).toISOString();
-        if (!filled.has(iso)) {
-          let found = false;
-          for (const key of filled.keys()) {
-            if (Math.abs(new Date(key).getTime() - t) < median * 0.3) { found = true; break; }
-          }
-          if (!found) filled.set(iso, { bucket: iso });
-        }
-      }
-      chartData = [...filled.values()].sort((a, b) =>
-        new Date(a.bucket as string).getTime() - new Date(b.bucket as string).getTime()
-      );
-    }
-  }
+  const timestamps = mapped.map(d => d.ts);
+  const minTs = timestamps.length > 0 ? Math.min(...timestamps) : (timeWindow ? new Date(timeWindow.from).getTime() : 0);
+  const maxTs = timestamps.length > 0 ? Math.max(...timestamps) : (timeWindow ? new Date(timeWindow.to).getTime() : 0);
+  const axisTicks = generateTicks(minTs, maxTs, 8);
 
-  const toggleWait = (dataKey: string) => {
-    setHiddenWaits(prev => {
-      const next = new Set(prev);
-      if (next.has(dataKey)) next.delete(dataKey);
-      else next.add(dataKey);
-      return next;
-    });
-  };
+  if (chartData.length === 0) return <EmptyPanel title="Signal vs Resource Wait (ms/s)" />;
 
   return (
-    <Panel title="Wait Stats (ms/sec)">
+    <Panel title="Signal vs Resource Wait (ms/s)">
       <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-        <BarChart data={chartData}>
+        <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#374151' : '#f0f0f0'} />
-          <XAxis dataKey="bucket" fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={formatTime} />
+          <XAxis dataKey="ts" type="number" domain={[minTs, maxTs]} ticks={axisTicks} fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} tickFormatter={(v: number) => formatTime(new Date(v).toISOString())} />
           <YAxis fontSize={10} tick={{ fill: dark ? '#6b7280' : '#9ca3af' }} width={40} />
           <Tooltip content={<SimpleTooltip unit=" ms/s" />} />
-          <Legend
-            wrapperStyle={{ fontSize: 10, cursor: 'pointer' }}
-            onClick={(e: any) => toggleWait(e.dataKey)} // eslint-disable-line @typescript-eslint/no-explicit-any
-            formatter={(value: string) => (
-              <span style={{ color: hiddenWaits.has(value) ? '#6b7280' : undefined, textDecoration: hiddenWaits.has(value) ? 'line-through' : undefined }}>
-                {value}
-              </span>
-            )}
-          />
-          {waitTypes.map((wt, i) => (
-            <Bar
-              key={wt}
-              dataKey={wt}
-              stackId="a"
-              fill={WAIT_COLORS[i % WAIT_COLORS.length]}
-              hide={hiddenWaits.has(wt)}
-            />
-          ))}
-        </BarChart>
+          <Legend wrapperStyle={{ fontSize: 10 }} />
+          <Line type="linear" dataKey="Signal Wait" stroke="#f59e0b" strokeWidth={1.5} dot={false} connectNulls={false} />
+          <Line type="linear" dataKey="Resource Wait" stroke="#3b82f6" strokeWidth={1.5} dot={false} connectNulls={false} />
+        </LineChart>
       </ResponsiveContainer>
+      <p className="mt-1 text-[9px] text-gray-500 dark:text-gray-500">High signal waits = CPU pressure. High resource waits = I/O or lock pressure.</p>
     </Panel>
   );
 }
@@ -347,7 +298,7 @@ export function OverviewMetricCharts({ instanceId, window }: Props) {
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" data-testid="overview-metric-charts">
       <CpuMiniChart instanceId={instanceId} rangeParams={rangeParams} dark={dark} timeWindow={window} />
       <MemoryMiniChart instanceId={instanceId} rangeParams={rangeParams} dark={dark} timeWindow={window} />
-      <WaitsMiniChart instanceId={instanceId} rangeParams={rangeParams} dark={dark} />
+      <SignalResourceMiniChart instanceId={instanceId} rangeParams={rangeParams} dark={dark} timeWindow={window} />
       <DiskIoMiniChart instanceId={instanceId} rangeParams={rangeParams} dark={dark} timeWindow={window} />
     </div>
   );

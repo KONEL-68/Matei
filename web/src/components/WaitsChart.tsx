@@ -6,6 +6,8 @@ import { authFetch } from '@/lib/auth';
 interface WaitsChartProps {
   instanceId: string;
   range: string;
+  from?: string;
+  to?: string;
   enabled?: boolean;
 }
 
@@ -53,14 +55,18 @@ function WaitsTooltip({ active, payload, label, range }: {
   );
 }
 
-export function WaitsChart({ instanceId, range, enabled = true }: WaitsChartProps) {
+export function WaitsChart({ instanceId, range, from, to, enabled = true }: WaitsChartProps) {
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
+  const queryParams = from && to
+    ? `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+    : `range=${range}`;
+
   const { data: rawData = [] } = useQuery<RawPoint[]>({
-    queryKey: ['waits-chart', instanceId, range],
+    queryKey: ['waits-chart', instanceId, from && to ? `${from}-${to}` : range],
     queryFn: async () => {
-      const res = await authFetch(`/api/metrics/${instanceId}/waits/chart?range=${range}`);
+      const res = await authFetch(`/api/metrics/${instanceId}/waits/chart?${queryParams}`);
       if (!res.ok) return [];
       return res.json();
     },
