@@ -149,6 +149,99 @@ async function collectAndPersistPlans(
   }
 }
 
+/**
+ * Collect estimated + actual plans for all SPIDs involved in blocking events.
+ * Persists to query_plans table keyed by a synthetic query_hash derived from SQL text.
+ */
+async function collectBlockingPlans(
+  sqlPool: sql.ConnectionPool,
+  pgPool: pg.Pool,
+  instanceId: number,
+  blockingEvents: BlockingEventRow[],
+  log: CollectorLog,
+): Promise<void> {
+  // Gather all unique SPIDs from blocking chains
+  const spids = new Set<number>();
+  for (const evt of blockingEvents) {
+    for (const node of evt.chain_json) {
+      if (node.spid) spids.add(node.spid);
+    }
+  }
+
+  if (spids.size === 0) return;
+
+  const spidList = [...spids].join(',');
+  let planCount = 0;
+
+  // 1. Estimated plans — get from active requests' plan handles
+  try {
+    const result = await sqlPool.request().query(`
+      SELECT
+        r.session_id AS spid,
+        CONVERT(VARCHAR(100), r.query_hash, 1) AS query_hash,
+        qp.query_plan
+      FROM sys.dm_exec_requests r
+      CROSS APPLY sys.dm_exec_query_plan(r.plan_handle) qp
+      WHERE r.session_id IN (${spidList})
+        AND qp.query_plan IS NOT NULL
+    `);
+
+    for (const row of result.recordset) {
+      if (!row.query_plan) continue;
+      const queryHash = row.query_hash || `blocking_spid_${row.spid}`;
+      const planHash = crypto.createHash('md5').update(row.query_plan).digest('hex');
+      await pgPool.query(
+        `INSERT INTO query_plans (instance_id, query_hash, plan_hash, plan_type, plan_xml)
+         VALUES ($1, $2, $3, 'estimated', $4)
+         ON CONFLICT (instance_id, query_hash, plan_hash, plan_type) DO UPDATE SET collected_at = NOW()`,
+        [instanceId, queryHash, planHash, row.query_plan],
+      );
+      planCount++;
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.warn(`[instance=${instanceId}] Blocking estimated plan collection failed: ${msg}`);
+  }
+
+  // 2. Actual plans — dm_exec_query_statistics_xml for each blocking SPID
+  if (actualPlanSupported.get(instanceId) !== false) {
+    for (const spid of spids) {
+      try {
+        const result = await sqlPool.request()
+          .input('spid', spid)
+          .query(`
+            SELECT
+              CONVERT(VARCHAR(100), r.query_hash, 1) AS query_hash,
+              CAST(qsx.query_plan AS NVARCHAR(MAX)) AS query_plan
+            FROM sys.dm_exec_requests r
+            CROSS APPLY sys.dm_exec_query_statistics_xml(r.session_id) qsx
+            WHERE r.session_id = @spid
+              AND qsx.query_plan IS NOT NULL
+          `);
+
+        for (const row of result.recordset) {
+          if (!row.query_plan) continue;
+          const queryHash = row.query_hash || `blocking_spid_${spid}`;
+          const planHash = crypto.createHash('md5').update(row.query_plan).digest('hex');
+          await pgPool.query(
+            `INSERT INTO query_plans (instance_id, query_hash, plan_hash, plan_type, plan_xml)
+             VALUES ($1, $2, $3, 'actual', $4)
+             ON CONFLICT (instance_id, query_hash, plan_hash, plan_type) DO UPDATE SET collected_at = NOW()`,
+            [instanceId, queryHash, planHash, row.query_plan],
+          );
+          planCount++;
+        }
+      } catch {
+        // Session may have ended — skip silently
+      }
+    }
+  }
+
+  if (planCount > 0) {
+    log.info(`[instance=${instanceId}] Collected ${planCount} plans from blocking sessions`);
+  }
+}
+
 // Track cycle count for os_disk (runs every 10th cycle)
 let cycleCount = 0;
 
@@ -294,6 +387,16 @@ async function collectFromInstance(
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         log.warn(`[instance=${instance.id}] Plan collection failed (non-fatal): ${msg}`);
+      }
+    }
+
+    // Collect plans for blocking SPIDs (estimated from plan cache + actual from running)
+    if (blockingEvents.length > 0 && pgPool) {
+      try {
+        await collectBlockingPlans(pool, pgPool, instance.id, blockingEvents, log);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.warn(`[instance=${instance.id}] Blocking plan collection failed (non-fatal): ${msg}`);
       }
     }
 

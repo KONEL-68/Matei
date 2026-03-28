@@ -214,7 +214,18 @@ export async function blockingRoutes(app: FastifyInstance, pool: pg.Pool, config
         req.log.warn({ instanceId: id, spid, err: message }, 'Failed to get live actual plan for blocking session');
       }
 
-      // Step 2: Fall back to PostgreSQL cache — find query_hash by SQL prefix, then plan
+      // Step 2a: Check by SPID hash
+      const spidPlanResult = await pool.query(
+        `SELECT plan_xml FROM query_plans
+         WHERE instance_id = $1 AND query_hash = $2 AND plan_type = 'actual'
+         ORDER BY collected_at DESC LIMIT 1`,
+        [id, `blocking_spid_${spid}`],
+      );
+      if (spidPlanResult.rows.length > 0) {
+        return reply.send({ plan_xml: spidPlanResult.rows[0].plan_xml, source: 'cached' });
+      }
+
+      // Step 2b: Fall back to PostgreSQL cache — find query_hash by SQL prefix
       const hashResult = await pool.query(
         `SELECT DISTINCT query_hash FROM query_stats_raw
          WHERE instance_id = $1 AND statement_text LIKE $2
@@ -241,7 +252,18 @@ export async function blockingRoutes(app: FastifyInstance, pool: pg.Pool, config
 
     // --- Estimated plan ---
 
-    // Step 1: Check PostgreSQL — look up query_hash by SQL text prefix
+    // Step 1a: Check PostgreSQL — look up by blocking SPID hash (from blocking collector)
+    const spidHashResult = await pool.query(
+      `SELECT plan_xml FROM query_plans
+       WHERE instance_id = $1 AND query_hash = $2 AND plan_type = 'estimated'
+       ORDER BY collected_at DESC LIMIT 1`,
+      [id, `blocking_spid_${spid}`],
+    );
+    if (spidHashResult.rows.length > 0) {
+      return reply.send({ plan_xml: spidHashResult.rows[0].plan_xml, source: 'cached' });
+    }
+
+    // Step 1b: Check PostgreSQL — look up query_hash by SQL text prefix
     const hashResult = await pool.query(
       `SELECT DISTINCT query_hash FROM query_stats_raw
        WHERE instance_id = $1 AND statement_text LIKE $2
